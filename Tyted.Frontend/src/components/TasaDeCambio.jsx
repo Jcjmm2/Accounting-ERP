@@ -15,7 +15,7 @@ const TasaDeCambio = ({ API_URL }) => {
             // CORRECCIÓN APLICADA AQUÍ: 
             // 1. Cambiado de /TasaDeCambio a /TasasDeCambio (Plural)
             // 2. Cambiado de /ultima a /vigente (Nombre de la acción en C#)
-            const response = await axios.get(`${API_URL}/TasasDeCambio/vigente`); 
+            const response = await axios.get(`${API_URL}/TasaDeCambio/vigente`); 
             
             // Nota: En C# la propiedad se llama Tasa, pero en el frontend usas valorTasa.
             // Es posible que el objeto de C# solo tenga la propiedad Tasa, no valorTasa.
@@ -60,7 +60,7 @@ const TasaDeCambio = ({ API_URL }) => {
         try {
             // CORRECCIÓN APLICADA AQUÍ: 
             // Cambiado de /TasaDeCambio a /TasasDeCambio (Plural)
-            await axios.post(`${API_URL}/TasasDeCambio`, tasaData);
+            await axios.post(`${API_URL}/TasaDeCambio`, tasaData);
             setMessage('✅ Nueva tasa registrada con éxito.');
             setNuevaTasa('');
             fetchTasaActual(); // Recarga para ver la nueva tasa

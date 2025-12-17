@@ -5,41 +5,64 @@ using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 using Tyted.API.Models;
 
-public class Compra
+namespace Tyted.API.Models
 {
-    // Clave Primaria
-    [Key]
-    public int IdCompra { get; set; }
+    public class Compra
+    {
+        [Key]
+        public int Id { get; set; }
 
-    // Datos del Documento
-    [Required]
-    public DateTime FechaDocumento { get; set; }
-    
-    [MaxLength(50)]
-    public string? NumDocumento { get; set; } // Número de factura del proveedor
-    
-    [Required]
-    [Column(TypeName = "decimal(18, 4)")] // Precisión para tasas de cambio
-    public decimal TasaCambio { get; set; } // Tasa de cambio usada ese día (VES/USD)
-    
-    [MaxLength(50)]
-    public string? TipoDoc { get; set; } // Ejemplo: Factura, Nota de Entrega, etc.
+        [Required]
+        public int CodigoProv { get; set; } // FK de Proveedor
 
-    // Relación con Proveedor (Foreign Key)
-    [Required]
-    public int CodigoProv { get; set; }
-    public Proveedor? Proveedor { get; set; } // Propiedad de navegación
+        [Required]
+        public DateTime FechaCompra { get; set; }
 
-    // Totales (Usamos Moneda Base, suponiendo que es VES o la moneda local)
-    [Column(TypeName = "decimal(18, 2)")]
-    public decimal SubTotalMonedaBase { get; set; } // Sin impuestos
-    
-    [Column(TypeName = "decimal(18, 2)")]
-    public decimal TotalImpuestoMonedaBase { get; set; } // Total IVA
-    
-    [Column(TypeName = "decimal(18, 2)")]
-    public decimal TotalCompraMonedaBase { get; set; } // Incluye impuestos
+        [Required, MaxLength(3)]
+        public string? TipoMoneda { get; set; } // Ejemplo: HNL, VES, etc.
 
-    // Colección de Detalles (Relación uno-a-muchos)
-    public ICollection<CompraDetalle> Detalles { get; set; } = new List<CompraDetalle>();
+        [Column(TypeName = "decimal(18, 4)")]
+        public decimal TasaDeCambio { get; set; }
+
+
+        // -------------------------------------------------------------
+        // NUEVOS CAMPOS PARA DESGLOSE DE TOTALES (REQUERIDO)
+        // -------------------------------------------------------------
+        [Column(TypeName = "decimal(18, 4)")]
+        public decimal SubtotalMonedaBase { get; set; } // Valor sin IVA, en Moneda Base
+
+        [Column(TypeName = "decimal(18, 4)")]
+        public decimal IvaMonedaBase { get; set; }      // Monto de IVA, en Moneda Base
+
+        [Column(TypeName = "decimal(18, 4)")]
+        public decimal SubtotalMonedaExt { get; set; }  // Valor sin IVA, en Moneda Extranjera
+
+        [Column(TypeName = "decimal(18, 4)")]
+        public decimal IvaMonedaExt { get; set; }       // Monto de IVA, en Moneda Extranjera
+        // -------------------------------------------------------------
+
+
+        // Totales finales 
+        [Column(TypeName = "decimal(18, 4)")]
+        public decimal TotalMonedaBase { get; set; }
+
+        [Column(TypeName = "decimal(18, 4)")]
+        public decimal TotalMonedaExt { get; set; }
+
+        
+        // =============================================================
+        // ✅ CORRECCIÓN 1: PROPIEDAD DE ESTADO DE ANULACIÓN
+        // =============================================================
+        [Required]
+        public bool IsAnulada { get; set; } = false; 
+
+
+        // --- PROPIEDADES DE NAVEGACIÓN ---
+
+        // ✅ CORRECCIÓN 2: Se añade el atributo ForeignKey para ser explícito.
+        [ForeignKey("CodigoProv")]
+        public Proveedor? Proveedor { get; set; } 
+
+        public ICollection<CompraDetalle>? Detalles { get; set; }
+    }
 }

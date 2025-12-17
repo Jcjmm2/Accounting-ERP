@@ -1,10 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import axios from 'axios';
 
-// Importa el componente de búsqueda que acabamos de crear
+// Importa los componentes
 import BusquedaProductos from './BusquedaProductos';
 import ProductoForm from './ProductoForm'; 
-// Importaremos los formularios y la lista después, por ahora solo el esqueleto.
+import ProductoList from './ProductoList'; // Importar ProductoList para completar la vista LISTAR
 
 // Nota: Recibimos API_URL y VIEW_MODES como props desde App.jsx
 function PanelGestionProductos({ API_URL, VIEW_MODES }) {
@@ -12,7 +12,6 @@ function PanelGestionProductos({ API_URL, VIEW_MODES }) {
     // ======================================
     // 1. ESTADOS
     // ======================================
-    // Inicialmente, en modo de listado
     const [viewMode, setViewMode] = useState(VIEW_MODES.LISTAR); 
     const [productos, setProductos] = useState([]);
     const [loading, setLoading] = useState(false);
@@ -20,8 +19,14 @@ function PanelGestionProductos({ API_URL, VIEW_MODES }) {
     const [productoToEdit, setProductoToEdit] = useState(null);
     const [isSearched, setIsSearched] = useState(false); 
 
+    // ✅ ESTADOS: Listas de opciones maestras
+    const [categorias, setCategorias] = useState([]);
+    const [tasasIVA, setTasasIVA] = useState([]);
+
+
     // ======================================
     // 2. FUNCIÓN DE CARGA DE DATOS (Fetch)
+    // Se utiliza para la búsqueda con filtros y para recargar la lista completa.
     // ======================================
     const fetchProductos = async (filters = {}) => {
         setLoading(true);
@@ -40,7 +45,7 @@ function PanelGestionProductos({ API_URL, VIEW_MODES }) {
         }
 
         try {
-            // Llama al nuevo controlador de productos en el Backend
+            // Llama al controlador de productos en el Backend
             const response = await axios.get(`${API_URL}/Productos${queryString}`); 
             setProductos(response.data);
             setLoading(false);
@@ -48,16 +53,39 @@ function PanelGestionProductos({ API_URL, VIEW_MODES }) {
         } catch (err) {
             setError('Error al cargar la lista de artículos. Verifique la conexión del Backend.');
             setLoading(false);
+            setProductos([]);
             console.error('Error fetching productos:', err);
         }
     };
 
     // ======================================
-    // 3. HANDLERS (Funciones de Acción)
+    // 3. EFFECT: CARGA DE LISTAS MAESTRAS
+    // ======================================
+    useEffect(() => {
+        const fetchMasters = async () => {
+            try {
+                // Endpoints para Categorías y TasasIVA
+                const [catResponse, ivaResponse] = await Promise.all([
+                    axios.get(`${API_URL}/Categorias`),
+                    axios.get(`${API_URL}/TasasIVA`),
+                ]);
+                setCategorias(catResponse.data);
+                setTasasIVA(ivaResponse.data);
+            } catch (err) {
+                console.error("Error al cargar Categorías o Tasas IVA:", err);
+                setError('Error al cargar opciones de Categorías/IVA. Verifique que los endpoints /Categorias y /TasasIVA estén funcionando.');
+            }
+        };
+        fetchMasters();
+    }, [API_URL]); // Se ejecuta una sola vez al montar el componente
+
+    // ======================================
+    // 4. HANDLERS (Funciones de Acción)
     // ======================================
     
     const handleSave = () => {
-        fetchProductos({}); // Recargar lista después de guardar/editar
+        // Recargar lista después de guardar/editar
+        fetchProductos({}); 
         setViewMode(VIEW_MODES.LISTAR); 
         setProductoToEdit(null);
     };
@@ -67,7 +95,6 @@ function PanelGestionProductos({ API_URL, VIEW_MODES }) {
         setProductoToEdit(null);
     };
 
-    // Placeholder para la edición (Se completará cuando tengamos el formulario)
     const handleEdit = (producto) => {
         setProductoToEdit(producto);
         setViewMode(VIEW_MODES.EDITAR); 
@@ -79,45 +106,37 @@ function PanelGestionProductos({ API_URL, VIEW_MODES }) {
     };
 
     const handleSearch = (filters) => {
+        // Función llamada desde BusquedaProductos
         fetchProductos(filters); 
     };
 
-    // Placeholder para la eliminación (Se completará cuando tengamos el endpoint DELETE)
-    const handleDelete = async (id) => {
-        if (!window.confirm(`¿Está seguro de que desea eliminar el artículo con Código #${id}?`)) {
-            return;
-        }
-
-        try {
-            // await axios.delete(`${API_URL}/Productos/${id}`); // Descomentar al crear el método DELETE en C#
-            alert(`Artículo #${id} eliminado (temporalmente simulado).`);
-            fetchProductos({}); 
-        } catch (err) {
-            alert('Error al eliminar el artículo.');
-            console.error('Error deleting data:', err);
-        }
-    };
+    // Eliminamos la función handleDelete local, ya que la nueva versión de
+    // ProductoList se encarga de la lógica de DELETE y de llamar a fetchProductos() para refrescar.
 
     // ======================================
-    // 4. FUNCIÓN DE RENDERIZADO DE CONTENIDO DINÁMICO
+    // 5. FUNCIÓN DE RENDERIZADO DE CONTENIDO DINÁMICO
     // ======================================
     const renderContent = () => {
         
-        if (error) return <div style={{ color: 'red' }}>{error}</div>;
+        // Mostrar error general de carga de maestras
+        if (error && viewMode === VIEW_MODES.LISTAR) return <div className="alert alert-danger">{error}</div>;
 
         // Renderiza el Formulario (CREAR/EDITAR)
-if (viewMode === VIEW_MODES.CREAR || viewMode === VIEW_MODES.EDITAR) {
-             return (
-                 <ProductoForm 
-                     API_URL={API_URL} // Pasamos la URL al formulario
-                     productoToEdit={productoToEdit} // Pasamos el producto si estamos editando
-                     onSave={handleSave} 
-                     onCancel={handleCancel}
-                 />
-             );
+        if (viewMode === VIEW_MODES.CREAR || viewMode === VIEW_MODES.EDITAR) {
+            return (
+                <ProductoForm 
+                    API_URL={API_URL} 
+                    productoToEdit={productoToEdit} 
+                    onSave={handleSave} 
+                    onCancel={handleCancel}
+                    // ✅ PASAR LAS NUEVAS PROPS DE LISTAS MAESTRAS
+                    categorias={categorias}
+                    tasasIVA={tasasIVA}
+                />
+            );
         }
 
-        // Renderiza el Panel de Búsqueda y la Tabla (LISTAR)
+        // Renderiza el Panel de Búsqueda y la Lista de Resultados (LISTAR)
         if (viewMode === VIEW_MODES.LISTAR) {
             return (
                 <>
@@ -127,27 +146,21 @@ if (viewMode === VIEW_MODES.CREAR || viewMode === VIEW_MODES.EDITAR) {
                         onNew={handleNew} 
                     />
 
-                    <div style={{ padding: '20px', border: '1px solid #007bff', backgroundColor: '#e9f7fe', borderRadius: '4px', marginTop: '20px'}}>
-                         {loading && <div>Cargando resultados...</div>}
-                         
-                         {/* Mostrará el conteo y la tabla de resultados (ListaProductos.jsx) */}
-                         {!loading && isSearched && productos.length > 0 && (
-                            <>
-                                <h3 style={{marginTop: '30px'}}>Resultados de la Consulta ({productos.length})</h3>
-                                {/* Aquí irá el componente ListaProductos */}
-                                <p>Tabla de Artículos se mostrará aquí.</p>
-                            </>
-                         )}
-                         
-                         {!isSearched && !loading && (
-                            <p>Utilice el panel superior para ingresar criterios y ejecutar la consulta de artículos.</p>
-                         )}
-                         
-                         {isSearched && !loading && productos.length === 0 && (
-                            <div style={{ color: '#721c24', backgroundColor: '#f8d7da', padding: '10px', borderRadius: '4px' }}>
-                                La consulta no arrojó resultados para artículos.
-                            </div>
-                         )}
+                    <div style={{ padding: '0px', marginTop: '20px' }}>
+                        
+                        {/* ✅ CORRECCIÓN CRÍTICA: Integración del ProductoList con las props centralizadas */}
+                        {/* ProductoList ahora manejará los estados de loading, error y los mensajes de lista vacía/inicial */}
+                        <ProductoList 
+                            productos={productos}
+                            API_URL={API_URL}
+                            onEdit={handleEdit}
+                            onNew={handleNew}
+                            loading={loading}
+                            error={error} 
+                            fetchProductos={fetchProductos} // Permite a ProductoList recargar la lista
+                            isSearched={isSearched} // Permite a ProductoList manejar los mensajes condicionales
+                        />
+                        
                     </div>
                 </>
             );
@@ -156,18 +169,22 @@ if (viewMode === VIEW_MODES.CREAR || viewMode === VIEW_MODES.EDITAR) {
         return <p>Seleccione una opción de gestión de artículos.</p>;
     };
 
-    // 5. RENDERIZADO DEL COMPONENTE PRINCIPAL
+    // 6. RENDERIZADO DEL COMPONENTE PRINCIPAL
+    // Nota: ya no cargamos la lista de productos al montar. Solo se mostrará el
+    // panel de filtros (BusquedaProductos). La tabla se renderiza únicamente
+    // después de ejecutar una búsqueda (isSearched === true) o al usar "Mostrar Todos".
     return (
-        <>
+        <div style={{ padding: '20px' }}>
             <h2>Gestión de Artículos (Inventario)</h2>
-            <div style={{ marginBottom: '20px' }}>
-                <button className="btn btn-secondary" onClick={() => fetchProductos({})} style={{ marginRight: '5px' }}>
+            <div style={{ marginBottom: '20px', display: 'flex', gap: '10px' }}>
+                {/* Botón "Mostrar Todos" que llama a la función de fetch con filtros vacíos */}
+                <button className="btn btn-secondary" onClick={() => fetchProductos({})} disabled={loading}>
                     Mostrar Todos los Artículos
                 </button>
             </div>
             
             {renderContent()}
-        </>
+        </div>
     );
 }
 

@@ -20,7 +20,7 @@ public class ProveedoresController : ControllerBase
     // ====================================================================
     [HttpGet]
     public async Task<ActionResult<IEnumerable<Proveedor>>> GetProveedores(
-        [FromQuery] string? rif,          
+        [FromQuery] string? rif,     
         [FromQuery] string? razonsocial) 
     {
         // 1. Iniciar la consulta base (IQueryable permite construir la consulta sin ejecutarla)
@@ -44,9 +44,34 @@ public class ProveedoresController : ControllerBase
         // 4. Ejecutar la consulta con todos los filtros aplicados
         return await query.ToListAsync();
     }
+    
+    // ====================================================================
+    // 2. GET Buscador (NUEVO MÉTODO PARA DEBOUNCE DEL FRONT-END)
+    // Endpoint: GET /api/Proveedores/Buscar?q={term}
+    // ====================================================================
+    [HttpGet("Buscar")] // << ESTO MAPEA LA RUTA /api/Proveedores/Buscar
+    public async Task<ActionResult<IEnumerable<Proveedor>>> BuscarProveedores([FromQuery] string q)
+    {
+        // Validamos el mínimo de 3 caracteres, aunque React ya lo haga, es buena práctica del servidor.
+        if (string.IsNullOrWhiteSpace(q) || q.Length < 3)
+        {
+            // Devolvemos 200 OK con una lista vacía para no generar error 400 en el navegador.
+            return Ok(new List<Proveedor>()); 
+        }
+
+        string term = q.Trim().ToLower();
+
+        // Lógica de búsqueda: Busca si el término coincide en Razonsocial O en RIF
+        var proveedores = await _context.Proveedores
+            .Where(p => (p.Razonsocial != null && p.Razonsocial.ToLower().Contains(term)) ||
+                        (p.RIF != null && p.RIF.Contains(term)))
+            .ToListAsync();
+
+        return Ok(proveedores); // Devuelve 200 OK con los resultados (o una lista vacía si no hay coincidencias)
+    }
 
     // ====================================================================
-    // 2. GET por ID (Leer un proveedor específico)
+    // 3. GET por ID (Leer un proveedor específico)
     // ====================================================================
     [HttpGet("{id}")]
     public async Task<ActionResult<Proveedor>> GetProveedor(int id)
@@ -62,7 +87,7 @@ public class ProveedoresController : ControllerBase
     }
 
     // ====================================================================
-    // 3. POST (Crear un nuevo proveedor)
+    // 4. POST (Crear un nuevo proveedor)
     // ====================================================================
     [HttpPost]
     public async Task<ActionResult<Proveedor>> PostProveedor(Proveedor proveedor)
@@ -74,7 +99,7 @@ public class ProveedoresController : ControllerBase
     }
 
     // ====================================================================
-    // 4. PUT (Actualizar un proveedor existente)
+    // 5. PUT (Actualizar un proveedor existente)
     // ====================================================================
     [HttpPut("{id}")]
     public async Task<IActionResult> PutProveedor(int id, Proveedor proveedor)
@@ -106,7 +131,7 @@ public class ProveedoresController : ControllerBase
     }
 
     // ====================================================================
-    // 5. DELETE (Eliminar un proveedor)
+    // 6. DELETE (Eliminar un proveedor)
     // ====================================================================
     [HttpDelete("{id}")]
     public async Task<IActionResult> DeleteProveedor(int id)

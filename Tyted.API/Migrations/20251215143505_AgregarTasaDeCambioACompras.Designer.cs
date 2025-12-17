@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Tyted.API.Data;
 
@@ -11,9 +12,11 @@ using Tyted.API.Data;
 namespace Tyted.API.Migrations
 {
     [DbContext(typeof(TytedContext))]
-    partial class TytedContextModelSnapshot : ModelSnapshot
+    [Migration("20251215143505_AgregarTasaDeCambioACompras")]
+    partial class AgregarTasaDeCambioACompras
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -21,47 +24,6 @@ namespace Tyted.API.Migrations
                 .HasAnnotation("Relational:MaxIdentifierLength", 128);
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
-
-            modelBuilder.Entity("Tyted.API.Models.Categoria", b =>
-                {
-                    b.Property<int>("IdCategoria")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("IdCategoria"));
-
-                    b.Property<string>("Nombre")
-                        .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
-
-                    b.Property<decimal>("PorcentajeMargen")
-                        .HasColumnType("decimal(5, 2)");
-
-                    b.HasKey("IdCategoria");
-
-                    b.ToTable("Categorias");
-
-                    b.HasData(
-                        new
-                        {
-                            IdCategoria = 1,
-                            Nombre = "Víveres Básicos",
-                            PorcentajeMargen = 15.00m
-                        },
-                        new
-                        {
-                            IdCategoria = 2,
-                            Nombre = "Artículos de Higiene",
-                            PorcentajeMargen = 30.00m
-                        },
-                        new
-                        {
-                            IdCategoria = 3,
-                            Nombre = "Snacks y Golosinas",
-                            PorcentajeMargen = 35.00m
-                        });
-                });
 
             modelBuilder.Entity("Tyted.API.Models.Compra", b =>
                 {
@@ -77,14 +39,14 @@ namespace Tyted.API.Migrations
                     b.Property<DateTime>("FechaCompra")
                         .HasColumnType("datetime2");
 
-                    b.Property<bool>("IsAnulada")
-                        .HasColumnType("bit");
-
                     b.Property<decimal>("IvaMonedaBase")
                         .HasColumnType("decimal(18, 4)");
 
                     b.Property<decimal>("IvaMonedaExt")
                         .HasColumnType("decimal(18, 4)");
+
+                    b.Property<int?>("ProveedorCodigoProv")
+                        .HasColumnType("int");
 
                     b.Property<decimal>("SubtotalMonedaBase")
                         .HasColumnType("decimal(18, 4)");
@@ -108,7 +70,7 @@ namespace Tyted.API.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("CodigoProv");
+                    b.HasIndex("ProveedorCodigoProv");
 
                     b.ToTable("Compras");
                 });
@@ -177,9 +139,6 @@ namespace Tyted.API.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("CodigoProd"));
 
-                    b.Property<int?>("CategoriaIdCategoria")
-                        .HasColumnType("int");
-
                     b.Property<string>("CodigoBarras")
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
@@ -198,20 +157,14 @@ namespace Tyted.API.Migrations
                     b.Property<DateTime?>("FechaVencimiento")
                         .HasColumnType("datetime2");
 
-                    b.Property<int>("IdCategoria")
-                        .HasColumnType("int");
-
-                    b.Property<int>("IdTasaIVA")
-                        .HasColumnType("int");
-
                     b.Property<int?>("ProveedorCodigoProv")
                         .HasColumnType("int");
 
                     b.Property<decimal>("StockActual")
                         .HasColumnType("decimal(18, 2)");
 
-                    b.Property<int?>("TasaIVAIdTasaIVA")
-                        .HasColumnType("int");
+                    b.Property<double>("TasaIVA")
+                        .HasColumnType("float");
 
                     b.Property<string>("TipoArt")
                         .IsRequired()
@@ -220,11 +173,7 @@ namespace Tyted.API.Migrations
 
                     b.HasKey("CodigoProd");
 
-                    b.HasIndex("CategoriaIdCategoria");
-
                     b.HasIndex("ProveedorCodigoProv");
-
-                    b.HasIndex("TasaIVAIdTasaIVA");
 
                     b.ToTable("Productos");
                 });
@@ -348,53 +297,6 @@ namespace Tyted.API.Migrations
                     b.ToTable("TasaDeCambio");
                 });
 
-            modelBuilder.Entity("Tyted.API.Models.TasaIVA", b =>
-                {
-                    b.Property<int>("IdTasaIVA")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("IdTasaIVA"));
-
-                    b.Property<string>("Nombre")
-                        .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
-
-                    b.Property<decimal>("Porcentaje")
-                        .HasColumnType("decimal(5, 2)");
-
-                    b.HasKey("IdTasaIVA");
-
-                    b.ToTable("TasasIVA");
-
-                    b.HasData(
-                        new
-                        {
-                            IdTasaIVA = 1,
-                            Nombre = "Exento (0%)",
-                            Porcentaje = 0.00m
-                        },
-                        new
-                        {
-                            IdTasaIVA = 2,
-                            Nombre = "Tasa Reducida (8%)",
-                            Porcentaje = 8.00m
-                        },
-                        new
-                        {
-                            IdTasaIVA = 3,
-                            Nombre = "Tasa General (16%)",
-                            Porcentaje = 16.00m
-                        },
-                        new
-                        {
-                            IdTasaIVA = 4,
-                            Nombre = "Tasa Adicional (31%)",
-                            Porcentaje = 31.00m
-                        });
-                });
-
             modelBuilder.Entity("Tyted.API.Models.UnidadMedida", b =>
                 {
                     b.Property<int>("IdUnidad")
@@ -444,9 +346,7 @@ namespace Tyted.API.Migrations
                 {
                     b.HasOne("Tyted.API.Models.Proveedor", "Proveedor")
                         .WithMany()
-                        .HasForeignKey("CodigoProv")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .HasForeignKey("ProveedorCodigoProv");
 
                     b.Navigation("Proveedor");
                 });
@@ -470,23 +370,11 @@ namespace Tyted.API.Migrations
 
             modelBuilder.Entity("Tyted.API.Models.Producto", b =>
                 {
-                    b.HasOne("Tyted.API.Models.Categoria", "Categoria")
-                        .WithMany("Productos")
-                        .HasForeignKey("CategoriaIdCategoria");
-
                     b.HasOne("Tyted.API.Models.Proveedor", "Proveedor")
                         .WithMany()
                         .HasForeignKey("ProveedorCodigoProv");
 
-                    b.HasOne("Tyted.API.Models.TasaIVA", "TasaIVA")
-                        .WithMany("Productos")
-                        .HasForeignKey("TasaIVAIdTasaIVA");
-
-                    b.Navigation("Categoria");
-
                     b.Navigation("Proveedor");
-
-                    b.Navigation("TasaIVA");
                 });
 
             modelBuilder.Entity("Tyted.API.Models.ProductosUnidad", b =>
@@ -504,11 +392,6 @@ namespace Tyted.API.Migrations
                     b.Navigation("UnidadMedida");
                 });
 
-            modelBuilder.Entity("Tyted.API.Models.Categoria", b =>
-                {
-                    b.Navigation("Productos");
-                });
-
             modelBuilder.Entity("Tyted.API.Models.Compra", b =>
                 {
                     b.Navigation("Detalles");
@@ -517,11 +400,6 @@ namespace Tyted.API.Migrations
             modelBuilder.Entity("Tyted.API.Models.Producto", b =>
                 {
                     b.Navigation("UnidadesDeVenta");
-                });
-
-            modelBuilder.Entity("Tyted.API.Models.TasaIVA", b =>
-                {
-                    b.Navigation("Productos");
                 });
 #pragma warning restore 612, 618
         }

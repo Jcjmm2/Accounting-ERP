@@ -3,42 +3,63 @@ using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 using Tyted.API.Models;
 
-public class CompraDetalle
+namespace Tyted.API.Models
 {
-    // Clave Primaria Compuesta (Recomendado para detalles si no usas un ID autoincremental)
-    // Pero por simplicidad en EF, usaremos un ID simple por ahora.
-    [Key]
-    public int IdCompraDetalle { get; set; }
+    public class CompraDetalle
+    {
+        [Key]
+        public int Id { get; set; }
 
-    // Relación con la Compra (Foreign Key)
-    [Required]
-    public int IdCompra { get; set; }
-    public Compra? Compra { get; set; } // Propiedad de navegación (Maestro)
+        [Required]
+        public int CompraId { get; set; } // FK a la cabecera Compra
 
-    // Relación con el Producto o la Unidad de Venta (Foreign Key)
-    [Required]
-    public int CodigoProd { get; set; } 
-    public Producto? Producto { get; set; } // Propiedad de navegación al Producto Maestro
-    
-    // Opcional: Si necesitas rastrear la unidad específica comprada (Caja, Paquete, etc.)
-    [Required]
-    public int IdProductoUnidad { get; set; } // La unidad de venta/compra en ProductosUnidad
-    public ProductosUnidad? ProductoUnidad { get; set; } 
+        [Required]
+        public int CodigoProd { get; set; } // FK a Producto
 
-    // Cantidades y Precios
-    [Required]
-    [Column(TypeName = "decimal(18, 2)")]
-    public decimal CantidadComprada { get; set; } 
-    
-    [Required]
-    [Column(TypeName = "decimal(18, 4)")]
-    public decimal CostoUnitarioMonedaBase { get; set; } 
-    
-    [Required]
-    [Column(TypeName = "decimal(18, 4)")]
-    public decimal CostoUnitarioMonedaExt { get; set; } 
-    
-    [Required]
-    [Column(TypeName = "decimal(18, 2)")]
-    public decimal TotalLineaMonedaBase { get; set; } 
+        [Required]
+        public int IdProductoUnidad { get; set; } // FK a la unidad específica comprada
+
+        [Column(TypeName = "decimal(18, 4)")]
+        public decimal Cantidad { get; set; }
+        
+        // ==========================================================
+        // COSTOS Y TOTALES EN MONEDA BASE (VES)
+        // ==========================================================
+        [Column(TypeName = "decimal(18, 4)")]
+        public decimal CostoUnitarioMonedaBase { get; set; }
+        
+        [Column(TypeName = "decimal(18, 4)")]
+        public decimal SubtotalLineaMonedaBase { get; set; } // Campo que faltaba en el código anterior, pero esencial.
+                                                            // Lo añadimos por consistencia.
+        [Column(TypeName = "decimal(18, 4)")]
+        public decimal TotalLineaMonedaBase { get; set; }
+
+        // ==========================================================
+        // >>> PROPIEDADES NUEVAS EN MONEDA EXTRANJERA (USD) <<<
+        // ==========================================================
+        [Column(TypeName = "decimal(18, 4)")]
+        public decimal CostoUnitarioMonedaExt { get; set; } // Costo unitario en USD
+        
+        [Column(TypeName = "decimal(18, 4)")]
+        public decimal SubtotalLineaMonedaExt { get; set; } // Subtotal sin IVA en USD
+        
+        [Column(TypeName = "decimal(18, 4)")]
+        public decimal IvaLineaMonedaExt { get; set; }      // IVA de la línea en USD
+        
+        [Column(TypeName = "decimal(18, 4)")]
+        public decimal TotalLineaMonedaExt { get; set; }    // Total de la línea en USD
+        // ==========================================================
+        
+        // Tasa de IVA (se mantiene)
+        [Column(TypeName = "decimal(5, 4)")] 
+        public decimal TasaIVA { get; set; } 
+
+
+        // --- PROPIEDADES DE NAVEGACIÓN ---
+        
+        public Compra? Compra { get; set; }
+        public Producto? Producto { get; set; }
+        // Si tiene la relación con ProductoUnidad, agréguela aquí
+        // public ProductoUnidad ProductoUnidad { get; set; }
+    }
 }

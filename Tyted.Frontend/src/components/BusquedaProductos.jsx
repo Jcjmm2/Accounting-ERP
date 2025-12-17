@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 
 // Este componente recibe la función onSearch y la función onNew desde PanelGestionProductos
 function BusquedaProductos({ onSearch, onNew }) {
@@ -23,6 +23,9 @@ function BusquedaProductos({ onSearch, onNew }) {
         // Llama a la función onSearch pasada desde el componente padre
         onSearch(filters); 
     };
+
+    // Búsqueda manual: la ejecución sólo ocurre cuando el usuario presiona
+    // el botón "Ejecutar Búsqueda" que llama a `handleSearchClick`.
 
     return (
         // Uso de clases de Bootstrap para estilos de contenedor y espaciado (card, mb-4, p-3)

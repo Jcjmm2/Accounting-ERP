@@ -5,6 +5,7 @@ using Tyted.API.Models;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using System; // Agregado para usar Exception
 
 [Route("api/[controller]")]
 [ApiController]
@@ -29,6 +30,10 @@ public class ProductosController : ControllerBase
         var query = _context.Productos
             // VITAL: Cargar las relaciones anidadas
             .Include(p => p.Proveedor)
+            // ✅ NUEVA INCLUSIÓN: Cargar la Categoría y TasaIVA
+            .Include(p => p.Categoria) 
+            .Include(p => p.TasaIVA)   
+            // Fin de Nuevas Inclusiones
             .Include(p => p.UnidadesDeVenta)
                 .ThenInclude(pu => pu.UnidadMedida)
             .AsQueryable();
@@ -62,6 +67,10 @@ public class ProductosController : ControllerBase
     {
         // Busca el producto e incluye todos los detalles anidados
         var producto = await _context.Productos
+            // ✅ NUEVA INCLUSIÓN: Cargar la Categoría y TasaIVA
+            .Include(p => p.Categoria) 
+            .Include(p => p.TasaIVA)
+            // Fin de Nuevas Inclusiones
             .Include(p => p.Proveedor)
             .Include(p => p.UnidadesDeVenta)
                 .ThenInclude(pu => pu.UnidadMedida)
@@ -82,14 +91,17 @@ public class ProductosController : ControllerBase
     [HttpPost]
     public async Task<ActionResult<Producto>> PostProducto(Producto producto)
     {
-        // Validaciones o lógica de negocio antes de guardar...
+        // NOTA IMPORTANTE: Al hacer POST, el objeto 'producto' debe contener
+        // IdCategoria y IdTasaIVA con valores válidos (1, 2, 3, etc.)
         
         // Aseguramos que EF Core maneje la inserción del producto y sus unidades anidadas
         _context.Productos.Add(producto);
         await _context.SaveChangesAsync();
 
         // Tras guardar, se usa el GET por ID para devolver el objeto completo (con las FK resueltas)
-        return CreatedAtAction(nameof(GetProducto), new { id = producto.CodigoProd }, producto);
+        // Se recomienda llamar a GetProducto(id) aquí para devolver la información completa
+        // incluyendo las categorías y tasas IVA, tal como se modificó arriba.
+        return await GetProducto(producto.CodigoProd); // Usamos el método GetProducto modificado.
     }
     
     // ====================================================================
@@ -104,9 +116,10 @@ public class ProductosController : ControllerBase
             return BadRequest("El ID del producto no coincide.");
         }
         
-        // =========================================================================
+        // NOTA IMPORTANTE: Al hacer PUT, el objeto 'producto' debe contener
+        // IdCategoria y IdTasaIVA con valores válidos (1, 2, 3, etc.)
+        
         // 1. RASTREO Y MODIFICACIÓN DEL MAESTRO (Producto)
-        // Marcamos el objeto principal como modificado.
         _context.Entry(producto).State = EntityState.Modified;
         
         // EVITAMOS QUE EF CORE INTENTE MODIFICAR LA COLECCIÓN DE UNIDADES DE VENTA 
@@ -169,7 +182,6 @@ public class ProductosController : ControllerBase
     // ====================================================================
     // 5. DELETE (Eliminar un Producto)
     // Endpoint: DELETE /api/Productos/{id}
-    // ESTE ES EL MÉTODO AÑADIDO PARA CORREGIR EL ERROR 405
     // ====================================================================
     [HttpDelete("{id}")]
     public async Task<IActionResult> DeleteProducto(int id)
@@ -200,7 +212,6 @@ public class ProductosController : ControllerBase
         catch (DbUpdateException)
         {
             // Este es el error capturado cuando hay restricción de clave foránea (FK)
-            // Se devuelve 400 Bad Request y un mensaje específico que el front-end puede mostrar.
             return BadRequest($"🚫 No se puede eliminar el producto con código {id}. Tiene movimientos de inventario o registros asociados (Restricción de Integridad Referencial).");
         }
         catch (Exception ex)
@@ -208,5 +219,40 @@ public class ProductosController : ControllerBase
             // Otros errores 500
             return StatusCode(500, $"Ocurrió un error interno al eliminar el producto: {ex.Message}");
         }
+    }
+    
+    // ====================================================================
+    // 6. BUSCADOR (Busca productos por Descripción, Código o Código de Barras)
+    // Llama a: GET /api/Productos/Buscar?q={consulta}
+    // ====================================================================
+    [HttpGet("Buscar")] 
+    public async Task<ActionResult<IEnumerable<Producto>>> BuscarProductos([FromQuery] string q)
+    {
+        // El frontend requiere al menos 3 caracteres, pero el backend debe ser robusto.
+        if (string.IsNullOrWhiteSpace(q) || q.Length < 3)
+        {
+            return Ok(new List<Producto>()); // Devuelve lista vacía, no error
+        }
+
+        var term = q.ToLower();
+
+        var productos = await _context.Productos
+            // Búsqueda flexible en múltiples campos
+            .Where(p => 
+                (p.Descripcion != null && p.Descripcion.ToLower().Contains(term)) || 
+                (p.CodigoProd.ToString().Contains(term)) || // Búsqueda por Cód. Prod. numérico
+                (p.CodigoBarras != null && p.CodigoBarras.ToLower().Contains(term))
+            )
+            // ✅ NUEVA INCLUSIÓN: Cargar la Categoría y TasaIVA
+            .Include(p => p.Categoria)
+            .Include(p => p.TasaIVA)
+            // Fin de Nuevas Inclusiones
+            // VITAL: Incluir las unidades de venta para que el frontend pueda configurarlas
+            .Include(p => p.UnidadesDeVenta) 
+                .ThenInclude(pu => pu.UnidadMedida)
+            .Take(30) // Límite de resultados
+            .ToListAsync();
+
+        return Ok(productos);
     }
 }

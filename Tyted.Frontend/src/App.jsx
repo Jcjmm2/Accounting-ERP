@@ -2,23 +2,28 @@ import React, { useState } from 'react';
 import TasaDeCambio from './components/TasaDeCambio';
 import ProveedorList from './components/ProveedorList';
 import ProveedorForm from './components/ProveedorForm'; 
-import ProductoList from './components/ProductoList';
 import ProductoForm from './components/ProductoForm';
-import ComprasForm from './components/Compras/ComprasForm'; // <--- 1. NUEVA IMPORTACIÓN DE COMPRAS
+import PanelGestionProductos from './components/PanelGestionProductos';
+// Se eliminan los imports de ComprasForm y ListaCompras
+// import ComprasForm from './components/Compras/ComprasForm';
+// import ListaCompras from './components/Compras/ListaCompras'; 
+
+// NUEVO IMPORT: Panel unificado para la gestión de Compras
+import PanelGestionCompras from './components/Compras/PanelGestionCompras'; 
+
 
 // Definición de la URL base del API
 const API_URL = 'http://localhost:5077/api'; 
 
 const App = () => {
-    // Estado principal para la navegación: 'Inventario' es la vista inicial
-    const [activeModule, setActiveModule] = useState('Inventario');
+    // Estado principal para la navegación: 'COMPRAS' es la vista inicial (MODIFICADO)
+    const [activeModule, setActiveModule] = useState('COMPRAS');
     
     // --- ESTADOS DE EDICIÓN ---
     const [productoAEditar, setProductoAEditar] = useState(null); 
     const [proveedorAEditar, setProveedorAEditar] = useState(null); 
 
-    // ... (FUNCIONES handleEditProduct, handleProductSave, handleCancelEdit, 
-    //        handleEditProveedor, handleProveedorSave, handleCancelProveedor se mantienen) ...
+    // --- FUNCIONES DE GESTIÓN DE ARTÍCULOS ---
 
     const handleEditProduct = (producto) => {
         setProductoAEditar(producto);
@@ -35,6 +40,8 @@ const App = () => {
         setActiveModule('Inventario');
     };
 
+    // --- FUNCIONES DE GESTIÓN DE PROVEEDORES ---
+
     const handleEditProveedor = (proveedor) => { 
         setProveedorAEditar(proveedor); 
         setActiveModule('CrearEditarProveedor'); 
@@ -42,14 +49,18 @@ const App = () => {
 
     const handleProveedorSave = () => { 
         setProveedorAEditar(null); 
-        setActiveModule('Proveedores'); 
+        setActiveModule('PROVEEDORES'); // Usamos el nombre del módulo unificado
     };
 
     const handleCancelProveedor = () => { 
         setProveedorAEditar(null); 
-        setActiveModule('Proveedores'); 
+        setActiveModule('PROVEEDORES'); // Usamos el nombre del módulo unificado
     };
     
+    
+    // Constants for child panel modes
+    const VIEW_MODES = { LISTAR: 'LISTAR', CREAR: 'CREAR', EDITAR: 'EDITAR' };
+
     // -----------------------------------------------------------
     // Renderizado condicional del módulo activo
     // -----------------------------------------------------------
@@ -77,22 +88,23 @@ const App = () => {
                     onCancel={handleCancelProveedor} 
                 />
             );
+            
         }
 
         // Renderizado de otros módulos (SWITCH)
         switch (activeModule) {
             case 'Inventario':
                 return (
-                    <ProductoList 
+                    <PanelGestionProductos 
                         API_URL={API_URL}
-                        onEdit={handleEditProduct} 
-                        onNew={() => setActiveModule('CrearEditarArticulo')} 
+                        VIEW_MODES={VIEW_MODES}
                     />
                 );
             case 'TasaDeCambio':
                 return <TasaDeCambio API_URL={API_URL} />;
                 
-            case 'Proveedores': 
+            // CASO UNIFICADO PARA PROVEEDORES (Se usa mayúsculas para el nombre del módulo)
+            case 'PROVEEDORES': 
                 return (
                     <ProveedorList 
                         API_URL={API_URL}
@@ -100,45 +112,56 @@ const App = () => {
                         onNew={() => setActiveModule('CrearEditarProveedor')} 
                     />
                 );
-            case 'Compras': // <--- 2. NUEVA INTEGRACIÓN DEL MÓDULO DE COMPRAS
-                return <ComprasForm />; // <-- Renderiza el formulario de compras
                 
+            // CASO UNIFICADO PARA TODA LA GESTIÓN DE COMPRAS (NUEVO)
+            case 'COMPRAS': 
+                return <PanelGestionCompras API_URL={API_URL} />; 
+                
+            // Se eliminan los casos 'RegistrarCompra' y 'VerCompras'
+            
             default:
-                return <h2>Seleccione un módulo</h2>;
+                // Mensaje por defecto unificado
+                return <div>Seleccione un módulo de gestión (Compras o Proveedores).</div>;
         }
     };
 
     return (
-        // ... (El JSX de la estructura y botones de navegación se mantiene igual) ...
-        <div className="App" style={{ padding: '20px' }}>
+        <div className="container" style={{ padding: '20px' }}>
             <h1>Sistema Tyted (Módulos)</h1>
             
-            {/* --- Barra de Navegación --- */}
-            <div style={{ marginBottom: '20px', borderBottom: '1px solid #ccc', paddingBottom: '10px' }}>
+            {/* --- Barra de Navegación (Adaptada al nuevo estilo con clases de Bootstrap) --- */}
+            <div className="d-flex mb-4" style={{ borderBottom: '1px solid #ccc', paddingBottom: '10px' }}>
+                
+                {/* Botones de Módulos Generales */}
                 <button 
                     onClick={() => setActiveModule('TasaDeCambio')}
-                    style={{ marginRight: '10px', fontWeight: activeModule === 'TasaDeCambio' ? 'bold' : 'normal' }}
+                    className={`btn ${activeModule === 'TasaDeCambio' ? 'btn-primary' : 'btn-secondary'} me-2`}
                 >
                     Tasa de Cambio
                 </button>
                 <button 
-                    onClick={() => setActiveModule('Proveedores')}
-                    style={{ marginRight: '10px', fontWeight: activeModule === 'Proveedores' ? 'bold' : 'normal' }}
-                >
-                    Gestión de Proveedores
-                </button>
-                <button 
                     onClick={() => setActiveModule('Inventario')}
-                    style={{ marginRight: '10px', fontWeight: activeModule === 'Inventario' ? 'bold' : 'normal' }}
+                    className={`btn ${activeModule === 'Inventario' || activeModule === 'CrearEditarArticulo' ? 'btn-primary' : 'btn-secondary'} me-2`}
                 >
                     Gestión de Artículos
                 </button>
+
+                {/* Botón de PROVEEDORES (Módulo Unificado) */}
                 <button 
-                    onClick={() => setActiveModule('Compras')}
-                    style={{ marginRight: '10px', fontWeight: activeModule === 'Compras' ? 'bold' : 'normal' }}
+                    onClick={() => setActiveModule('PROVEEDORES')}
+                    className={`btn ${activeModule === 'PROVEEDORES' || activeModule === 'CrearEditarProveedor' ? 'btn-primary' : 'btn-secondary'} me-2`}
                 >
-                    Registro de Compras
+                    Gestión de Proveedores
                 </button>
+                
+                {/* Botón de COMPRAS (Módulo Unificado) */}
+                <button 
+                    onClick={() => setActiveModule('COMPRAS')} 
+                    className={`btn ${activeModule === 'COMPRAS' ? 'btn-primary' : 'btn-secondary'} me-2`}
+                >
+                    Gestión de Compras
+                </button>
+                
             </div>
 
             {/* Contenido del Módulo Activo */}
@@ -149,5 +172,3 @@ const App = () => {
 };
 
 export default App;
-
-

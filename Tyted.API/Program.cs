@@ -1,5 +1,6 @@
 using Microsoft.EntityFrameworkCore;
-using Tyted.API.Data; // Asumiendo que TytedContext está en la carpeta Data
+using Tyted.API.Data; 
+using Tyted.API.Services; // <-- IMPORTANTE: Agregar este using
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -15,6 +16,10 @@ builder.Services.AddDbContext<TytedContext>(options =>
     options.UseSqlServer(connectionString);
 });
 
+// =========================================================================
+// 2. REGISTRO DE SERVICIOS DE LÓGICA DE NEGOCIO (Services)
+// =========================================================================
+builder.Services.AddScoped<CompraService>(); // <-- NUEVA LÍNEA
 
 // =========================================================================
 
@@ -25,13 +30,13 @@ var MyAllowSpecificOrigins = "_myAllowSpecificOrigins";
 builder.Services.AddCors(options =>
 {
     options.AddPolicy(name: MyAllowSpecificOrigins,
-                      policy =>
-                      {
-                          // **IMPORTANTE: Permitir peticiones desde el puerto de React**
-                          policy.WithOrigins("http://localhost:5173") 
+                        policy =>
+                        {
+                            // **IMPORTANTE: Permitir peticiones desde el puerto de React**
+                            policy.WithOrigins("http://localhost:5173") 
                                 .AllowAnyHeader()
                                 .AllowAnyMethod(); // Permitir verbos GET, POST, DELETE, etc.
-                      });
+                        });
 });
 // =========================================================================
 

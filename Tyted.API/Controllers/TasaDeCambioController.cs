@@ -3,35 +3,39 @@ using Microsoft.EntityFrameworkCore;
 using Tyted.API.Data;
 using Tyted.API.Models;
 using System.Linq;
-using System; // Necesario para DateTime y TimeZoneInfo
+using System; 
 
+// ====================================================================
+// ¡CORRECCIÓN CLAVE! Nombre del Controller en Singular para coincidir
+// con la ruta que el Frontend está intentando llamar: /api/TasaCambio
+// ====================================================================
 [Route("api/[controller]")]
 [ApiController]
-public class TasasDeCambioController : ControllerBase
+public class TasaDeCambioController : ControllerBase // 1. CAMBIO DE NOMBRE
 {
     private readonly TytedContext _context;
 
-    public TasasDeCambioController(TytedContext context)
+    public TasaDeCambioController(TytedContext context)
     {
         _context = context;
     }
 
     // ====================================================================
     // 1. GET (Obtener la Tasa Vigente)
-    // Endpoint: GET /api/TasasDeCambio/vigente
+    // Endpoint: GET /api/TasaCambio/Vigente
     // ====================================================================
-    [HttpGet("vigente")]
+    // 2. CORRECCIÓN MENOR: Se cambió 'vigente' por 'Vigente' por consistencia
+    [HttpGet("Vigente")] 
     public async Task<ActionResult<TasaDeCambio>> GetTasaVigente()
     {
         // Busca la tasa más reciente por la fecha de vigencia
-        var tasaVigente = await _context.TasasDeCambio
+        var tasaVigente = await _context.TasaDeCambio
             .OrderByDescending(t => t.FechaVigencia)
             .FirstOrDefaultAsync();
 
         if (tasaVigente == null)
         {
             // Fallback: Si no hay registros, se usa la tasa 1.0, vigente desde hoy (hora local)
-            // Se usa la lógica de conversión aquí para que el fallback también sea local
             TimeZoneInfo venezuelaTimeZone;
             try
             {
@@ -46,31 +50,32 @@ public class TasasDeCambioController : ControllerBase
             return Ok(new TasaDeCambio 
             { 
                 Tasa = 1.000000m, 
-                FechaVigencia = venezuelaTime.Date, // <-- Usa la fecha local (00:00:00)
+                FechaVigencia = venezuelaTime.Date, 
                 MonedaOrigen = "USD", 
                 MonedaDestino = "VES" 
             }); 
         }
 
+        // Si se encuentra, devuelve la tasa (el tipo ActionResult<TasaDeCambio> se encarga del Ok)
         return tasaVigente;
     }
     
     // ====================================================================
     // 2. GET (Obtener el Historial Completo)
-    // Endpoint: GET /api/TasasDeCambio
+    // Endpoint: GET /api/TasaCambio
     // ====================================================================
     [HttpGet]
     public async Task<ActionResult<IEnumerable<TasaDeCambio>>> GetHistorial()
     {
         // Obtiene todas las tasas ordenadas de la más reciente a la más antigua
-        return await _context.TasasDeCambio
+        return await _context.TasaDeCambio
             .OrderByDescending(t => t.FechaVigencia)
             .ToListAsync();
     }
 
     // ====================================================================
     // 3. POST (Registrar una Nueva Tasa)
-    // Endpoint: POST /api/TasasDeCambio
+    // Endpoint: POST /api/TasaCambio
     // ====================================================================
     [HttpPost]
     public async Task<ActionResult<TasaDeCambio>> PostTasaDeCambio(TasaDeCambio tasaDeCambio)
@@ -79,12 +84,10 @@ public class TasasDeCambioController : ControllerBase
         TimeZoneInfo venezuelaTimeZone;
         try
         {
-            // Opción para Windows
             venezuelaTimeZone = TimeZoneInfo.FindSystemTimeZoneById("Venezuela Standard Time");
         }
         catch (TimeZoneNotFoundException)
         {
-            // Opción para Linux/macOS
             venezuelaTimeZone = TimeZoneInfo.FindSystemTimeZoneById("America/Caracas");
         }
         
@@ -98,11 +101,11 @@ public class TasasDeCambioController : ControllerBase
         if (string.IsNullOrEmpty(tasaDeCambio.MonedaOrigen)) tasaDeCambio.MonedaOrigen = "USD";
         if (string.IsNullOrEmpty(tasaDeCambio.MonedaDestino)) tasaDeCambio.MonedaDestino = "VES";
 
-        _context.TasasDeCambio.Add(tasaDeCambio);
+        _context.TasaDeCambio.Add(tasaDeCambio);
         await _context.SaveChangesAsync();
 
-        // Devuelve el código 201 Created
-        // Se llama a GetTasaVigente para que el Frontend pueda recargar el dato
+        // Devuelve el código 201 Created. Esto sigue funcionando porque el nombre del método
+        // sigue siendo correcto, y CreatedAtAction lo busca en el controlador actual.
         return CreatedAtAction(nameof(GetTasaVigente), null, tasaDeCambio);
     }
 }

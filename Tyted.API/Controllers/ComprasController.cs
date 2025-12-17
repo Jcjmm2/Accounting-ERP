@@ -4,46 +4,56 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Tyted.API.Data;
 using Tyted.API.Models;
+using Tyted.API.Services; 
 using System.Linq;
 using System.Threading.Tasks;
-using System; // <--- AGREGAR ESTO para usar 'Exception' en el try/catch
+using System; 
+using System.Collections.Generic;
+using Tyted.API.Models.DTOs; // <--- ¡CRÍTICO! Necesario para usar ReporteCompraPorProveedorDTO
 
 [Route("api/[controller]")]
 [ApiController]
 public class ComprasController : ControllerBase
 {
-    private readonly TytedContext _context;
+    // Mantenemos _context para los GETs simples
+    private readonly TytedContext _context; 
+    
+    // El servicio que contendrá la lógica de negocio
+    private readonly CompraService _compraService; 
 
-    public ComprasController(TytedContext context)
+    // Constructor actualizado para inyectar ambos
+    public ComprasController(TytedContext context, CompraService compraService) 
     {
         _context = context;
+        _compraService = compraService; // Inicializamos el servicio
     }
 
     // ====================================================================
     // 1. GET (Consultar todas las compras)
     // ====================================================================
     [HttpGet]
-    public async Task<ActionResult<IEnumerable<Compra>>> GetCompras()
-    {
-        return await _context.Compras
-            .Include(c => c.Proveedor)
-            .Include(c => c.Detalles!) 
-                .ThenInclude(cd => cd.Producto!) // <-- ¡AÑADIR '!' AQUÍ!
-            .ToListAsync(); 
-    }
+    public async Task<ActionResult<IEnumerable<Compra>>> GetCompras()
+    {
+        // Se asume que el Proveedor es necesario para el listado.
+        return await _context.Compras
+            .Include(c => c.Proveedor)
+            .Include(c => c.Detalles!) 
+                .ThenInclude(cd => cd.Producto!) 
+            .ToListAsync(); 
+    }
     
     // ====================================================================
     // 2. GET (Consultar una compra por ID)
     // ====================================================================
-[HttpGet("{id}")]
-    public async Task<ActionResult<Compra>> GetCompra(int id)
-    {
-        var compra = await _context.Compras
-            .Include(c => c.Proveedor)
-            .Include(c => c.Detalles!)
-                .ThenInclude(cd => cd.Producto!) // <-- ¡AÑADIR '!' AQUÍ!
-                    .ThenInclude(p => p.UnidadesDeVenta!)
-                    .FirstOrDefaultAsync(c => c.IdCompra == id);
+    [HttpGet("{id}")]
+    public async Task<ActionResult<Compra>> GetCompra(int id)
+    {
+        var compra = await _context.Compras
+            .Include(c => c.Proveedor)
+            .Include(c => c.Detalles!)
+            .ThenInclude(cd => cd.Producto!) 
+            .ThenInclude(p => p.UnidadesDeVenta!)
+            .FirstOrDefaultAsync(c => c.Id == id); 
 
         if (compra == null)
         {
@@ -67,67 +77,84 @@ public class ComprasController : ControllerBase
             return BadRequest("La compra debe tener al menos un detalle (artículo).");
         }
 
-        // 2. Procesa la Compra y sus Detalles
-        _context.Compras.Add(compra);
-
-        // 3. Lógica Clave: Actualizar Stock y Costo Promedio
-        foreach (var detalle in compra.Detalles!) 
-        {
-            var producto = await _context.Productos
-                .FirstOrDefaultAsync(p => p.CodigoProd == detalle.CodigoProd);
-            
-            var unidad = await _context.ProductosUnidad
-                .FirstOrDefaultAsync(pu => pu.IdProductoUnidad == detalle.IdProductoUnidad);
-
-            if (producto == null)
-            {
-                return BadRequest($"Producto con CodigoProd {detalle.CodigoProd} no encontrado.");
-            }
-            
-            // --- CÁLCULO DEL NUEVO COSTO PROMEDIO (Método Ponderado) ---
-            
-            decimal stockAnterior = producto.StockActual; 
-            decimal costoAnteriorBase = unidad != null ? unidad.CostoUnitarioMonedaBase : 0; 
-            
-            decimal cantidadNueva = detalle.CantidadComprada; 
-            decimal costoNuevoBase = detalle.CostoUnitarioMonedaBase;
-
-            decimal nuevoCostoPromedio = 0;
-            
-            if (stockAnterior + cantidadNueva > 0)
-            {
-                nuevoCostoPromedio = ((stockAnterior * costoAnteriorBase) + (cantidadNueva * costoNuevoBase)) / (stockAnterior + cantidadNueva);
-            }
-
-            // --- ACTUALIZACIÓN DE DATOS ---
-
-            // A. Actualizar Stock
-            producto.StockActual += cantidadNueva;
-
-            // B. Actualizar Costo en la Unidad de Venta
-            if (unidad != null)
-            {
-                unidad.CostoUnitarioMonedaBase = nuevoCostoPromedio;
-                // Opcional: Si el costo en USD debe calcularse: unidad.CostoUnitarioMonedaExt = nuevoCostoPromedio / compra.TasaCambio;
-                _context.Entry(unidad).State = EntityState.Modified; 
-            }
-            
-            // Marcar el Producto como modificado
-            _context.Entry(producto).State = EntityState.Modified;
-        } // <-- CIERRE CORRECTO DEL FOREACH
-            
+        // 2. Ejecutar la Lógica de Negocio (Guardar Compra y Actualizar Stock)
         try
         {
-            await _context.SaveChangesAsync();
+            // El servicio maneja la inserción de la compra y la actualización de stock de forma transaccional.
+            await _compraService.RegistrarCompraYActualizarStock(compra);
+        }
+        catch (InvalidOperationException ex)
+        {
+            // Captura errores específicos (como Producto o Unidad no encontrados, o Tasa de Cambio no vigente)
+            return BadRequest(new { message = ex.Message });
         }
         catch (Exception ex)
         {
-            // Puedes loggear la excepción aquí para depuración
-            return StatusCode(500, $"Error al guardar la compra: {ex.Message}");
+            // Captura errores generales (BD, conexión, etc.)
+            Console.WriteLine($"Error al procesar la compra: {ex.Message}");
+            return StatusCode(500, "Ocurrió un error interno al registrar la compra y actualizar el inventario.");
         }
 
-        // Devolver el objeto creado
-        return CreatedAtAction(nameof(GetCompra), new { id = compra.IdCompra }, compra);
-    } // <-- CIERRE CORRECTO DEL MÉTODO POST
-}
+        // 3. Devolver el objeto creado
+        return CreatedAtAction(nameof(GetCompra), new { id = compra.Id }, compra);
+    } 
 
+    // =========================================================================
+    // 4. PUT (Anular Compra y Revertir Stock)
+    // =========================================================================
+    [HttpPut("anular/{id}")]
+    public async Task<IActionResult> AnularCompra(int id)
+    {
+        try
+        {
+            // Llama al método del servicio que ejecuta la lógica transaccional.
+            await _compraService.AnularCompraYRevertirStock(id);
+
+            // 200 OK con mensaje de éxito
+            return Ok($"La compra ID {id} ha sido anulada y el stock revertido exitosamente.");
+        }
+        catch (KeyNotFoundException ex)
+        {
+            // 404 Not Found: La compra no existe
+            return NotFound(ex.Message);
+        }
+        catch (InvalidOperationException ex)
+        {
+            // 400 Bad Request: Compra ya anulada o stock insuficiente para la reversión
+            return BadRequest(ex.Message);
+        }
+        catch (Exception ex)
+        {
+            // 500 Internal Server Error: Cualquier otro fallo en el proceso
+            Console.WriteLine($"Error al anular compra {id}: {ex.Message}");
+            return StatusCode(500, "Ocurrió un error interno al intentar anular la compra y revertir el inventario.");
+        }
+    }
+    
+    // ====================================================================
+    // ✅ NUEVO ENDPOINT 5: REPORTE DE TOTALES DE COMPRAS
+    // Llama a: GET /api/Compras/reporte/totales-por-proveedor?fechaInicio=...&fechaFin=...
+    // ====================================================================
+    [HttpGet("reporte/totales-por-proveedor")]
+    public async Task<ActionResult<IEnumerable<ReporteCompraPorProveedorDTO>>> GetReporteTotalesPorProveedor(
+        [FromQuery] DateTime fechaInicio, 
+        [FromQuery] DateTime fechaFin)
+    {
+        if (fechaInicio == default || fechaFin == default)
+        {
+            return BadRequest("Las fechas de inicio y fin son obligatorias para el reporte.");
+        }
+        
+        try
+        {
+            // Llama al nuevo método implementado en el servicio
+            var reporte = await _compraService.GetReporteTotalesPorProveedor(fechaInicio, fechaFin);
+            return Ok(reporte);
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Error al generar el reporte: {ex.Message}");
+            return StatusCode(500, $"Error interno al generar el reporte: {ex.Message}");
+        }
+    }
+}
