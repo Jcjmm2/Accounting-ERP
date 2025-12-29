@@ -1,6 +1,6 @@
+using System.Collections.Generic;
 using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
-using System.Collections.Generic; // Necesario para ICollection
 
 namespace Tyted.API.Models
 {
@@ -11,14 +11,14 @@ namespace Tyted.API.Models
 
         [Required]
         [StringLength(100)]
-        public string Nombre { get; set; } = string.Empty; // Ej: Víveres Básicos
+        public string Nombre { get; set; } = string.Empty;
 
-        [Required]
+        // Porcentaje sugerido para esta categoría (ej: 30.00)
         [Column(TypeName = "decimal(5, 2)")]
-        // CLAVE: Porcentaje de ganancia (margen) a aplicar sobre el costo
-        public decimal PorcentajeMargen { get; set; } 
+        public decimal PorcentajeMargen { get; set; }
 
-        // Propiedad de navegación inversa (opcional, pero buena práctica)
-        public ICollection<Producto>? Productos { get; set; }
+        // --- NAVEGACIÓN ---
+        // Permite acceder a los productos de esta categoría desde C#
+        //public virtual ICollection<Producto>? Productos { get; set; }
     }
 }

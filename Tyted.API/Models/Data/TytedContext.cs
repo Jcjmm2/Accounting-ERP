@@ -1,73 +1,90 @@
 using Microsoft.EntityFrameworkCore;
 using Tyted.API.Models;
-using System.Collections.Generic; // Asegúrese de que este using esté presente si no lo estaba
 
 namespace Tyted.API.Data
 {
     public class TytedContext : DbContext
     {
-        public TytedContext(DbContextOptions<TytedContext> options) : base(options)
-        {
-        }
+        public TytedContext(DbContextOptions<TytedContext> options) : base(options) { }
 
+        // --- ENTIDADES ---
         public DbSet<Proveedor> Proveedores { get; set; } = default!;
         public DbSet<Producto> Productos { get; set; } = default!;
         public DbSet<UnidadMedida> UnidadesMedida { get; set; } = default!;
         public DbSet<ProductosUnidad> ProductosUnidad { get; set; } = default!;
-        public DbSet<TasaDeCambio> TasaDeCambio { get; set; } = default!;
+        public DbSet<TasaDeCambio> TasaDeCambio { get; set; } = default!; // IMPORTANTE
         public DbSet<Compra> Compras { get; set; } = null!;
         public DbSet<CompraDetalle> ComprasDetalle { get; set; } = null!;
-        
-        // =========================================================
-        // ✅ AGREGAR LOS NUEVOS DbSETS (Categoría y TasaIVA)
-        // =========================================================
         public DbSet<Categoria> Categorias { get; set; } = default!;
         public DbSet<TasaIVA> TasasIVA { get; set; } = default!;
+        public DbSet<Moneda> Monedas { get; set; } = default!;
+        public DbSet<Venta> Ventas { get; set; } = default!;
+        public DbSet<VentaDetalle> VentasDetalle { get; set; } = default!;
+        public DbSet<InventarioMovimiento> InventarioMovimientos { get; set; } = default!;
+        public DbSet<EmpresaConfig> EmpresaConfigs { get; set; } = default!;
+        public DbSet<Empresa> Empresa { get; set; } = default!;
+        public DbSet<Usuario> Usuarios { get; set; } = default!;
+        public DbSet<Cliente> Clientes { get; set; } = default!;
+        public DbSet<CajaSesion> CajaSesiones { get; set; }
+        
+        // --- CRÉDITOS ---
+        public DbSet<CuentaPorCobrar> CuentasPorCobrar { get; set; } = default!;
+        public DbSet<AbonoCXC> AbonosCXC { get; set; } = default!;
+        public DbSet<CuentaPorPagar> CuentasPorPagar { get; set; } = default!;
 
-        // ======================================
-        // FUNCIÓN DE INICIALIZACIÓN DE DATOS (SEEDING)
-        // ======================================
+        // --- VENTAS: PEDIDOS ---
+        public DbSet<Pedido> Pedidos { get; set; } = default!;
+        public DbSet<PedidoDetalle> PedidosDetalle { get; set; } = default!;
+
+        // --- COMPRAS: NOTAS DE ENTREGA ---    
+        public DbSet<NotaEntregaCompra> NotasEntregaCompra { get; set; } = default!;
+        public DbSet<NotaEntregaCompraDetalle> NotasEntregaCompraDetalle { get; set; } = default!;
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
 
-            // Inyectar datos iniciales para el catálogo de Unidades de Medida (EXISTENTE)
-            modelBuilder.Entity<UnidadMedida>().HasData(
-                new UnidadMedida { IdUnidad = 1, NombreUnidad = "Unidad" },
-                new UnidadMedida { IdUnidad = 2, NombreUnidad = "Caja" },
-                new UnidadMedida { IdUnidad = 3, NombreUnidad = "Paquete" },
-                new UnidadMedida { IdUnidad = 4, NombreUnidad = "Kilogramo" },
-                new UnidadMedida { IdUnidad = 5, NombreUnidad = "Litro" }
-            );
+            // 1. CONFIGURACIÓN GLOBAL DE DECIMALES (18, 4)
+            foreach (var entityType in modelBuilder.Model.GetEntityTypes())
+            {
+                var properties = entityType.GetProperties()
+                    .Where(p => p.ClrType == typeof(decimal) || p.ClrType == typeof(decimal?));
 
-            // =========================================================
-            // ✅ AGREGAR DATOS INICIALES PARA EL CATÁLOGO DE TASAS DE IVA
-            // =========================================================
-            modelBuilder.Entity<TasaIVA>().HasData(
-                // ⚠️ Importante: Los IDs aquí deben coincidir si se usan en la inicialización de Productos.
-                new TasaIVA { IdTasaIVA = 1, Nombre = "Exento (0%)", Porcentaje = 0.00m },
-                new TasaIVA { IdTasaIVA = 2, Nombre = "Tasa Reducida (8%)", Porcentaje = 8.00m },
-                new TasaIVA { IdTasaIVA = 3, Nombre = "Tasa General (16%)", Porcentaje = 16.00m },
-                new TasaIVA { IdTasaIVA = 4, Nombre = "Tasa Adicional (31%)", Porcentaje = 31.00m }
-            );
-            
-            // Opcional: Inyectar categorías iniciales para que la base de datos no quede vacía.
-            // (Es mejor agregarlas aquí para que el campo IdCategoria en Producto no falle).
-            modelBuilder.Entity<Categoria>().HasData(
-                 new Categoria { IdCategoria = 1, Nombre = "Víveres Básicos", PorcentajeMargen = 15.00m },
-                 new Categoria { IdCategoria = 2, Nombre = "Artículos de Higiene", PorcentajeMargen = 30.00m },
-                 new Categoria { IdCategoria = 3, Nombre = "Snacks y Golosinas", PorcentajeMargen = 35.00m }
-            );
+                foreach (var property in properties)
+                {
+                    property.SetColumnType("decimal(18, 4)");
+                }
+            }
 
+            // 2. EXCEPCIONES DE PRECISIÓN (Tasa de cambio requiere 6 decimales)
+            modelBuilder.Entity<TasaDeCambio>(entity => {
+                entity.Property(e => e.Tasa).HasColumnType("decimal(18, 6)");
+                entity.Property(e => e.FactorSugerido).HasColumnType("decimal(18, 6)");
+            });
 
-            // Configuración adicional para la relación Producto <-> ProductosUnidad (si es necesario)
-            // Si la relación no está configurada, se recomienda añadir esto para evitar errores:
-            modelBuilder.Entity<ProductosUnidad>()
-                .HasOne(pu => pu.Producto)
-                .WithMany(p => p.UnidadesDeVenta)
-                .HasForeignKey("ProductoCodigoProd"); 
+            modelBuilder.Entity<Categoria>()
+                .Property(e => e.PorcentajeMargen).HasColumnType("decimal(5, 2)");
 
-            // Si hay otras configuraciones de relaciones, deben ir aquí.
+            modelBuilder.Entity<TasaIVA>()
+                .Property(e => e.Porcentaje).HasColumnType("decimal(5, 2)");
+
+            modelBuilder.Entity<ProductosUnidad>(entity =>
+            {
+                entity.Property(e => e.Margen1).HasColumnType("decimal(5, 2)");
+                entity.Property(e => e.Margen2).HasColumnType("decimal(5, 2)");
+                entity.Property(e => e.Margen3).HasColumnType("decimal(5, 2)");
+
+                entity.HasOne(u => u.Producto)
+                      .WithMany(p => p.UnidadesDeVenta)
+                      .HasForeignKey(u => u.CodigoProd)
+                      .OnDelete(DeleteBehavior.Restrict); 
+            });
+            modelBuilder.Entity<Cliente>()
+                .HasIndex(c => c.Rif)
+                .IsUnique();
+
+            // 3. CONFIGURACIÓN DE RELACIONES Y SEEDING (Omitido para brevedad, mantener igual)
+            // ... (Tus relaciones y DataSeed de Usuario, Empresa, etc.)
         }
     }
 }

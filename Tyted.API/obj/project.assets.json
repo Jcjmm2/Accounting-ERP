@@ -38,6 +38,97 @@
           }
         }
       },
+      "BCrypt.Net-Next/4.0.3": {
+        "type": "package",
+        "compile": {
+          "lib/net6.0/BCrypt.Net-Next.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net6.0/BCrypt.Net-Next.dll": {
+            "related": ".xml"
+          }
+        }
+      },
+      "ClosedXML/0.105.0": {
+        "type": "package",
+        "dependencies": {
+          "ClosedXML.Parser": "2.0.0",
+          "DocumentFormat.OpenXml": "[3.1.1, 4.0.0)",
+          "ExcelNumberFormat": "1.1.0",
+          "RBush.Signed": "4.0.0",
+          "SixLabors.Fonts": "1.0.0"
+        },
+        "compile": {
+          "lib/netstandard2.1/ClosedXML.dll": {
+            "related": ".pdb;.xml"
+          }
+        },
+        "runtime": {
+          "lib/netstandard2.1/ClosedXML.dll": {
+            "related": ".pdb;.xml"
+          }
+        }
+      },
+      "ClosedXML.Parser/2.0.0": {
+        "type": "package",
+        "compile": {
+          "lib/netstandard2.1/ClosedXML.Parser.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/netstandard2.1/ClosedXML.Parser.dll": {
+            "related": ".xml"
+          }
+        }
+      },
+      "DocumentFormat.OpenXml/3.1.1": {
+        "type": "package",
+        "dependencies": {
+          "DocumentFormat.OpenXml.Framework": "3.1.1"
+        },
+        "compile": {
+          "lib/net8.0/DocumentFormat.OpenXml.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net8.0/DocumentFormat.OpenXml.dll": {
+            "related": ".xml"
+          }
+        }
+      },
+      "DocumentFormat.OpenXml.Framework/3.1.1": {
+        "type": "package",
+        "dependencies": {
+          "System.IO.Packaging": "8.0.1"
+        },
+        "compile": {
+          "lib/net8.0/DocumentFormat.OpenXml.Framework.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net8.0/DocumentFormat.OpenXml.Framework.dll": {
+            "related": ".xml"
+          }
+        }
+      },
+      "ExcelNumberFormat/1.1.0": {
+        "type": "package",
+        "compile": {
+          "lib/netstandard2.0/ExcelNumberFormat.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/netstandard2.0/ExcelNumberFormat.dll": {
+            "related": ".xml"
+          }
+        }
+      },
       "Humanizer.Core/2.14.1": {
         "type": "package",
         "compile": {
@@ -50,6 +141,25 @@
             "related": ".xml"
           }
         }
+      },
+      "Microsoft.AspNetCore.Authentication.JwtBearer/10.0.1": {
+        "type": "package",
+        "dependencies": {
+          "Microsoft.IdentityModel.Protocols.OpenIdConnect": "8.0.1"
+        },
+        "compile": {
+          "lib/net10.0/Microsoft.AspNetCore.Authentication.JwtBearer.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net10.0/Microsoft.AspNetCore.Authentication.JwtBearer.dll": {
+            "related": ".xml"
+          }
+        },
+        "frameworkReferences": [
+          "Microsoft.AspNetCore.App"
+        ]
       },
       "Microsoft.AspNetCore.OpenApi/10.0.0": {
         "type": "package",
@@ -961,17 +1071,6 @@
           }
         }
       },
-      "Microsoft.Extensions.ApiDescription.Server/10.0.0": {
-        "type": "package",
-        "build": {
-          "build/Microsoft.Extensions.ApiDescription.Server.props": {},
-          "build/Microsoft.Extensions.ApiDescription.Server.targets": {}
-        },
-        "buildMultiTargeting": {
-          "buildMultiTargeting/Microsoft.Extensions.ApiDescription.Server.props": {},
-          "buildMultiTargeting/Microsoft.Extensions.ApiDescription.Server.targets": {}
-        }
-      },
       "Microsoft.Extensions.DependencyModel/10.0.1": {
         "type": "package",
         "compile": {
@@ -1021,96 +1120,96 @@
           }
         }
       },
-      "Microsoft.IdentityModel.Abstractions/7.7.1": {
+      "Microsoft.IdentityModel.Abstractions/8.15.0": {
         "type": "package",
         "compile": {
-          "lib/net8.0/Microsoft.IdentityModel.Abstractions.dll": {
+          "lib/net10.0/Microsoft.IdentityModel.Abstractions.dll": {
             "related": ".xml"
           }
         },
         "runtime": {
-          "lib/net8.0/Microsoft.IdentityModel.Abstractions.dll": {
+          "lib/net10.0/Microsoft.IdentityModel.Abstractions.dll": {
             "related": ".xml"
           }
         }
       },
-      "Microsoft.IdentityModel.JsonWebTokens/7.7.1": {
+      "Microsoft.IdentityModel.JsonWebTokens/8.15.0": {
         "type": "package",
         "dependencies": {
-          "Microsoft.IdentityModel.Tokens": "7.7.1"
+          "Microsoft.IdentityModel.Tokens": "8.15.0"
         },
         "compile": {
-          "lib/net8.0/Microsoft.IdentityModel.JsonWebTokens.dll": {
+          "lib/net10.0/Microsoft.IdentityModel.JsonWebTokens.dll": {
             "related": ".xml"
           }
         },
         "runtime": {
-          "lib/net8.0/Microsoft.IdentityModel.JsonWebTokens.dll": {
+          "lib/net10.0/Microsoft.IdentityModel.JsonWebTokens.dll": {
             "related": ".xml"
           }
         }
       },
-      "Microsoft.IdentityModel.Logging/7.7.1": {
+      "Microsoft.IdentityModel.Logging/8.15.0": {
         "type": "package",
         "dependencies": {
-          "Microsoft.IdentityModel.Abstractions": "7.7.1"
+          "Microsoft.IdentityModel.Abstractions": "8.15.0"
         },
         "compile": {
-          "lib/net8.0/Microsoft.IdentityModel.Logging.dll": {
+          "lib/net10.0/Microsoft.IdentityModel.Logging.dll": {
             "related": ".xml"
           }
         },
         "runtime": {
-          "lib/net8.0/Microsoft.IdentityModel.Logging.dll": {
+          "lib/net10.0/Microsoft.IdentityModel.Logging.dll": {
             "related": ".xml"
           }
         }
       },
-      "Microsoft.IdentityModel.Protocols/7.7.1": {
+      "Microsoft.IdentityModel.Protocols/8.0.1": {
         "type": "package",
         "dependencies": {
-          "Microsoft.IdentityModel.Tokens": "7.7.1"
+          "Microsoft.IdentityModel.Tokens": "8.0.1"
         },
         "compile": {
-          "lib/net8.0/Microsoft.IdentityModel.Protocols.dll": {
+          "lib/net9.0/Microsoft.IdentityModel.Protocols.dll": {
             "related": ".xml"
           }
         },
         "runtime": {
-          "lib/net8.0/Microsoft.IdentityModel.Protocols.dll": {
+          "lib/net9.0/Microsoft.IdentityModel.Protocols.dll": {
             "related": ".xml"
           }
         }
       },
-      "Microsoft.IdentityModel.Protocols.OpenIdConnect/7.7.1": {
+      "Microsoft.IdentityModel.Protocols.OpenIdConnect/8.0.1": {
         "type": "package",
         "dependencies": {
-          "Microsoft.IdentityModel.Protocols": "7.7.1",
-          "System.IdentityModel.Tokens.Jwt": "7.7.1"
+          "Microsoft.IdentityModel.Protocols": "8.0.1",
+          "System.IdentityModel.Tokens.Jwt": "8.0.1"
         },
         "compile": {
-          "lib/net8.0/Microsoft.IdentityModel.Protocols.OpenIdConnect.dll": {
+          "lib/net9.0/Microsoft.IdentityModel.Protocols.OpenIdConnect.dll": {
             "related": ".xml"
           }
         },
         "runtime": {
-          "lib/net8.0/Microsoft.IdentityModel.Protocols.OpenIdConnect.dll": {
+          "lib/net9.0/Microsoft.IdentityModel.Protocols.OpenIdConnect.dll": {
             "related": ".xml"
           }
         }
       },
-      "Microsoft.IdentityModel.Tokens/7.7.1": {
+      "Microsoft.IdentityModel.Tokens/8.15.0": {
         "type": "package",
         "dependencies": {
-          "Microsoft.IdentityModel.Logging": "7.7.1"
+          "Microsoft.IdentityModel.Logging": "8.15.0"
         },
         "compile": {
-          "lib/net8.0/Microsoft.IdentityModel.Tokens.dll": {
+          "lib/net10.0/Microsoft.IdentityModel.Tokens.dll": {
             "related": ".xml"
           }
         },
         "runtime": {
-          "lib/net8.0/Microsoft.IdentityModel.Tokens.dll": {
+          "lib/net10.0/Microsoft.IdentityModel.Tokens.dll": {
             "related": ".xml"
           }
         }
@@ -1128,7 +1227,7 @@
           }
         }
       },
-      "Microsoft.OpenApi/2.3.0": {
+      "Microsoft.OpenApi/2.0.0": {
         "type": "package",
         "compile": {
           "lib/net8.0/Microsoft.OpenApi.dll": {
@@ -1182,71 +1281,153 @@
           }
         }
       },
-      "Swashbuckle.AspNetCore/10.0.1": {
+      "QuestPDF/2025.12.0": {
         "type": "package",
-        "dependencies": {
-          "Microsoft.Extensions.ApiDescription.Server": "10.0.0",
-          "Swashbuckle.AspNetCore.Swagger": "10.0.1",
-          "Swashbuckle.AspNetCore.SwaggerGen": "10.0.1",
-          "Swashbuckle.AspNetCore.SwaggerUI": "10.0.1"
+        "compile": {
+          "lib/net10.0/QuestPDF.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net10.0/QuestPDF.dll": {
+            "related": ".xml"
+          }
         },
         "build": {
-          "build/Swashbuckle.AspNetCore.props": {}
+          "buildTransitive/QuestPDF.targets": {}
         },
-        "buildMultiTargeting": {
-          "buildMultiTargeting/Swashbuckle.AspNetCore.props": {}
+        "runtimeTargets": {
+          "runtimes/linux-arm64/native/libQuestPdfSkia.so": {
+            "assetType": "native",
+            "rid": "linux-arm64"
+          },
+          "runtimes/linux-arm64/native/libqpdf.so": {
+            "assetType": "native",
+            "rid": "linux-arm64"
+          },
+          "runtimes/linux-musl-x64/native/libQuestPdfSkia.so": {
+            "assetType": "native",
+            "rid": "linux-musl-x64"
+          },
+          "runtimes/linux-musl-x64/native/libqpdf.so": {
+            "assetType": "native",
+            "rid": "linux-musl-x64"
+          },
+          "runtimes/linux-x64/native/libQuestPdfSkia.so": {
+            "assetType": "native",
+            "rid": "linux-x64"
+          },
+          "runtimes/linux-x64/native/libqpdf.so": {
+            "assetType": "native",
+            "rid": "linux-x64"
+          },
+          "runtimes/osx-arm64/native/libQuestPdfSkia.dylib": {
+            "assetType": "native",
+            "rid": "osx-arm64"
+          },
+          "runtimes/osx-arm64/native/libqpdf.dylib": {
+            "assetType": "native",
+            "rid": "osx-arm64"
+          },
+          "runtimes/osx-x64/native/libQuestPdfSkia.dylib": {
+            "assetType": "native",
+            "rid": "osx-x64"
+          },
+          "runtimes/osx-x64/native/libqpdf.dylib": {
+            "assetType": "native",
+            "rid": "osx-x64"
+          },
+          "runtimes/win-x64/native/QuestPdfSkia.dll": {
+            "assetType": "native",
+            "rid": "win-x64"
+          },
+          "runtimes/win-x64/native/libgcc_s_seh-1.dll": {
+            "assetType": "native",
+            "rid": "win-x64"
+          },
+          "runtimes/win-x64/native/libstdc++-6.dll": {
+            "assetType": "native",
+            "rid": "win-x64"
+          },
+          "runtimes/win-x64/native/libwinpthread-1.dll": {
+            "assetType": "native",
+            "rid": "win-x64"
+          },
+          "runtimes/win-x64/native/qpdf.dll": {
+            "assetType": "native",
+            "rid": "win-x64"
+          },
+          "runtimes/win-x64/native/zlib1.dll": {
+            "assetType": "native",
+            "rid": "win-x64"
+          },
+          "runtimes/win-x86/native/QuestPdfSkia.dll": {
+            "assetType": "native",
+            "rid": "win-x86"
+          },
+          "runtimes/win-x86/native/libgcc_s_dw2-1.dll": {
+            "assetType": "native",
+            "rid": "win-x86"
+          },
+          "runtimes/win-x86/native/libstdc++-6.dll": {
+            "assetType": "native",
+            "rid": "win-x86"
+          },
+          "runtimes/win-x86/native/libwinpthread-1.dll": {
+            "assetType": "native",
+            "rid": "win-x86"
+          },
+          "runtimes/win-x86/native/qpdf.dll": {
+            "assetType": "native",
+            "rid": "win-x86"
+          },
+          "runtimes/win-x86/native/zlib1.dll": {
+            "assetType": "native",
+            "rid": "win-x86"
+          }
         }
       },
-      "Swashbuckle.AspNetCore.Swagger/10.0.1": {
+      "RBush.Signed/4.0.0": {
         "type": "package",
-        "dependencies": {
-          "Microsoft.OpenApi": "2.3.0"
-        },
         "compile": {
-          "lib/net10.0/Swashbuckle.AspNetCore.Swagger.dll": {
-            "related": ".pdb;.xml"
+          "lib/net8.0/RBush.dll": {
+            "related": ".xml"
           }
         },
         "runtime": {
-          "lib/net10.0/Swashbuckle.AspNetCore.Swagger.dll": {
-            "related": ".pdb;.xml"
+          "lib/net8.0/RBush.dll": {
+            "related": ".xml"
+          }
+        }
+      },
+      "Scalar.AspNetCore/2.11.9": {
+        "type": "package",
+        "compile": {
+          "lib/net10.0/Scalar.AspNetCore.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net10.0/Scalar.AspNetCore.dll": {
+            "related": ".xml"
           }
         },
         "frameworkReferences": [
           "Microsoft.AspNetCore.App"
         ]
       },
-      "Swashbuckle.AspNetCore.SwaggerGen/10.0.1": {
+      "SixLabors.Fonts/1.0.0": {
         "type": "package",
-        "dependencies": {
-          "Swashbuckle.AspNetCore.Swagger": "10.0.1"
-        },
         "compile": {
-          "lib/net10.0/Swashbuckle.AspNetCore.SwaggerGen.dll": {
-            "related": ".pdb;.xml"
+          "lib/netcoreapp3.1/SixLabors.Fonts.dll": {
+            "related": ".xml"
           }
         },
         "runtime": {
-          "lib/net10.0/Swashbuckle.AspNetCore.SwaggerGen.dll": {
-            "related": ".pdb;.xml"
+          "lib/netcoreapp3.1/SixLabors.Fonts.dll": {
+            "related": ".xml"
           }
         }
-      },
-      "Swashbuckle.AspNetCore.SwaggerUI/10.0.1": {
-        "type": "package",
-        "compile": {
-          "lib/net10.0/Swashbuckle.AspNetCore.SwaggerUI.dll": {
-            "related": ".pdb;.xml"
-          }
-        },
-        "runtime": {
-          "lib/net10.0/Swashbuckle.AspNetCore.SwaggerUI.dll": {
-            "related": ".pdb;.xml"
-          }
-        },
-        "frameworkReferences": [
-          "Microsoft.AspNetCore.App"
-        ]
       },
       "System.ClientModel/1.5.1": {
         "type": "package",
@@ -1425,21 +1606,37 @@
           "buildTransitive/net8.0/_._": {}
         }
       },
-      "System.IdentityModel.Tokens.Jwt/7.7.1": {
+      "System.IdentityModel.Tokens.Jwt/8.15.0": {
         "type": "package",
         "dependencies": {
-          "Microsoft.IdentityModel.JsonWebTokens": "7.7.1",
-          "Microsoft.IdentityModel.Tokens": "7.7.1"
+          "Microsoft.IdentityModel.JsonWebTokens": "8.15.0",
+          "Microsoft.IdentityModel.Tokens": "8.15.0"
         },
         "compile": {
-          "lib/net8.0/System.IdentityModel.Tokens.Jwt.dll": {
+          "lib/net10.0/System.IdentityModel.Tokens.Jwt.dll": {
             "related": ".xml"
           }
         },
         "runtime": {
-          "lib/net8.0/System.IdentityModel.Tokens.Jwt.dll": {
+          "lib/net10.0/System.IdentityModel.Tokens.Jwt.dll": {
             "related": ".xml"
           }
+        }
+      },
+      "System.IO.Packaging/8.0.1": {
+        "type": "package",
+        "compile": {
+          "lib/net8.0/System.IO.Packaging.dll": {
+            "related": ".xml"
+          }
+        },
+        "runtime": {
+          "lib/net8.0/System.IO.Packaging.dll": {
+            "related": ".xml"
+          }
+        },
+        "build": {
+          "buildTransitive/net6.0/_._": {}
         }
       },
       "System.Memory.Data/8.0.1": {
@@ -1612,6 +1809,137 @@
         "lib/netstandard2.0/Azure.Identity.xml"
       ]
     },
+    "BCrypt.Net-Next/4.0.3": {
+      "sha512": "W+U9WvmZQgi5cX6FS5GDtDoPzUCV4LkBLkywq/kRZhuDwcbavOzcDAr3LXJFqHUi952Yj3LEYoWW0jbEUQChsA==",
+      "type": "package",
+      "path": "bcrypt.net-next/4.0.3",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "bcrypt.net-next.4.0.3.nupkg.sha512",
+        "bcrypt.net-next.nuspec",
+        "ico.png",
+        "lib/net20/BCrypt.Net-Next.dll",
+        "lib/net20/BCrypt.Net-Next.xml",
+        "lib/net35/BCrypt.Net-Next.dll",
+        "lib/net35/BCrypt.Net-Next.xml",
+        "lib/net462/BCrypt.Net-Next.dll",
+        "lib/net462/BCrypt.Net-Next.xml",
+        "lib/net472/BCrypt.Net-Next.dll",
+        "lib/net472/BCrypt.Net-Next.xml",
+        "lib/net48/BCrypt.Net-Next.dll",
+        "lib/net48/BCrypt.Net-Next.xml",
+        "lib/net5.0/BCrypt.Net-Next.dll",
+        "lib/net5.0/BCrypt.Net-Next.xml",
+        "lib/net6.0/BCrypt.Net-Next.dll",
+        "lib/net6.0/BCrypt.Net-Next.xml",
+        "lib/netstandard2.0/BCrypt.Net-Next.dll",
+        "lib/netstandard2.0/BCrypt.Net-Next.xml",
+        "lib/netstandard2.1/BCrypt.Net-Next.dll",
+        "lib/netstandard2.1/BCrypt.Net-Next.xml",
+        "readme.md"
+      ]
+    },
+    "ClosedXML/0.105.0": {
+      "sha512": "U0hAdnYyPvF7TqHMFloxrS7pmozab79tFFF4c/bgPtqeelUs7ILpUd3r3c7C0a/DXsUZb3k1n4Pf7Q2LMyMQOg==",
+      "type": "package",
+      "path": "closedxml/0.105.0",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "closedxml.0.105.0.nupkg.sha512",
+        "closedxml.nuspec",
+        "lib/netstandard2.0/ClosedXML.dll",
+        "lib/netstandard2.0/ClosedXML.pdb",
+        "lib/netstandard2.0/ClosedXML.xml",
+        "lib/netstandard2.1/ClosedXML.dll",
+        "lib/netstandard2.1/ClosedXML.pdb",
+        "lib/netstandard2.1/ClosedXML.xml",
+        "nuget-logo.png"
+      ]
+    },
+    "ClosedXML.Parser/2.0.0": {
+      "sha512": "ngTqjYreDYNytG1W5d3ewHsw0ukmmrgV7EKnS4/40rXoYZGt07jrBvo+N+GxT49rcageUMUiprV0jYT4nwVBHQ==",
+      "type": "package",
+      "path": "closedxml.parser/2.0.0",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "README.md",
+        "closedxml.parser.2.0.0.nupkg.sha512",
+        "closedxml.parser.nuspec",
+        "lib/netstandard2.0/ClosedXML.Parser.dll",
+        "lib/netstandard2.0/ClosedXML.Parser.xml",
+        "lib/netstandard2.1/ClosedXML.Parser.dll",
+        "lib/netstandard2.1/ClosedXML.Parser.xml"
+      ]
+    },
+    "DocumentFormat.OpenXml/3.1.1": {
+      "sha512": "2z9QBzeTLNNKWM9SaOSDMegfQk/7hDuElOsmF77pKZMkFRP/GHA/W/4yOAQD9kn15N/FsFxHn3QVYkatuZghiA==",
+      "type": "package",
+      "path": "documentformat.openxml/3.1.1",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "README.md",
+        "documentformat.openxml.3.1.1.nupkg.sha512",
+        "documentformat.openxml.nuspec",
+        "icon.png",
+        "lib/net35/DocumentFormat.OpenXml.dll",
+        "lib/net35/DocumentFormat.OpenXml.xml",
+        "lib/net40/DocumentFormat.OpenXml.dll",
+        "lib/net40/DocumentFormat.OpenXml.xml",
+        "lib/net46/DocumentFormat.OpenXml.dll",
+        "lib/net46/DocumentFormat.OpenXml.xml",
+        "lib/net8.0/DocumentFormat.OpenXml.dll",
+        "lib/net8.0/DocumentFormat.OpenXml.xml",
+        "lib/netstandard2.0/DocumentFormat.OpenXml.dll",
+        "lib/netstandard2.0/DocumentFormat.OpenXml.xml"
+      ]
+    },
+    "DocumentFormat.OpenXml.Framework/3.1.1": {
+      "sha512": "6APEp/ElZV58S/4v8mf4Ke3ONEDORs64MqdD64Z7wWpcHANB9oovQsGIwtqjnKihulOj7T0a6IxHIHOfMqKOng==",
+      "type": "package",
+      "path": "documentformat.openxml.framework/3.1.1",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "README.md",
+        "documentformat.openxml.framework.3.1.1.nupkg.sha512",
+        "documentformat.openxml.framework.nuspec",
+        "icon.png",
+        "lib/net35/DocumentFormat.OpenXml.Framework.dll",
+        "lib/net35/DocumentFormat.OpenXml.Framework.xml",
+        "lib/net40/DocumentFormat.OpenXml.Framework.dll",
+        "lib/net40/DocumentFormat.OpenXml.Framework.xml",
+        "lib/net46/DocumentFormat.OpenXml.Framework.dll",
+        "lib/net46/DocumentFormat.OpenXml.Framework.xml",
+        "lib/net6.0/DocumentFormat.OpenXml.Framework.dll",
+        "lib/net6.0/DocumentFormat.OpenXml.Framework.xml",
+        "lib/net8.0/DocumentFormat.OpenXml.Framework.dll",
+        "lib/net8.0/DocumentFormat.OpenXml.Framework.xml",
+        "lib/netstandard2.0/DocumentFormat.OpenXml.Framework.dll",
+        "lib/netstandard2.0/DocumentFormat.OpenXml.Framework.xml"
+      ]
+    },
+    "ExcelNumberFormat/1.1.0": {
+      "sha512": "R3BVHPs9O+RkExbZYTGT0+9HLbi8ZrNij1Yziyw6znd3J7P3uoIR07uwTLGOogtz1p6+0sna66eBoXu7tBiVQA==",
+      "type": "package",
+      "path": "excelnumberformat/1.1.0",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "excelnumberformat.1.1.0.nupkg.sha512",
+        "excelnumberformat.nuspec",
+        "icon.png",
+        "lib/net20/ExcelNumberFormat.dll",
+        "lib/net20/ExcelNumberFormat.xml",
+        "lib/netstandard1.0/ExcelNumberFormat.dll",
+        "lib/netstandard1.0/ExcelNumberFormat.xml",
+        "lib/netstandard2.0/ExcelNumberFormat.dll",
+        "lib/netstandard2.0/ExcelNumberFormat.xml"
+      ]
+    },
     "Humanizer.Core/2.14.1": {
       "sha512": "lQKvtaTDOXnoVJ20ibTuSIOf2i0uO0MPbDhd1jm238I+U/2ZnRENj0cktKZhtchBMtCUSRQ5v4xBCUbKNmyVMw==",
       "type": "package",
@@ -1628,6 +1956,22 @@
         "lib/netstandard2.0/Humanizer.dll",
         "lib/netstandard2.0/Humanizer.xml",
         "logo.png"
+      ]
+    },
+    "Microsoft.AspNetCore.Authentication.JwtBearer/10.0.1": {
+      "sha512": "lvyUEBVv7V1/UvGxfOV3a0kyaQatPAU+ZHru7xha6WVOpa+7aJtKehbiu9VpAt/G50FR+hUwL4nTY33ijsCXwA==",
+      "type": "package",
+      "path": "microsoft.aspnetcore.authentication.jwtbearer/10.0.1",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "Icon.png",
+        "PACKAGE.md",
+        "THIRD-PARTY-NOTICES.TXT",
+        "lib/net10.0/Microsoft.AspNetCore.Authentication.JwtBearer.dll",
+        "lib/net10.0/Microsoft.AspNetCore.Authentication.JwtBearer.xml",
+        "microsoft.aspnetcore.authentication.jwtbearer.10.0.1.nupkg.sha512",
+        "microsoft.aspnetcore.authentication.jwtbearer.nuspec"
       ]
     },
     "Microsoft.AspNetCore.OpenApi/10.0.0": {
@@ -3038,266 +3382,6 @@
         "microsoft.entityframeworkcore.sqlserver.nuspec"
       ]
     },
-    "Microsoft.Extensions.ApiDescription.Server/10.0.0": {
-      "sha512": "NCWCGiwRwje8773yzPQhvucYnnfeR+ZoB1VRIrIMp4uaeUNw7jvEPHij3HIbwCDuNCrNcphA00KSAR9yD9qmbg==",
-      "type": "package",
-      "path": "microsoft.extensions.apidescription.server/10.0.0",
-      "hasTools": true,
-      "files": [
-        ".nupkg.metadata",
-        ".signature.p7s",
-        "Icon.png",
-        "build/Microsoft.Extensions.ApiDescription.Server.props",
-        "build/Microsoft.Extensions.ApiDescription.Server.targets",
-        "buildMultiTargeting/Microsoft.Extensions.ApiDescription.Server.props",
-        "buildMultiTargeting/Microsoft.Extensions.ApiDescription.Server.targets",
-        "microsoft.extensions.apidescription.server.10.0.0.nupkg.sha512",
-        "microsoft.extensions.apidescription.server.nuspec",
-        "tools/Newtonsoft.Json.dll",
-        "tools/dotnet-getdocument.deps.json",
-        "tools/dotnet-getdocument.dll",
-        "tools/dotnet-getdocument.runtimeconfig.json",
-        "tools/net10.0/GetDocument.Insider.deps.json",
-        "tools/net10.0/GetDocument.Insider.dll",
-        "tools/net10.0/GetDocument.Insider.exe",
-        "tools/net10.0/GetDocument.Insider.runtimeconfig.json",
-        "tools/net10.0/Microsoft.AspNetCore.Connections.Abstractions.dll",
-        "tools/net10.0/Microsoft.AspNetCore.Connections.Abstractions.xml",
-        "tools/net10.0/Microsoft.AspNetCore.Hosting.Server.Abstractions.dll",
-        "tools/net10.0/Microsoft.AspNetCore.Hosting.Server.Abstractions.xml",
-        "tools/net10.0/Microsoft.AspNetCore.Http.Features.dll",
-        "tools/net10.0/Microsoft.AspNetCore.Http.Features.xml",
-        "tools/net10.0/Microsoft.Extensions.Configuration.Abstractions.dll",
-        "tools/net10.0/Microsoft.Extensions.DependencyInjection.Abstractions.dll",
-        "tools/net10.0/Microsoft.Extensions.Diagnostics.Abstractions.dll",
-        "tools/net10.0/Microsoft.Extensions.Features.dll",
-        "tools/net10.0/Microsoft.Extensions.Features.xml",
-        "tools/net10.0/Microsoft.Extensions.FileProviders.Abstractions.dll",
-        "tools/net10.0/Microsoft.Extensions.Hosting.Abstractions.dll",
-        "tools/net10.0/Microsoft.Extensions.Logging.Abstractions.dll",
-        "tools/net10.0/Microsoft.Extensions.Options.dll",
-        "tools/net10.0/Microsoft.Extensions.Primitives.dll",
-        "tools/net10.0/Microsoft.Net.Http.Headers.dll",
-        "tools/net10.0/Microsoft.Net.Http.Headers.xml",
-        "tools/net10.0/Microsoft.OpenApi.dll",
-        "tools/net462-x86/GetDocument.Insider.exe",
-        "tools/net462-x86/GetDocument.Insider.exe.config",
-        "tools/net462-x86/Microsoft.Bcl.AsyncInterfaces.dll",
-        "tools/net462-x86/Microsoft.OpenApi.dll",
-        "tools/net462-x86/Microsoft.Win32.Primitives.dll",
-        "tools/net462-x86/System.AppContext.dll",
-        "tools/net462-x86/System.Buffers.dll",
-        "tools/net462-x86/System.Collections.Concurrent.dll",
-        "tools/net462-x86/System.Collections.NonGeneric.dll",
-        "tools/net462-x86/System.Collections.Specialized.dll",
-        "tools/net462-x86/System.Collections.dll",
-        "tools/net462-x86/System.ComponentModel.EventBasedAsync.dll",
-        "tools/net462-x86/System.ComponentModel.Primitives.dll",
-        "tools/net462-x86/System.ComponentModel.TypeConverter.dll",
-        "tools/net462-x86/System.ComponentModel.dll",
-        "tools/net462-x86/System.Console.dll",
-        "tools/net462-x86/System.Data.Common.dll",
-        "tools/net462-x86/System.Diagnostics.Contracts.dll",
-        "tools/net462-x86/System.Diagnostics.Debug.dll",
-        "tools/net462-x86/System.Diagnostics.DiagnosticSource.dll",
-        "tools/net462-x86/System.Diagnostics.FileVersionInfo.dll",
-        "tools/net462-x86/System.Diagnostics.Process.dll",
-        "tools/net462-x86/System.Diagnostics.StackTrace.dll",
-        "tools/net462-x86/System.Diagnostics.TextWriterTraceListener.dll",
-        "tools/net462-x86/System.Diagnostics.Tools.dll",
-        "tools/net462-x86/System.Diagnostics.TraceSource.dll",
-        "tools/net462-x86/System.Diagnostics.Tracing.dll",
-        "tools/net462-x86/System.Drawing.Primitives.dll",
-        "tools/net462-x86/System.Dynamic.Runtime.dll",
-        "tools/net462-x86/System.Globalization.Calendars.dll",
-        "tools/net462-x86/System.Globalization.Extensions.dll",
-        "tools/net462-x86/System.Globalization.dll",
-        "tools/net462-x86/System.IO.Compression.ZipFile.dll",
-        "tools/net462-x86/System.IO.Compression.dll",
-        "tools/net462-x86/System.IO.FileSystem.DriveInfo.dll",
-        "tools/net462-x86/System.IO.FileSystem.Primitives.dll",
-        "tools/net462-x86/System.IO.FileSystem.Watcher.dll",
-        "tools/net462-x86/System.IO.FileSystem.dll",
-        "tools/net462-x86/System.IO.IsolatedStorage.dll",
-        "tools/net462-x86/System.IO.MemoryMappedFiles.dll",
-        "tools/net462-x86/System.IO.Pipes.dll",
-        "tools/net462-x86/System.IO.UnmanagedMemoryStream.dll",
-        "tools/net462-x86/System.IO.dll",
-        "tools/net462-x86/System.Linq.Expressions.dll",
-        "tools/net462-x86/System.Linq.Parallel.dll",
-        "tools/net462-x86/System.Linq.Queryable.dll",
-        "tools/net462-x86/System.Linq.dll",
-        "tools/net462-x86/System.Memory.dll",
-        "tools/net462-x86/System.Net.Http.dll",
-        "tools/net462-x86/System.Net.NameResolution.dll",
-        "tools/net462-x86/System.Net.NetworkInformation.dll",
-        "tools/net462-x86/System.Net.Ping.dll",
-        "tools/net462-x86/System.Net.Primitives.dll",
-        "tools/net462-x86/System.Net.Requests.dll",
-        "tools/net462-x86/System.Net.Security.dll",
-        "tools/net462-x86/System.Net.Sockets.dll",
-        "tools/net462-x86/System.Net.WebHeaderCollection.dll",
-        "tools/net462-x86/System.Net.WebSockets.Client.dll",
-        "tools/net462-x86/System.Net.WebSockets.dll",
-        "tools/net462-x86/System.Numerics.Vectors.dll",
-        "tools/net462-x86/System.ObjectModel.dll",
-        "tools/net462-x86/System.Reflection.Extensions.dll",
-        "tools/net462-x86/System.Reflection.Primitives.dll",
-        "tools/net462-x86/System.Reflection.dll",
-        "tools/net462-x86/System.Resources.Reader.dll",
-        "tools/net462-x86/System.Resources.ResourceManager.dll",
-        "tools/net462-x86/System.Resources.Writer.dll",
-        "tools/net462-x86/System.Runtime.CompilerServices.Unsafe.dll",
-        "tools/net462-x86/System.Runtime.CompilerServices.VisualC.dll",
-        "tools/net462-x86/System.Runtime.Extensions.dll",
-        "tools/net462-x86/System.Runtime.Handles.dll",
-        "tools/net462-x86/System.Runtime.InteropServices.RuntimeInformation.dll",
-        "tools/net462-x86/System.Runtime.InteropServices.dll",
-        "tools/net462-x86/System.Runtime.Numerics.dll",
-        "tools/net462-x86/System.Runtime.Serialization.Formatters.dll",
-        "tools/net462-x86/System.Runtime.Serialization.Json.dll",
-        "tools/net462-x86/System.Runtime.Serialization.Primitives.dll",
-        "tools/net462-x86/System.Runtime.Serialization.Xml.dll",
-        "tools/net462-x86/System.Runtime.dll",
-        "tools/net462-x86/System.Security.Claims.dll",
-        "tools/net462-x86/System.Security.Cryptography.Algorithms.dll",
-        "tools/net462-x86/System.Security.Cryptography.Csp.dll",
-        "tools/net462-x86/System.Security.Cryptography.Encoding.dll",
-        "tools/net462-x86/System.Security.Cryptography.Primitives.dll",
-        "tools/net462-x86/System.Security.Cryptography.X509Certificates.dll",
-        "tools/net462-x86/System.Security.Principal.dll",
-        "tools/net462-x86/System.Security.SecureString.dll",
-        "tools/net462-x86/System.Text.Encoding.Extensions.dll",
-        "tools/net462-x86/System.Text.Encoding.dll",
-        "tools/net462-x86/System.Text.Encodings.Web.dll",
-        "tools/net462-x86/System.Text.Json.dll",
-        "tools/net462-x86/System.Text.RegularExpressions.dll",
-        "tools/net462-x86/System.Threading.Overlapped.dll",
-        "tools/net462-x86/System.Threading.Tasks.Extensions.dll",
-        "tools/net462-x86/System.Threading.Tasks.Parallel.dll",
-        "tools/net462-x86/System.Threading.Tasks.dll",
-        "tools/net462-x86/System.Threading.Thread.dll",
-        "tools/net462-x86/System.Threading.ThreadPool.dll",
-        "tools/net462-x86/System.Threading.Timer.dll",
-        "tools/net462-x86/System.Threading.dll",
-        "tools/net462-x86/System.ValueTuple.dll",
-        "tools/net462-x86/System.Xml.ReaderWriter.dll",
-        "tools/net462-x86/System.Xml.XDocument.dll",
-        "tools/net462-x86/System.Xml.XPath.XDocument.dll",
-        "tools/net462-x86/System.Xml.XPath.dll",
-        "tools/net462-x86/System.Xml.XmlDocument.dll",
-        "tools/net462-x86/System.Xml.XmlSerializer.dll",
-        "tools/net462-x86/netstandard.dll",
-        "tools/net462/GetDocument.Insider.exe",
-        "tools/net462/GetDocument.Insider.exe.config",
-        "tools/net462/Microsoft.Bcl.AsyncInterfaces.dll",
-        "tools/net462/Microsoft.OpenApi.dll",
-        "tools/net462/Microsoft.Win32.Primitives.dll",
-        "tools/net462/System.AppContext.dll",
-        "tools/net462/System.Buffers.dll",
-        "tools/net462/System.Collections.Concurrent.dll",
-        "tools/net462/System.Collections.NonGeneric.dll",
-        "tools/net462/System.Collections.Specialized.dll",
-        "tools/net462/System.Collections.dll",
-        "tools/net462/System.ComponentModel.EventBasedAsync.dll",
-        "tools/net462/System.ComponentModel.Primitives.dll",
-        "tools/net462/System.ComponentModel.TypeConverter.dll",
-        "tools/net462/System.ComponentModel.dll",
-        "tools/net462/System.Console.dll",
-        "tools/net462/System.Data.Common.dll",
-        "tools/net462/System.Diagnostics.Contracts.dll",
-        "tools/net462/System.Diagnostics.Debug.dll",
-        "tools/net462/System.Diagnostics.DiagnosticSource.dll",
-        "tools/net462/System.Diagnostics.FileVersionInfo.dll",
-        "tools/net462/System.Diagnostics.Process.dll",
-        "tools/net462/System.Diagnostics.StackTrace.dll",
-        "tools/net462/System.Diagnostics.TextWriterTraceListener.dll",
-        "tools/net462/System.Diagnostics.Tools.dll",
-        "tools/net462/System.Diagnostics.TraceSource.dll",
-        "tools/net462/System.Diagnostics.Tracing.dll",
-        "tools/net462/System.Drawing.Primitives.dll",
-        "tools/net462/System.Dynamic.Runtime.dll",
-        "tools/net462/System.Globalization.Calendars.dll",
-        "tools/net462/System.Globalization.Extensions.dll",
-        "tools/net462/System.Globalization.dll",
-        "tools/net462/System.IO.Compression.ZipFile.dll",
-        "tools/net462/System.IO.Compression.dll",
-        "tools/net462/System.IO.FileSystem.DriveInfo.dll",
-        "tools/net462/System.IO.FileSystem.Primitives.dll",
-        "tools/net462/System.IO.FileSystem.Watcher.dll",
-        "tools/net462/System.IO.FileSystem.dll",
-        "tools/net462/System.IO.IsolatedStorage.dll",
-        "tools/net462/System.IO.MemoryMappedFiles.dll",
-        "tools/net462/System.IO.Pipes.dll",
-        "tools/net462/System.IO.UnmanagedMemoryStream.dll",
-        "tools/net462/System.IO.dll",
-        "tools/net462/System.Linq.Expressions.dll",
-        "tools/net462/System.Linq.Parallel.dll",
-        "tools/net462/System.Linq.Queryable.dll",
-        "tools/net462/System.Linq.dll",
-        "tools/net462/System.Memory.dll",
-        "tools/net462/System.Net.Http.dll",
-        "tools/net462/System.Net.NameResolution.dll",
-        "tools/net462/System.Net.NetworkInformation.dll",
-        "tools/net462/System.Net.Ping.dll",
-        "tools/net462/System.Net.Primitives.dll",
-        "tools/net462/System.Net.Requests.dll",
-        "tools/net462/System.Net.Security.dll",
-        "tools/net462/System.Net.Sockets.dll",
-        "tools/net462/System.Net.WebHeaderCollection.dll",
-        "tools/net462/System.Net.WebSockets.Client.dll",
-        "tools/net462/System.Net.WebSockets.dll",
-        "tools/net462/System.Numerics.Vectors.dll",
-        "tools/net462/System.ObjectModel.dll",
-        "tools/net462/System.Reflection.Extensions.dll",
-        "tools/net462/System.Reflection.Primitives.dll",
-        "tools/net462/System.Reflection.dll",
-        "tools/net462/System.Resources.Reader.dll",
-        "tools/net462/System.Resources.ResourceManager.dll",
-        "tools/net462/System.Resources.Writer.dll",
-        "tools/net462/System.Runtime.CompilerServices.Unsafe.dll",
-        "tools/net462/System.Runtime.CompilerServices.VisualC.dll",
-        "tools/net462/System.Runtime.Extensions.dll",
-        "tools/net462/System.Runtime.Handles.dll",
-        "tools/net462/System.Runtime.InteropServices.RuntimeInformation.dll",
-        "tools/net462/System.Runtime.InteropServices.dll",
-        "tools/net462/System.Runtime.Numerics.dll",
-        "tools/net462/System.Runtime.Serialization.Formatters.dll",
-        "tools/net462/System.Runtime.Serialization.Json.dll",
-        "tools/net462/System.Runtime.Serialization.Primitives.dll",
-        "tools/net462/System.Runtime.Serialization.Xml.dll",
-        "tools/net462/System.Runtime.dll",
-        "tools/net462/System.Security.Claims.dll",
-        "tools/net462/System.Security.Cryptography.Algorithms.dll",
-        "tools/net462/System.Security.Cryptography.Csp.dll",
-        "tools/net462/System.Security.Cryptography.Encoding.dll",
-        "tools/net462/System.Security.Cryptography.Primitives.dll",
-        "tools/net462/System.Security.Cryptography.X509Certificates.dll",
-        "tools/net462/System.Security.Principal.dll",
-        "tools/net462/System.Security.SecureString.dll",
-        "tools/net462/System.Text.Encoding.Extensions.dll",
-        "tools/net462/System.Text.Encoding.dll",
-        "tools/net462/System.Text.Encodings.Web.dll",
-        "tools/net462/System.Text.Json.dll",
-        "tools/net462/System.Text.RegularExpressions.dll",
-        "tools/net462/System.Threading.Overlapped.dll",
-        "tools/net462/System.Threading.Tasks.Extensions.dll",
-        "tools/net462/System.Threading.Tasks.Parallel.dll",
-        "tools/net462/System.Threading.Tasks.dll",
-        "tools/net462/System.Threading.Thread.dll",
-        "tools/net462/System.Threading.ThreadPool.dll",
-        "tools/net462/System.Threading.Timer.dll",
-        "tools/net462/System.Threading.dll",
-        "tools/net462/System.ValueTuple.dll",
-        "tools/net462/System.Xml.ReaderWriter.dll",
-        "tools/net462/System.Xml.XDocument.dll",
-        "tools/net462/System.Xml.XPath.XDocument.dll",
-        "tools/net462/System.Xml.XPath.dll",
-        "tools/net462/System.Xml.XmlDocument.dll",
-        "tools/net462/System.Xml.XmlSerializer.dll",
-        "tools/net462/netstandard.dll"
-      ]
-    },
     "Microsoft.Extensions.DependencyModel/10.0.1": {
       "sha512": "IiWPd4j8JLNjSkyXl5hvJwX2ZENDVQVPDHYgZmYdw8+YkY2xp9iQt0vjdnAQZLpo/ipeW1xgOqfSBEnivKWPYQ==",
       "type": "package",
@@ -3368,15 +3452,16 @@
         "microsoft.identity.client.extensions.msal.nuspec"
       ]
     },
-    "Microsoft.IdentityModel.Abstractions/7.7.1": {
-      "sha512": "S7sHg6gLg7oFqNGLwN1qSbJDI+QcRRj8SuJ1jHyCmKSipnF6ZQL+tFV2NzVfGj/xmGT9TykQdQiBN+p5Idl4TA==",
+    "Microsoft.IdentityModel.Abstractions/8.15.0": {
+      "sha512": "e/DApa1GfxUqHSBHcpiQg8yaghKAvFVBQFcWh25jNoRobDZbduTUACY8bZ54eeGWXvimGmEDdF0zkS5Dq16XPQ==",
       "type": "package",
-      "path": "microsoft.identitymodel.abstractions/7.7.1",
+      "path": "microsoft.identitymodel.abstractions/8.15.0",
       "files": [
         ".nupkg.metadata",
         ".signature.p7s",
-        "lib/net461/Microsoft.IdentityModel.Abstractions.dll",
-        "lib/net461/Microsoft.IdentityModel.Abstractions.xml",
+        "README.md",
+        "lib/net10.0/Microsoft.IdentityModel.Abstractions.dll",
+        "lib/net10.0/Microsoft.IdentityModel.Abstractions.xml",
         "lib/net462/Microsoft.IdentityModel.Abstractions.dll",
         "lib/net462/Microsoft.IdentityModel.Abstractions.xml",
         "lib/net472/Microsoft.IdentityModel.Abstractions.dll",
@@ -3385,21 +3470,24 @@
         "lib/net6.0/Microsoft.IdentityModel.Abstractions.xml",
         "lib/net8.0/Microsoft.IdentityModel.Abstractions.dll",
         "lib/net8.0/Microsoft.IdentityModel.Abstractions.xml",
+        "lib/net9.0/Microsoft.IdentityModel.Abstractions.dll",
+        "lib/net9.0/Microsoft.IdentityModel.Abstractions.xml",
         "lib/netstandard2.0/Microsoft.IdentityModel.Abstractions.dll",
         "lib/netstandard2.0/Microsoft.IdentityModel.Abstractions.xml",
-        "microsoft.identitymodel.abstractions.7.7.1.nupkg.sha512",
+        "microsoft.identitymodel.abstractions.8.15.0.nupkg.sha512",
         "microsoft.identitymodel.abstractions.nuspec"
       ]
     },
-    "Microsoft.IdentityModel.JsonWebTokens/7.7.1": {
-      "sha512": "3Izi75UCUssvo8LPx3OVnEeZay58qaFicrtSnbtUt7q8qQi0gy46gh4V8VUTkMVMKXV6VMyjBVmeNNgeCUJuIw==",
+    "Microsoft.IdentityModel.JsonWebTokens/8.15.0": {
+      "sha512": "3513f5VzvOZy3ELd42wGnh1Q3e83tlGAuXFSNbENpgWYoAhLLzgFtd5PiaOPGAU0gqKhYGVzKavghLUGfX3HQg==",
       "type": "package",
-      "path": "microsoft.identitymodel.jsonwebtokens/7.7.1",
+      "path": "microsoft.identitymodel.jsonwebtokens/8.15.0",
       "files": [
         ".nupkg.metadata",
         ".signature.p7s",
-        "lib/net461/Microsoft.IdentityModel.JsonWebTokens.dll",
-        "lib/net461/Microsoft.IdentityModel.JsonWebTokens.xml",
+        "README.md",
+        "lib/net10.0/Microsoft.IdentityModel.JsonWebTokens.dll",
+        "lib/net10.0/Microsoft.IdentityModel.JsonWebTokens.xml",
         "lib/net462/Microsoft.IdentityModel.JsonWebTokens.dll",
         "lib/net462/Microsoft.IdentityModel.JsonWebTokens.xml",
         "lib/net472/Microsoft.IdentityModel.JsonWebTokens.dll",
@@ -3408,21 +3496,24 @@
         "lib/net6.0/Microsoft.IdentityModel.JsonWebTokens.xml",
         "lib/net8.0/Microsoft.IdentityModel.JsonWebTokens.dll",
         "lib/net8.0/Microsoft.IdentityModel.JsonWebTokens.xml",
+        "lib/net9.0/Microsoft.IdentityModel.JsonWebTokens.dll",
+        "lib/net9.0/Microsoft.IdentityModel.JsonWebTokens.xml",
         "lib/netstandard2.0/Microsoft.IdentityModel.JsonWebTokens.dll",
         "lib/netstandard2.0/Microsoft.IdentityModel.JsonWebTokens.xml",
-        "microsoft.identitymodel.jsonwebtokens.7.7.1.nupkg.sha512",
+        "microsoft.identitymodel.jsonwebtokens.8.15.0.nupkg.sha512",
         "microsoft.identitymodel.jsonwebtokens.nuspec"
       ]
     },
-    "Microsoft.IdentityModel.Logging/7.7.1": {
-      "sha512": "BZNgSq/o8gsKExdYoBKPR65fdsxW0cTF8PsdqB8y011AGUJJW300S/ZIsEUD0+sOmGc003Gwv3FYbjrVjvsLNQ==",
+    "Microsoft.IdentityModel.Logging/8.15.0": {
+      "sha512": "1gJLjhy0LV2RQMJ9NGzi5Tnb2l+c37o8D8Lrk2mrvmb6OQHZ7XJstd/XxvncXgBpad4x9CGXdipbZzJJCXKyAg==",
       "type": "package",
-      "path": "microsoft.identitymodel.logging/7.7.1",
+      "path": "microsoft.identitymodel.logging/8.15.0",
       "files": [
         ".nupkg.metadata",
         ".signature.p7s",
-        "lib/net461/Microsoft.IdentityModel.Logging.dll",
-        "lib/net461/Microsoft.IdentityModel.Logging.xml",
+        "README.md",
+        "lib/net10.0/Microsoft.IdentityModel.Logging.dll",
+        "lib/net10.0/Microsoft.IdentityModel.Logging.xml",
         "lib/net462/Microsoft.IdentityModel.Logging.dll",
         "lib/net462/Microsoft.IdentityModel.Logging.xml",
         "lib/net472/Microsoft.IdentityModel.Logging.dll",
@@ -3431,21 +3522,21 @@
         "lib/net6.0/Microsoft.IdentityModel.Logging.xml",
         "lib/net8.0/Microsoft.IdentityModel.Logging.dll",
         "lib/net8.0/Microsoft.IdentityModel.Logging.xml",
+        "lib/net9.0/Microsoft.IdentityModel.Logging.dll",
+        "lib/net9.0/Microsoft.IdentityModel.Logging.xml",
         "lib/netstandard2.0/Microsoft.IdentityModel.Logging.dll",
         "lib/netstandard2.0/Microsoft.IdentityModel.Logging.xml",
-        "microsoft.identitymodel.logging.7.7.1.nupkg.sha512",
+        "microsoft.identitymodel.logging.8.15.0.nupkg.sha512",
         "microsoft.identitymodel.logging.nuspec"
       ]
     },
-    "Microsoft.IdentityModel.Protocols/7.7.1": {
-      "sha512": "h+fHHBGokepmCX+QZXJk4Ij8OApCb2n2ktoDkNX5CXteXsOxTHMNgjPGpAwdJMFvAL7TtGarUnk3o97NmBq2QQ==",
+    "Microsoft.IdentityModel.Protocols/8.0.1": {
+      "sha512": "uA2vpKqU3I2mBBEaeJAWPTjT9v1TZrGWKdgK6G5qJd03CLx83kdiqO9cmiK8/n1erkHzFBwU/RphP83aAe3i3g==",
       "type": "package",
-      "path": "microsoft.identitymodel.protocols/7.7.1",
+      "path": "microsoft.identitymodel.protocols/8.0.1",
       "files": [
         ".nupkg.metadata",
         ".signature.p7s",
-        "lib/net461/Microsoft.IdentityModel.Protocols.dll",
-        "lib/net461/Microsoft.IdentityModel.Protocols.xml",
         "lib/net462/Microsoft.IdentityModel.Protocols.dll",
         "lib/net462/Microsoft.IdentityModel.Protocols.xml",
         "lib/net472/Microsoft.IdentityModel.Protocols.dll",
@@ -3454,21 +3545,21 @@
         "lib/net6.0/Microsoft.IdentityModel.Protocols.xml",
         "lib/net8.0/Microsoft.IdentityModel.Protocols.dll",
         "lib/net8.0/Microsoft.IdentityModel.Protocols.xml",
+        "lib/net9.0/Microsoft.IdentityModel.Protocols.dll",
+        "lib/net9.0/Microsoft.IdentityModel.Protocols.xml",
         "lib/netstandard2.0/Microsoft.IdentityModel.Protocols.dll",
         "lib/netstandard2.0/Microsoft.IdentityModel.Protocols.xml",
-        "microsoft.identitymodel.protocols.7.7.1.nupkg.sha512",
+        "microsoft.identitymodel.protocols.8.0.1.nupkg.sha512",
         "microsoft.identitymodel.protocols.nuspec"
       ]
     },
-    "Microsoft.IdentityModel.Protocols.OpenIdConnect/7.7.1": {
-      "sha512": "yT2Hdj8LpPbcT9C9KlLVxXl09C8zjFaVSaApdOwuecMuoV4s6Sof/mnTDz/+F/lILPIBvrWugR9CC7iRVZgbfQ==",
+    "Microsoft.IdentityModel.Protocols.OpenIdConnect/8.0.1": {
+      "sha512": "AQDbfpL+yzuuGhO/mQhKNsp44pm5Jv8/BI4KiFXR7beVGZoSH35zMV3PrmcfvSTsyI6qrcR898NzUauD6SRigg==",
       "type": "package",
-      "path": "microsoft.identitymodel.protocols.openidconnect/7.7.1",
+      "path": "microsoft.identitymodel.protocols.openidconnect/8.0.1",
       "files": [
         ".nupkg.metadata",
         ".signature.p7s",
-        "lib/net461/Microsoft.IdentityModel.Protocols.OpenIdConnect.dll",
-        "lib/net461/Microsoft.IdentityModel.Protocols.OpenIdConnect.xml",
         "lib/net462/Microsoft.IdentityModel.Protocols.OpenIdConnect.dll",
         "lib/net462/Microsoft.IdentityModel.Protocols.OpenIdConnect.xml",
         "lib/net472/Microsoft.IdentityModel.Protocols.OpenIdConnect.dll",
@@ -3477,21 +3568,24 @@
         "lib/net6.0/Microsoft.IdentityModel.Protocols.OpenIdConnect.xml",
         "lib/net8.0/Microsoft.IdentityModel.Protocols.OpenIdConnect.dll",
         "lib/net8.0/Microsoft.IdentityModel.Protocols.OpenIdConnect.xml",
+        "lib/net9.0/Microsoft.IdentityModel.Protocols.OpenIdConnect.dll",
+        "lib/net9.0/Microsoft.IdentityModel.Protocols.OpenIdConnect.xml",
         "lib/netstandard2.0/Microsoft.IdentityModel.Protocols.OpenIdConnect.dll",
         "lib/netstandard2.0/Microsoft.IdentityModel.Protocols.OpenIdConnect.xml",
-        "microsoft.identitymodel.protocols.openidconnect.7.7.1.nupkg.sha512",
+        "microsoft.identitymodel.protocols.openidconnect.8.0.1.nupkg.sha512",
         "microsoft.identitymodel.protocols.openidconnect.nuspec"
       ]
     },
-    "Microsoft.IdentityModel.Tokens/7.7.1": {
-      "sha512": "fQ0VVCba75lknUHGldi3iTKAYUQqbzp1Un8+d9cm9nON0Gs8NAkXddNg8iaUB0qi/ybtAmNWizTR4avdkCJ9pQ==",
+    "Microsoft.IdentityModel.Tokens/8.15.0": {
+      "sha512": "zUE9ysJXBtXlHHRtcRK3Sp8NzdCI1z/BRDTXJQ2TvBoI0ENRtnufYIep0O5TSCJRJGDwwuLTUx+l/bEYZUxpCA==",
       "type": "package",
-      "path": "microsoft.identitymodel.tokens/7.7.1",
+      "path": "microsoft.identitymodel.tokens/8.15.0",
       "files": [
         ".nupkg.metadata",
         ".signature.p7s",
-        "lib/net461/Microsoft.IdentityModel.Tokens.dll",
-        "lib/net461/Microsoft.IdentityModel.Tokens.xml",
+        "README.md",
+        "lib/net10.0/Microsoft.IdentityModel.Tokens.dll",
+        "lib/net10.0/Microsoft.IdentityModel.Tokens.xml",
         "lib/net462/Microsoft.IdentityModel.Tokens.dll",
         "lib/net462/Microsoft.IdentityModel.Tokens.xml",
         "lib/net472/Microsoft.IdentityModel.Tokens.dll",
@@ -3500,9 +3594,11 @@
         "lib/net6.0/Microsoft.IdentityModel.Tokens.xml",
         "lib/net8.0/Microsoft.IdentityModel.Tokens.dll",
         "lib/net8.0/Microsoft.IdentityModel.Tokens.xml",
+        "lib/net9.0/Microsoft.IdentityModel.Tokens.dll",
+        "lib/net9.0/Microsoft.IdentityModel.Tokens.xml",
         "lib/netstandard2.0/Microsoft.IdentityModel.Tokens.dll",
         "lib/netstandard2.0/Microsoft.IdentityModel.Tokens.xml",
-        "microsoft.identitymodel.tokens.7.7.1.nupkg.sha512",
+        "microsoft.identitymodel.tokens.8.15.0.nupkg.sha512",
         "microsoft.identitymodel.tokens.nuspec"
       ]
     },
@@ -3535,10 +3631,10 @@
         "ref/netstandard2.0/Microsoft.NET.StringTools.xml"
       ]
     },
-    "Microsoft.OpenApi/2.3.0": {
-      "sha512": "5RZpjyt0JMmoc/aEgY9c1vE5pusdDGvkPl9qKIy9KFbRiIXD+w7gBJxX+unSjzzOcfgRoYxnO4okZyqDAL2WEw==",
+    "Microsoft.OpenApi/2.0.0": {
+      "sha512": "GGYLfzV/G/ct80OZ45JxnWP7NvMX1BCugn/lX7TH5o0lcVaviavsLMTxmFV2AybXWjbi3h6FF1vgZiTK6PXndw==",
       "type": "package",
-      "path": "microsoft.openapi/2.3.0",
+      "path": "microsoft.openapi/2.0.0",
       "files": [
         ".nupkg.metadata",
         ".signature.p7s",
@@ -3549,7 +3645,7 @@
         "lib/netstandard2.0/Microsoft.OpenApi.dll",
         "lib/netstandard2.0/Microsoft.OpenApi.pdb",
         "lib/netstandard2.0/Microsoft.OpenApi.xml",
-        "microsoft.openapi.2.3.0.nupkg.sha512",
+        "microsoft.openapi.2.0.0.nupkg.sha512",
         "microsoft.openapi.nuspec"
       ]
     },
@@ -3618,81 +3714,145 @@
         "packageIcon.png"
       ]
     },
-    "Swashbuckle.AspNetCore/10.0.1": {
-      "sha512": "177+JNAV5TNvy8gLCdrcWBY9n2jdkxiHQDY4vhaExeqUpKrOqDatCcm/kW3kze60GqfnZ2NobD/IKiAPOL+CEw==",
+    "QuestPDF/2025.12.0": {
+      "sha512": "INaUIKE3z9+X8alPcriqjkctT+S/xVWfkUW8Xrmu4k38t9yijGjWGWxrJkopO0YiXjVxSJ+HDAZ6P/Nyd2tB5Q==",
       "type": "package",
-      "path": "swashbuckle.aspnetcore/10.0.1",
+      "path": "questpdf/2025.12.0",
       "files": [
         ".nupkg.metadata",
         ".signature.p7s",
-        "build/Swashbuckle.AspNetCore.props",
-        "buildMultiTargeting/Swashbuckle.AspNetCore.props",
-        "docs/package-readme.md",
-        "swashbuckle.aspnetcore.10.0.1.nupkg.sha512",
-        "swashbuckle.aspnetcore.nuspec"
+        "Contributors.md",
+        "Description.md",
+        "Documentation.xml",
+        "ExternalDependencyLicenses/emsdk.txt",
+        "ExternalDependencyLicenses/expat.txt",
+        "ExternalDependencyLicenses/harfbuzz.txt",
+        "ExternalDependencyLicenses/icu.txt",
+        "ExternalDependencyLicenses/libjpeg-turbo.txt",
+        "ExternalDependencyLicenses/libpng.txt",
+        "ExternalDependencyLicenses/libwebp.txt",
+        "ExternalDependencyLicenses/ninja-build.txt",
+        "ExternalDependencyLicenses/qpdf.txt",
+        "ExternalDependencyLicenses/readme.txt",
+        "ExternalDependencyLicenses/skia.txt",
+        "ExternalDependencyLicenses/wuffs.txt",
+        "ExternalDependencyLicenses/zlib.txt",
+        "LatinWords.txt",
+        "LatoFont/Lato-Black.ttf",
+        "LatoFont/Lato-BlackItalic.ttf",
+        "LatoFont/Lato-Bold.ttf",
+        "LatoFont/Lato-BoldItalic.ttf",
+        "LatoFont/Lato-ExtraBold.ttf",
+        "LatoFont/Lato-ExtraBoldItalic.ttf",
+        "LatoFont/Lato-ExtraLight.ttf",
+        "LatoFont/Lato-ExtraLightItalic.ttf",
+        "LatoFont/Lato-Italic.ttf",
+        "LatoFont/Lato-Light.ttf",
+        "LatoFont/Lato-LightItalic.ttf",
+        "LatoFont/Lato-Medium.ttf",
+        "LatoFont/Lato-MediumItalic.ttf",
+        "LatoFont/Lato-Regular.ttf",
+        "LatoFont/Lato-SemiBold.ttf",
+        "LatoFont/Lato-SemiBoldItalic.ttf",
+        "LatoFont/Lato-Thin.ttf",
+        "LatoFont/Lato-ThinItalic.ttf",
+        "LatoFont/OFL.txt",
+        "Logo.png",
+        "MimeTypes.csv",
+        "PackageLicense.md",
+        "README.md",
+        "ReleaseNotes.txt",
+        "build/QuestPDF.targets",
+        "build/net4/QuestPDF.targets",
+        "buildTransitive/QuestPDF.targets",
+        "buildTransitive/net4/QuestPDF.targets",
+        "lib/net10.0/QuestPDF.dll",
+        "lib/net10.0/QuestPDF.xml",
+        "lib/net6.0/QuestPDF.dll",
+        "lib/net6.0/QuestPDF.xml",
+        "lib/net8.0/QuestPDF.dll",
+        "lib/net8.0/QuestPDF.xml",
+        "lib/netstandard2.0/QuestPDF.dll",
+        "lib/netstandard2.0/QuestPDF.xml",
+        "questpdf.2025.12.0.nupkg.sha512",
+        "questpdf.nuspec",
+        "runtimes/linux-arm64/native/libQuestPdfSkia.so",
+        "runtimes/linux-arm64/native/libqpdf.so",
+        "runtimes/linux-musl-x64/native/libQuestPdfSkia.so",
+        "runtimes/linux-musl-x64/native/libqpdf.so",
+        "runtimes/linux-x64/native/libQuestPdfSkia.so",
+        "runtimes/linux-x64/native/libqpdf.so",
+        "runtimes/osx-arm64/native/libQuestPdfSkia.dylib",
+        "runtimes/osx-arm64/native/libqpdf.dylib",
+        "runtimes/osx-x64/native/libQuestPdfSkia.dylib",
+        "runtimes/osx-x64/native/libqpdf.dylib",
+        "runtimes/win-x64/native/QuestPdfSkia.dll",
+        "runtimes/win-x64/native/libgcc_s_seh-1.dll",
+        "runtimes/win-x64/native/libstdc++-6.dll",
+        "runtimes/win-x64/native/libwinpthread-1.dll",
+        "runtimes/win-x64/native/qpdf.dll",
+        "runtimes/win-x64/native/zlib1.dll",
+        "runtimes/win-x86/native/QuestPdfSkia.dll",
+        "runtimes/win-x86/native/libgcc_s_dw2-1.dll",
+        "runtimes/win-x86/native/libstdc++-6.dll",
+        "runtimes/win-x86/native/libwinpthread-1.dll",
+        "runtimes/win-x86/native/qpdf.dll",
+        "runtimes/win-x86/native/zlib1.dll"
       ]
     },
-    "Swashbuckle.AspNetCore.Swagger/10.0.1": {
-      "sha512": "HJYFSP18YF1Z6LCwunL+v8wuZUzzvcjarB8AJna/NVVIpq11FH9BW/D/6abwigu7SsKRbisStmk8xu2mTsxxHg==",
+    "RBush.Signed/4.0.0": {
+      "sha512": "aP5KQxL5RnFNGW1f0euYVBfCatkLw5iEzMRJcXKq8LWWP4Cp3+qoSq1tDDL2vvJ2rM0ychmVMa2VaEKLS6uX4w==",
       "type": "package",
-      "path": "swashbuckle.aspnetcore.swagger/10.0.1",
+      "path": "rbush.signed/4.0.0",
       "files": [
         ".nupkg.metadata",
         ".signature.p7s",
-        "lib/net10.0/Swashbuckle.AspNetCore.Swagger.dll",
-        "lib/net10.0/Swashbuckle.AspNetCore.Swagger.pdb",
-        "lib/net10.0/Swashbuckle.AspNetCore.Swagger.xml",
-        "lib/net8.0/Swashbuckle.AspNetCore.Swagger.dll",
-        "lib/net8.0/Swashbuckle.AspNetCore.Swagger.pdb",
-        "lib/net8.0/Swashbuckle.AspNetCore.Swagger.xml",
-        "lib/net9.0/Swashbuckle.AspNetCore.Swagger.dll",
-        "lib/net9.0/Swashbuckle.AspNetCore.Swagger.pdb",
-        "lib/net9.0/Swashbuckle.AspNetCore.Swagger.xml",
-        "package-readme.md",
-        "swashbuckle.aspnetcore.swagger.10.0.1.nupkg.sha512",
-        "swashbuckle.aspnetcore.swagger.nuspec"
+        "lib/net47/RBush.dll",
+        "lib/net47/RBush.xml",
+        "lib/net8.0/RBush.dll",
+        "lib/net8.0/RBush.xml",
+        "lib/netstandard2.0/RBush.dll",
+        "lib/netstandard2.0/RBush.xml",
+        "rbush.signed.4.0.0.nupkg.sha512",
+        "rbush.signed.nuspec",
+        "readme.md"
       ]
     },
-    "Swashbuckle.AspNetCore.SwaggerGen/10.0.1": {
-      "sha512": "vMMBDiTC53KclPs1aiedRZnXkoI2ZgF5/JFr3Dqr8KT7wvIbA/MwD+ormQ4qf25gN5xCrJbmz/9/Z3RrpSofMA==",
+    "Scalar.AspNetCore/2.11.9": {
+      "sha512": "Sqb8lhDTXk5eq3qxUFFlKyhskQh1tF4VlglwB6CPROkMnJjgW0ElJKCBdR16X/zYrokpYOvqHLAZ8jKETQKrpQ==",
       "type": "package",
-      "path": "swashbuckle.aspnetcore.swaggergen/10.0.1",
+      "path": "scalar.aspnetcore/2.11.9",
       "files": [
         ".nupkg.metadata",
         ".signature.p7s",
-        "lib/net10.0/Swashbuckle.AspNetCore.SwaggerGen.dll",
-        "lib/net10.0/Swashbuckle.AspNetCore.SwaggerGen.pdb",
-        "lib/net10.0/Swashbuckle.AspNetCore.SwaggerGen.xml",
-        "lib/net8.0/Swashbuckle.AspNetCore.SwaggerGen.dll",
-        "lib/net8.0/Swashbuckle.AspNetCore.SwaggerGen.pdb",
-        "lib/net8.0/Swashbuckle.AspNetCore.SwaggerGen.xml",
-        "lib/net9.0/Swashbuckle.AspNetCore.SwaggerGen.dll",
-        "lib/net9.0/Swashbuckle.AspNetCore.SwaggerGen.pdb",
-        "lib/net9.0/Swashbuckle.AspNetCore.SwaggerGen.xml",
-        "package-readme.md",
-        "swashbuckle.aspnetcore.swaggergen.10.0.1.nupkg.sha512",
-        "swashbuckle.aspnetcore.swaggergen.nuspec"
+        "README.md",
+        "icon.png",
+        "lib/net10.0/Scalar.AspNetCore.dll",
+        "lib/net10.0/Scalar.AspNetCore.xml",
+        "lib/net8.0/Scalar.AspNetCore.dll",
+        "lib/net8.0/Scalar.AspNetCore.xml",
+        "lib/net9.0/Scalar.AspNetCore.dll",
+        "lib/net9.0/Scalar.AspNetCore.xml",
+        "scalar.aspnetcore.2.11.9.nupkg.sha512",
+        "scalar.aspnetcore.nuspec"
       ]
     },
-    "Swashbuckle.AspNetCore.SwaggerUI/10.0.1": {
-      "sha512": "a2eLI/fCxJ3WH+H1hr7Q2T82ZBk20FfqYBEZ9hOr3f+426ZUfGU2LxYWzOJrf5/4y6EKShmWpjJG01h3Rc+l6Q==",
+    "SixLabors.Fonts/1.0.0": {
+      "sha512": "LFQsCZlV0xlUyXAOMUo5kkSl+8zAQXXbbdwWchtk0B4o7zotZhQsQOcJUELGHdfPfm/xDAsz6hONAuV25bJaAg==",
       "type": "package",
-      "path": "swashbuckle.aspnetcore.swaggerui/10.0.1",
+      "path": "sixlabors.fonts/1.0.0",
       "files": [
         ".nupkg.metadata",
         ".signature.p7s",
-        "lib/net10.0/Swashbuckle.AspNetCore.SwaggerUI.dll",
-        "lib/net10.0/Swashbuckle.AspNetCore.SwaggerUI.pdb",
-        "lib/net10.0/Swashbuckle.AspNetCore.SwaggerUI.xml",
-        "lib/net8.0/Swashbuckle.AspNetCore.SwaggerUI.dll",
-        "lib/net8.0/Swashbuckle.AspNetCore.SwaggerUI.pdb",
-        "lib/net8.0/Swashbuckle.AspNetCore.SwaggerUI.xml",
-        "lib/net9.0/Swashbuckle.AspNetCore.SwaggerUI.dll",
-        "lib/net9.0/Swashbuckle.AspNetCore.SwaggerUI.pdb",
-        "lib/net9.0/Swashbuckle.AspNetCore.SwaggerUI.xml",
-        "package-readme.md",
-        "swashbuckle.aspnetcore.swaggerui.10.0.1.nupkg.sha512",
-        "swashbuckle.aspnetcore.swaggerui.nuspec"
+        "lib/netcoreapp3.1/SixLabors.Fonts.dll",
+        "lib/netcoreapp3.1/SixLabors.Fonts.xml",
+        "lib/netstandard2.0/SixLabors.Fonts.dll",
+        "lib/netstandard2.0/SixLabors.Fonts.xml",
+        "lib/netstandard2.1/SixLabors.Fonts.dll",
+        "lib/netstandard2.1/SixLabors.Fonts.xml",
+        "sixlabors.fonts.1.0.0.nupkg.sha512",
+        "sixlabors.fonts.128.png",
+        "sixlabors.fonts.nuspec"
       ]
     },
     "System.ClientModel/1.5.1": {
@@ -3961,15 +4121,16 @@
         "useSharedDesignerContext.txt"
       ]
     },
-    "System.IdentityModel.Tokens.Jwt/7.7.1": {
-      "sha512": "rQkO1YbAjLwnDJSMpRhRtrc6XwIcEOcUvoEcge+evurpzSZM3UNK+MZfD3sKyTlYsvknZ6eJjSBfnmXqwOsT9Q==",
+    "System.IdentityModel.Tokens.Jwt/8.15.0": {
+      "sha512": "dpodi7ixz6hxK8YCBYAWzm0IA8JYXoKcz0hbCbNifo519//rjUI0fBD8rfNr+IGqq+2gm4oQoXwHk09LX5SqqQ==",
       "type": "package",
-      "path": "system.identitymodel.tokens.jwt/7.7.1",
+      "path": "system.identitymodel.tokens.jwt/8.15.0",
       "files": [
         ".nupkg.metadata",
         ".signature.p7s",
-        "lib/net461/System.IdentityModel.Tokens.Jwt.dll",
-        "lib/net461/System.IdentityModel.Tokens.Jwt.xml",
+        "README.md",
+        "lib/net10.0/System.IdentityModel.Tokens.Jwt.dll",
+        "lib/net10.0/System.IdentityModel.Tokens.Jwt.xml",
         "lib/net462/System.IdentityModel.Tokens.Jwt.dll",
         "lib/net462/System.IdentityModel.Tokens.Jwt.xml",
         "lib/net472/System.IdentityModel.Tokens.Jwt.dll",
@@ -3978,10 +4139,41 @@
         "lib/net6.0/System.IdentityModel.Tokens.Jwt.xml",
         "lib/net8.0/System.IdentityModel.Tokens.Jwt.dll",
         "lib/net8.0/System.IdentityModel.Tokens.Jwt.xml",
+        "lib/net9.0/System.IdentityModel.Tokens.Jwt.dll",
+        "lib/net9.0/System.IdentityModel.Tokens.Jwt.xml",
         "lib/netstandard2.0/System.IdentityModel.Tokens.Jwt.dll",
         "lib/netstandard2.0/System.IdentityModel.Tokens.Jwt.xml",
-        "system.identitymodel.tokens.jwt.7.7.1.nupkg.sha512",
+        "system.identitymodel.tokens.jwt.8.15.0.nupkg.sha512",
         "system.identitymodel.tokens.jwt.nuspec"
+      ]
+    },
+    "System.IO.Packaging/8.0.1": {
+      "sha512": "KYkIOAvPexQOLDxPO2g0BVoWInnQhPpkFzRqvNrNrMhVT6kqhVr0zEb6KCHlptLFukxnZrjuMVAnxK7pOGUYrw==",
+      "type": "package",
+      "path": "system.io.packaging/8.0.1",
+      "files": [
+        ".nupkg.metadata",
+        ".signature.p7s",
+        "Icon.png",
+        "LICENSE.TXT",
+        "THIRD-PARTY-NOTICES.TXT",
+        "buildTransitive/net461/System.IO.Packaging.targets",
+        "buildTransitive/net462/_._",
+        "buildTransitive/net6.0/_._",
+        "buildTransitive/netcoreapp2.0/System.IO.Packaging.targets",
+        "lib/net462/System.IO.Packaging.dll",
+        "lib/net462/System.IO.Packaging.xml",
+        "lib/net6.0/System.IO.Packaging.dll",
+        "lib/net6.0/System.IO.Packaging.xml",
+        "lib/net7.0/System.IO.Packaging.dll",
+        "lib/net7.0/System.IO.Packaging.xml",
+        "lib/net8.0/System.IO.Packaging.dll",
+        "lib/net8.0/System.IO.Packaging.xml",
+        "lib/netstandard2.0/System.IO.Packaging.dll",
+        "lib/netstandard2.0/System.IO.Packaging.xml",
+        "system.io.packaging.8.0.1.nupkg.sha512",
+        "system.io.packaging.nuspec",
+        "useSharedDesignerContext.txt"
       ]
     },
     "System.Memory.Data/8.0.1": {
@@ -4190,10 +4382,16 @@
   },
   "projectFileDependencyGroups": {
     "net10.0": [
+      "BCrypt.Net-Next >= 4.0.3",
+      "ClosedXML >= 0.105.0",
+      "Microsoft.AspNetCore.Authentication.JwtBearer >= 10.0.1",
       "Microsoft.AspNetCore.OpenApi >= 10.0.0",
       "Microsoft.EntityFrameworkCore.Design >= 10.0.1",
       "Microsoft.EntityFrameworkCore.SqlServer >= 10.0.1",
-      "Swashbuckle.AspNetCore >= 10.0.1"
+      "Microsoft.IdentityModel.Tokens >= 8.15.0",
+      "QuestPDF >= 2025.12.0",
+      "Scalar.AspNetCore >= 2.11.9",
+      "System.IdentityModel.Tokens.Jwt >= 8.15.0"
     ]
   },
   "packageFolders": {
@@ -4203,11 +4401,11 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "C:\\Users\\USUARIO\\Tyted_Project\\Tyted.API\\Tyted.API.csproj",
+      "projectUniqueName": "C:\\Users\\USUARIO\\Tyted_Project\\tyted.api\\Tyted.API.csproj",
       "projectName": "Tyted.API",
-      "projectPath": "C:\\Users\\USUARIO\\Tyted_Project\\Tyted.API\\Tyted.API.csproj",
+      "projectPath": "C:\\Users\\USUARIO\\Tyted_Project\\tyted.api\\Tyted.API.csproj",
       "packagesPath": "C:\\Users\\USUARIO\\.nuget\\packages\\",
-      "outputPath": "C:\\Users\\USUARIO\\Tyted_Project\\Tyted.API\\obj\\",
+      "outputPath": "C:\\Users\\USUARIO\\Tyted_Project\\tyted.api\\obj\\",
       "projectStyle": "PackageReference",
       "fallbackFolders": [
         "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
@@ -4247,6 +4445,18 @@
       "net10.0": {
         "targetAlias": "net10.0",
         "dependencies": {
+          "BCrypt.Net-Next": {
+            "target": "Package",
+            "version": "[4.0.3, )"
+          },
+          "ClosedXML": {
+            "target": "Package",
+            "version": "[0.105.0, )"
+          },
+          "Microsoft.AspNetCore.Authentication.JwtBearer": {
+            "target": "Package",
+            "version": "[10.0.1, )"
+          },
           "Microsoft.AspNetCore.OpenApi": {
             "target": "Package",
             "version": "[10.0.0, )"
@@ -4261,9 +4471,21 @@
             "target": "Package",
             "version": "[10.0.1, )"
           },
-          "Swashbuckle.AspNetCore": {
+          "Microsoft.IdentityModel.Tokens": {
             "target": "Package",
-            "version": "[10.0.1, )"
+            "version": "[8.15.0, )"
+          },
+          "QuestPDF": {
+            "target": "Package",
+            "version": "[2025.12.0, )"
+          },
+          "Scalar.AspNetCore": {
+            "target": "Package",
+            "version": "[2.11.9, )"
+          },
+          "System.IdentityModel.Tokens.Jwt": {
+            "target": "Package",
+            "version": "[8.15.0, )"
           }
         },
         "imports": [

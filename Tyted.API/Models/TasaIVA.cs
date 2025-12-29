@@ -19,6 +19,6 @@ namespace Tyted.API.Models
         public decimal Porcentaje { get; set; } 
 
         // Propiedad de navegación inversa (opcional, pero buena práctica)
-        public ICollection<Producto>? Productos { get; set; }
+        // public virtual ICollection<Producto> Productos { get; set; } = new List<Producto>();
     }
 }

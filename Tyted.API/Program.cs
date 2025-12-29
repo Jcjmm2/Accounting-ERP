@@ -1,77 +1,152 @@
 using Microsoft.EntityFrameworkCore;
 using Tyted.API.Data; 
-using Tyted.API.Services; // <-- IMPORTANTE: Agregar este using
+using Tyted.API.Services;
+using System.Globalization;
+using Microsoft.AspNetCore.Localization;
+using Microsoft.AspNetCore.Authentication.JwtBearer;
+using Microsoft.IdentityModel.Tokens;
+using System.Text;
+using Scalar.AspNetCore;
+using QuestPDF.Infrastructure;
 
 var builder = WebApplication.CreateBuilder(args);
 
 // =========================================================================
-// 1. REGISTRO DEL CONTEXTO DE LA BASE DE DATOS (DbContext)
+// 1. REGISTRO DEL CONTEXTO DE LA BASE DE DATOS
 // =========================================================================
 builder.Services.AddDbContext<TytedContext>(options =>
 {
-    // Obtiene la cadena de conexión llamada "DefaultConnection" del archivo appsettings.json
     var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
-    
-    // Configura Entity Framework Core para usar SQL Server con esa cadena de conexión
     options.UseSqlServer(connectionString);
 });
 
 // =========================================================================
-// 2. REGISTRO DE SERVICIOS DE LÓGICA DE NEGOCIO (Services)
+// 2. CONFIGURACIÓN DE AUTENTICACIÓN JWT
 // =========================================================================
-builder.Services.AddScoped<CompraService>(); // <-- NUEVA LÍNEA
+var jwtKey = builder.Configuration["Jwt:Key"] ?? "TuClaveSuperSecretaDeAlMenos32Caracteres";
+var keyBytes = Encoding.UTF8.GetBytes(jwtKey);
+
+builder.Services.AddAuthentication(options =>
+{
+    options.DefaultAuthenticateScheme = JwtBearerDefaults.AuthenticationScheme;
+    options.DefaultChallengeScheme = JwtBearerDefaults.AuthenticationScheme;
+})
+.AddJwtBearer(options =>
+{
+    options.TokenValidationParameters = new TokenValidationParameters
+    {
+        ValidateIssuerSigningKey = true,
+        IssuerSigningKey = new SymmetricSecurityKey(keyBytes),
+        ValidateIssuer = false,
+        ValidateAudience = false,
+        ClockSkew = TimeSpan.Zero
+    };
+});
 
 // =========================================================================
+// 3. REGISTRO DE SERVICIOS (Agregado TasaService)
+// =========================================================================
+builder.Services.AddScoped<CompraService>();
+builder.Services.AddScoped<VentaService>();
+builder.Services.AddScoped<ConfigService>();
+builder.Services.AddScoped<CorrelativoService>();
+builder.Services.AddScoped<TasaService>(); 
+builder.Services.AddScoped<PedidoService>();
+builder.Services.AddScoped<NotaEntregaService>();
+builder.Services.AddScoped<IReportService, ReportService>();
+builder.Services.AddScoped<EstadisticasService>();
 
-
-// <-- AÑADIDO: CONFIGURACIÓN CORS (1/2: Definición de la Política)
-var MyAllowSpecificOrigins = "_myAllowSpecificOrigins"; 
-
+// =========================================================================
+// 4. CONFIGURACIÓN CORS, CONTROLADORES Y OPENAPI (Antes del Build)
+// =========================================================================
+var MyAllowSpecificOrigins = "_myAllowSpecificOrigins";
+QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
 builder.Services.AddCors(options =>
 {
     options.AddPolicy(name: MyAllowSpecificOrigins,
-                        policy =>
-                        {
-                            // **IMPORTANTE: Permitir peticiones desde el puerto de React**
-                            policy.WithOrigins("http://localhost:5173") 
-                                .AllowAnyHeader()
-                                .AllowAnyMethod(); // Permitir verbos GET, POST, DELETE, etc.
-                        });
+        policy =>
+        {
+            policy.WithOrigins("http://localhost:5173")
+                  .AllowAnyHeader()
+                  .AllowAnyMethod();
+        });
 });
-// =========================================================================
 
-
-// Add services to the container.
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
-        // ESTO EVITA LOS ERRORES DE REFERENCIA CÍCLICA
-        options.JsonSerializerOptions.ReferenceHandler = 
+        options.JsonSerializerOptions.ReferenceHandler =
             System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
-    }); 
-// Learn more about configuring Swagger/OpenAPI at https://aka.ms/aspnetcore/swashbuckle
+    })
+    .ConfigureApiBehaviorOptions(options =>
+    {
+        options.SuppressModelStateInvalidFilter = true;
+    });
+
 builder.Services.AddEndpointsApiExplorer();
-builder.Services.AddSwaggerGen();
 
-var app = builder.Build();
-
-// Configure the HTTP request pipeline.
-if (app.Environment.IsDevelopment())
+// MOVIDO AQUÍ: Toda la configuración de OpenAPI debe estar ANTES de builder.Build()
+builder.Services.AddOpenApi(options =>
 {
-    // Habilita Swagger UI para probar la API automáticamente en desarrollo
-    app.UseSwagger();
-    app.UseSwaggerUI();
+    options.AddDocumentTransformer((document, context, cancellationToken) =>
+    {
+        document.Info.Title = "Tyted API";
+        document.Info.Version = "v1";
+        return Task.CompletedTask;
+    });
+});
+
+// =========================================================================
+// 5. CONSTRUCCIÓN DE LA APLICACIÓN
+// =========================================================================
+var app = builder.Build(); 
+
+
+using (var scope = app.Services.CreateScope())
+{
+    var services = scope.ServiceProvider;
+    try
+    {
+        var context = services.GetRequiredService<TytedContext>();
+        DbInitializer.Initialize(context);
+    }
+    catch (Exception ex)
+    {
+        var logger = services.GetRequiredService<ILogger<Program>>();
+        logger.LogError(ex, "Ocurrió un error al sembrar la base de datos.");
+    }
 }
 
-app.UseHttpsRedirection();
 
-// <-- AÑADIDO: CONFIGURACIÓN CORS (2/2: Uso de la Política)
-// DEBE IR ANTES de app.UseAuthorization() y app.MapControllers()
-app.UseCors(MyAllowSpecificOrigins); 
+// =========================================================================
+// 6. MIDDLEWARES (Configuración del Pipeline)
+// =========================================================================
+var defaultCulture = new CultureInfo("en-US");
+var localizationOptions = new RequestLocalizationOptions
+{
+    DefaultRequestCulture = new RequestCulture(defaultCulture),
+    SupportedCultures = new List<CultureInfo> { defaultCulture },
+    SupportedUICultures = new List<CultureInfo> { defaultCulture }
+};
+app.UseRequestLocalization(localizationOptions);
 
-app.UseAuthorization();
+if (app.Environment.IsDevelopment())
+{
+    app.MapOpenApi();
+    app.MapScalarApiReference(options => 
+    {
+        options.WithTitle("Tyted API - Gestión en Dólares")
+               .WithTheme(ScalarTheme.Moon)
+               .WithDefaultHttpClient(ScalarTarget.CSharp, ScalarClient.HttpClient);
+    });
+}
 
-// Mapea los controladores (como ProveedoresController) a sus rutas API
+//app.UseHttpsRedirection();
+app.UseCors(MyAllowSpecificOrigins);
+
+//app.UseAuthentication();
+//app.UseAuthorization();
+
 app.MapControllers();
 
 app.Run();

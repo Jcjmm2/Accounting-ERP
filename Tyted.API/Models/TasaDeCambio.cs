@@ -4,29 +4,34 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Tyted.API.Models
 {
-    // Esta tabla almacenará el historial de la tasa de cambio (Bs por USD)
     public class TasaDeCambio
     {
         [Key]
         public int IdTasa { get; set; }
 
         [Required]
-        [Column(TypeName = "decimal(18, 6)")] // Usamos 6 decimales para alta precisión
-        public decimal Tasa { get; set; } // Valor: Moneda Base (VES) por 1 Moneda Extranjera (USD)
-                                          // Ejemplo: 36.50
+        [Column(TypeName = "decimal(18, 6)")]
+        public decimal Tasa { get; set; } 
 
         [Required]
-        public DateTime FechaVigencia { get; set; } // Fecha y hora en que esta tasa entra en vigor
+        public DateTime FechaVigencia { get; set; }
 
-        [Required]
-        [MaxLength(3)]
-        public string MonedaOrigen { get; set; } = "USD"; // Código de Moneda de Origen (Extranjera)
+        //[Required]
+        //[MaxLength(3)]
+        //public int? MonedaOrigenId { get; set; } = 1;
+        
 
-        [Required]
-        [MaxLength(3)]
-        public string MonedaDestino { get; set; } = "VES"; // Código de Moneda Destino (Base)
+        //[Required]
+        //[MaxLength(3)]
+        //public int? MonedaDestinoId { get; set; } =2;
+
+        [Column(TypeName = "decimal(18, 6)")]
+        public decimal? FactorSugerido { get; set; }
 
         [MaxLength(100)]
-        public string? UsuarioRegistro { get; set; } // Quién registró la tasa
+        public string? UsuarioRegistro { get; set; }
+
+        public string MonedaOrigen { get; set; }
+        public string MonedaDestino { get; set; }
     }
 }

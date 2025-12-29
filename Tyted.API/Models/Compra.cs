@@ -13,7 +13,7 @@ namespace Tyted.API.Models
         public int Id { get; set; }
 
         [Required]
-        public int CodigoProv { get; set; } // FK de Proveedor
+        public int? CodigoProv { get; set; } // FK de Proveedor
 
         [Required]
         public DateTime FechaCompra { get; set; }
@@ -23,7 +23,6 @@ namespace Tyted.API.Models
 
         [Column(TypeName = "decimal(18, 4)")]
         public decimal TasaDeCambio { get; set; }
-
 
         // -------------------------------------------------------------
         // NUEVOS CAMPOS PARA DESGLOSE DE TOTALES (REQUERIDO)
@@ -61,8 +60,27 @@ namespace Tyted.API.Models
 
         // ✅ CORRECCIÓN 2: Se añade el atributo ForeignKey para ser explícito.
         [ForeignKey("CodigoProv")]
-        public Proveedor? Proveedor { get; set; } 
+        public Proveedor? Proveedor { get; set; }
 
-        public ICollection<CompraDetalle>? Detalles { get; set; }
+        // Esta es la relación correcta: Una compra tiene muchos detalles
+        public virtual ICollection<CompraDetalle> Detalles { get; set; } = new List<CompraDetalle>();
+
+        // --- Datos Fiscales ---
+        [StringLength(50)]
+        public string? NumeroFactura { get; set; }
+
+        [StringLength(50)]
+        public string? NumeroControl { get; set; }
+
+        // --- Opciones de Reporte ---
+        public bool AplicaLibroCompras { get; set; } = true;
+
+        // --- Gastos por Servicios ---
+        public bool EsGastoServicio { get; set; } = false;
+
+        // Dentro de Compra.cs
+        public bool EsCredito { get; set; } = false;
+        public DateTime? FechaVencimiento { get; set; }
     }
+
 }

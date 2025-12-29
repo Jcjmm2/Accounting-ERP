@@ -3,6 +3,7 @@ using System.ComponentModel.DataAnnotations;
 using System.ComponentModel.DataAnnotations.Schema;
 using Tyted.API.Models;
 
+
 namespace Tyted.API.Models
 {
     public class CompraDetalle
@@ -14,7 +15,14 @@ namespace Tyted.API.Models
         public int CompraId { get; set; } // FK a la cabecera Compra
 
         [Required]
-        public int CodigoProd { get; set; } // FK a Producto
+        public string? UnidadCompra { get; set; } // <--- AGREGAR ESTA LÍNEA
+
+        [Required]
+        [StringLength(50)]
+        public string CodigoProd { get; set; } = string.Empty;
+
+        [ForeignKey("CodigoProd")] // Evita que se cree "ProductoCodigoProd"
+        public virtual Producto? Producto { get; set; }
 
         [Required]
         public int IdProductoUnidad { get; set; } // FK a la unidad específica comprada
@@ -51,15 +59,23 @@ namespace Tyted.API.Models
         // ==========================================================
         
         // Tasa de IVA (se mantiene)
-        [Column(TypeName = "decimal(5, 4)")] 
-        public decimal TasaIVA { get; set; } 
+        [Column(TypeName = "decimal(18, 2)")] // Permite números como 16.00, 100.00, etc.
+        public decimal TasaIVA { get; set; }
+         
 
 
         // --- PROPIEDADES DE NAVEGACIÓN ---
         
-        public Compra? Compra { get; set; }
-        public Producto? Producto { get; set; }
-        // Si tiene la relación con ProductoUnidad, agréguela aquí
-        // public ProductoUnidad ProductoUnidad { get; set; }
+        [ForeignKey("CompraId")] // <--- AGREGAR ESTO
+        public virtual Compra? Compra { get; set; }
+
+        [NotMapped]
+        public decimal PrecioSugeridoBase { get; set; }
+
+        [NotMapped]
+        public decimal CostoAnteriorBase { get; set; }
+
+        
     }
+    
 }

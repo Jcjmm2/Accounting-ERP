@@ -1,258 +1,260 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
+//using Microsoft.AspNetCore.Authorization;
 using Tyted.API.Data;
 using Tyted.API.Models;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
-using System; // Agregado para usar Exception
 
-[Route("api/[controller]")]
-[ApiController]
-public class ProductosController : ControllerBase
+namespace Tyted.API.Controllers
 {
-    private readonly TytedContext _context;
-
-    public ProductosController(TytedContext context)
+    [Route("api/[controller]")]
+    //[Authorize(Roles = "AdministradorSistema,Administrador,Comprador")]
+    [ApiController]
+    public class ProductosController : ControllerBase
     {
-        _context = context;
-    }
+        private readonly TytedContext _context;
 
-    // ====================================================================
-    // 1. GET (Consultar todos los productos con filtros opcionales)
-    // Endpoint: GET /api/Productos?descripcion=ejemplo&codigo=123
-    // ====================================================================
-    [HttpGet]
-    public async Task<ActionResult<IEnumerable<Producto>>> GetProductos(
-        [FromQuery] string? descripcion, 
-        [FromQuery] string? codigo)
-    {
-        var query = _context.Productos
-            // VITAL: Cargar las relaciones anidadas
-            .Include(p => p.Proveedor)
-            // ✅ NUEVA INCLUSIÓN: Cargar la Categoría y TasaIVA
-            .Include(p => p.Categoria) 
-            .Include(p => p.TasaIVA)   
-            // Fin de Nuevas Inclusiones
-            .Include(p => p.UnidadesDeVenta)
-                .ThenInclude(pu => pu.UnidadMedida)
-            .AsQueryable();
-
-        // 1. Filtro por Descripción (Busca en el campo Descripcion del producto)
-        if (!string.IsNullOrEmpty(descripcion))
+        public ProductosController(TytedContext context)
         {
-            // APLICACIÓN DE LA CORRECCIÓN: Manejo de nulos (?? "") antes de buscar.
-            query = query.Where(p => (p.Descripcion ?? "").ToLower().Contains(descripcion.ToLower()));
+            _context = context;
         }
 
-        // 2. Filtro por Código (Busca en CodigoBarras)
-        if (!string.IsNullOrEmpty(codigo))
+        // GET: api/Productos
+        [HttpGet]
+        public async Task<ActionResult<IEnumerable<Producto>>> GetProductos()
         {
-            // Mantener la lógica de código de barras
-            query = query.Where(p => 
-                (p.CodigoBarras != null && p.CodigoBarras.ToLower().Contains(codigo.ToLower()))
-            );
+            return await _context.Productos
+                .Include(p => p.Categoria)
+                .Include(p => p.TasaIVA)
+                .Include(p => p.UnidadesDeVenta) // Trae las unidades (Bulto, Detalle, etc.)
+                .ToListAsync();
         }
 
-        // Ejecutar la consulta con todos los filtros aplicados
-        return await query.ToListAsync();
-    }
-    
-    // ====================================================================
-    // 2. GET (Consultar un producto por ID)
-    // Endpoint: GET /api/Productos/{id}
-    // ====================================================================
-    [HttpGet("{id}")]
-    public async Task<ActionResult<Producto>> GetProducto(int id)
-    {
-        // Busca el producto e incluye todos los detalles anidados
-        var producto = await _context.Productos
-            // ✅ NUEVA INCLUSIÓN: Cargar la Categoría y TasaIVA
-            .Include(p => p.Categoria) 
-            .Include(p => p.TasaIVA)
-            // Fin de Nuevas Inclusiones
-            .Include(p => p.Proveedor)
-            .Include(p => p.UnidadesDeVenta)
-                .ThenInclude(pu => pu.UnidadMedida)
-            .FirstOrDefaultAsync(p => p.CodigoProd == id);
-
-        if (producto == null)
+        // GET: api/Productos/5
+        [HttpGet("{id}")]
+        public async Task<ActionResult<Producto>> GetProducto(string id)
         {
-            return NotFound();
+            var producto = await _context.Productos
+                .Include(p => p.UnidadesDeVenta)
+                .Include(p => p.Categoria)
+                .FirstOrDefaultAsync(p => p.CodigoProd == id);
+
+            if (producto == null) return NotFound();
+
+            return producto;
         }
 
-        return producto;
-    }
-
-    // ====================================================================
-    // 3. POST (Registrar un Nuevo Producto)
-    // Endpoint: POST /api/Productos
-    // ====================================================================
-    [HttpPost]
-    public async Task<ActionResult<Producto>> PostProducto(Producto producto)
-    {
-        // NOTA IMPORTANTE: Al hacer POST, el objeto 'producto' debe contener
-        // IdCategoria y IdTasaIVA con valores válidos (1, 2, 3, etc.)
-        
-        // Aseguramos que EF Core maneje la inserción del producto y sus unidades anidadas
-        _context.Productos.Add(producto);
-        await _context.SaveChangesAsync();
-
-        // Tras guardar, se usa el GET por ID para devolver el objeto completo (con las FK resueltas)
-        // Se recomienda llamar a GetProducto(id) aquí para devolver la información completa
-        // incluyendo las categorías y tasas IVA, tal como se modificó arriba.
-        return await GetProducto(producto.CodigoProd); // Usamos el método GetProducto modificado.
-    }
-    
-    // ====================================================================
-    // 4. PUT (Editar/Actualizar un Producto)
-    // Endpoint: PUT /api/Productos/{id}
-    // ====================================================================
-    [HttpPut("{id}")]
-    public async Task<IActionResult> PutProducto(int id, Producto producto)
-    {
-        if (id != producto.CodigoProd)
+        // POST: api/Productos
+        [HttpPost]
+        public async Task<ActionResult<Producto>> PostProducto(Producto producto)
         {
-            return BadRequest("El ID del producto no coincide.");
-        }
-        
-        // NOTA IMPORTANTE: Al hacer PUT, el objeto 'producto' debe contener
-        // IdCategoria y IdTasaIVA con valores válidos (1, 2, 3, etc.)
-        
-        // 1. RASTREO Y MODIFICACIÓN DEL MAESTRO (Producto)
-        _context.Entry(producto).State = EntityState.Modified;
-        
-        // EVITAMOS QUE EF CORE INTENTE MODIFICAR LA COLECCIÓN DE UNIDADES DE VENTA 
-        // automáticamente, ya que la gestionaremos manualmente.
-        _context.Entry(producto).Collection(p => p.UnidadesDeVenta).IsModified = false;
-        // =========================================================================
-
-
-        // 2. Manejo de las unidades de venta (Variantes)
-        // Busca todas las unidades (variantes) existentes para este producto.
-        var unidadesExistentes = await _context.ProductosUnidad
-            .Where(pu => pu.CodigoProd == id)
-            .AsNoTracking()
-            .ToListAsync();
-        
-        // Identificar unidades a eliminar: unidades que estaban en la DB pero no se recibieron del Frontend
-        var unidadesAEliminar = unidadesExistentes
-            .Where(ue => !producto.UnidadesDeVenta.Any(pn => pn.IdProductoUnidad == ue.IdProductoUnidad && ue.IdProductoUnidad != 0))
-            .ToList();
-        
-        _context.ProductosUnidad.RemoveRange(unidadesAEliminar);
-
-        // Identificar unidades a añadir o modificar
-        foreach (var unidadNueva in producto.UnidadesDeVenta)
-        {
-            if (unidadNueva.IdProductoUnidad == 0)
+            // SEGURIDAD: Si el JSON no coincide con el Modelo, producto será null
+            if (producto == null)
             {
-                // Es una unidad nueva (POST), añadir
-                unidadNueva.CodigoProd = id; 
-                _context.ProductosUnidad.Add(unidadNueva);
+                return BadRequest("El formato del producto no es válido o faltan campos obligatorios.");
             }
-            else
-            {
-                // Es una unidad existente (PUT), modificar
-                _context.Entry(unidadNueva).State = EntityState.Modified;
-            }
-        }
 
-        // 3. Guardar todos los cambios (Producto principal, unidades eliminadas, añadidas y modificadas)
-        try
-        {
-            await _context.SaveChangesAsync(); 
-        }
-        catch (DbUpdateConcurrencyException)
-        {
-            if (!_context.Productos.Any(e => e.CodigoProd == id))
-            {
-                return NotFound();
-            }
-            else
-            {
-                throw;
-            }
-        }
-        
-        return NoContent(); // Código 204: Éxito en la actualización sin contenido de retorno.
-        
-    }
-
-    // ====================================================================
-    // 5. DELETE (Eliminar un Producto)
-    // Endpoint: DELETE /api/Productos/{id}
-    // ====================================================================
-    [HttpDelete("{id}")]
-    public async Task<IActionResult> DeleteProducto(int id)
-    {
-        if (_context.Productos == null)
-        {
-            return NotFound("La colección de productos no está disponible.");
-        }
-        
-        var producto = await _context.Productos.FindAsync(id);
-
-        if (producto == null)
-        {
-            return NotFound($"Producto con código {id} no encontrado.");
-        }
-
-        try
-        {
-            // Remover el producto
-            _context.Productos.Remove(producto);
-            
-            // Guardar los cambios
+            // Si tu línea 51 era algo como _context.Productos.Add(producto), 
+            // ahora no fallará porque verificamos el nulo antes.
+            _context.Productos.Add(producto);
             await _context.SaveChangesAsync();
 
-            // 204 No Content: Respuesta estándar para DELETE exitoso
-            return NoContent(); 
+            return CreatedAtAction("GetProducto", new { id = producto.CodigoProd }, producto);
         }
-        catch (DbUpdateException)
+
+        // PUT: api/Productos/5
+        [HttpPut("{id}")]
+        public async Task<IActionResult> PutProducto(string id, Producto producto)
         {
-            // Este es el error capturado cuando hay restricción de clave foránea (FK)
-            return BadRequest($"🚫 No se puede eliminar el producto con código {id}. Tiene movimientos de inventario o registros asociados (Restricción de Integridad Referencial).");
+            if ( id != producto.CodigoProd) return BadRequest();
+
+            _context.Entry(producto).State = EntityState.Modified;
+
+            // También debemos manejar la actualización de las unidades de venta si vienen en el objeto
+            if (producto.UnidadesDeVenta != null)
+            {
+                foreach (var unidad in producto.UnidadesDeVenta)
+                {
+                    _context.Entry(unidad).State = unidad.IdProductoUnidad == 0 
+                        ? EntityState.Added 
+                        : EntityState.Modified;
+                }
+            }
+
+            try
+            {
+                await _context.SaveChangesAsync();
+            }
+            catch (DbUpdateConcurrencyException)
+            {
+                if (!ProductoExists(id)) return NotFound();
+                else throw;
+            }
+
+            return NoContent();
         }
-        catch (Exception ex)
+
+        private bool ProductoExists(string id)
         {
-            // Otros errores 500
-            return StatusCode(500, $"Ocurrió un error interno al eliminar el producto: {ex.Message}");
+            return _context.Productos.Any(e => e.CodigoProd == id);
         }
+
+        [HttpGet("buscar-pos/{codigoBarras}")]
+        public async Task<IActionResult> BuscarProductoPOS(string codigoBarras, [FromQuery] decimal tasaDelDia)
+        {
+            // 1. Buscamos la unidad que coincida con el código de barras
+            // Incluimos el Producto maestro para tener la descripción y el StockActual
+            var unidad = await _context.ProductosUnidad
+                .Include(u => u.Producto)
+                .FirstOrDefaultAsync(u => u.CodigoBarras == codigoBarras);
+
+            if (unidad == null)
+                return NotFound(new { message = "Producto no encontrado con ese código de barras." });
+
+            var producto = unidad.Producto;
+
+            // 2. Buscamos TODAS las presentaciones de ese mismo producto 
+            // Para que el cajero pueda elegir (Caja, Detal, etc.)
+            var todasLasUnidades = await _context.ProductosUnidad
+                .Where(u => u.CodigoProd == producto.CodigoProd)
+                .ToListAsync();
+
+            // 3. Construimos la respuesta con los precios calculados en VES
+            var respuesta = new
+            {
+                CodigoProd = producto.CodigoProd,
+                Descripcion = producto.Descripcion,
+                StockActual = producto.StockActual,
+                TasaIVA = producto.IdTasaIVA == 2 ? 16.0m : 0m, // Ajustar según tu lógica de IVA
+                PresentacionSugeridaId = unidad.IdProductoUnidad, // La que escaneó
+                OpcionesUnidad = todasLasUnidades.Select(u => new
+                {
+                    u.IdProductoUnidad,
+                    u.NombreUnidad,
+                    u.CantidadEquivalente,
+                    PrecioUSD = u.PrecioMonedaBase ?? 0m,
+PrecioVES = Math.Round((u.PrecioMonedaBase ?? 0m) * tasaDelDia, 2)
+                })
+            };
+
+            return Ok(respuesta);
+        }
+        [HttpPost("actualizar-precios-masivo")]
+        public async Task<IActionResult> ActualizarPreciosMasivo([FromBody] List<ActualizarPrecioDTO> listaPrecios)
+        {
+            if (listaPrecios == null || !listaPrecios.Any())
+                return BadRequest("No se enviaron datos.");
+
+            // 1. Obtenemos la tasa de cambio actual para actualizar también el precio en VES
+            var tasaObj = await _context.TasaDeCambio
+                .Where(t => t.MonedaOrigen == "USD" && t.MonedaDestino == "VES")
+                .OrderByDescending(t => t.FechaVigencia)
+                .FirstOrDefaultAsync();
+
+            decimal valorTasa = tasaObj?.Tasa ?? 1.0m;
+            if (valorTasa <= 0) valorTasa = 1.0m;
+
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                foreach (var item in listaPrecios)
+                {
+                    // 1. Convertimos el valor del DTO a un entero real
+                    int idBuscado = Convert.ToInt32(item.IdProductoUnidad);
+
+                    // 2. USAMOS la variable 'idBuscado' para la comparación
+                    var unidad = await _context.ProductosUnidad
+                        .FirstOrDefaultAsync(u => u.IdProductoUnidad == idBuscado);
+
+                    if (unidad != null)
+                    {
+                        // ... el resto de tu lógica se mantiene igual
+                        unidad.PrecioMonedaBase = item.NuevoPrecioUSD;
+                        unidad.PrecioMonedaExt = Math.Round(item.NuevoPrecioUSD * valorTasa, 2);
+
+                        var maestro = await _context.Productos.FindAsync(unidad.CodigoProd);
+                        if (maestro != null)
+                        {
+                            unidad.CostoUnitarioMonedaBase = maestro.CostoUnitarioBase;
+                            unidad.CostoUnitarioMonedaExt = Math.Round(maestro.CostoUnitarioBase * valorTasa, 4);
+                        }
+
+                        _context.Entry(unidad).State = EntityState.Modified;
+                    }
+                }
+
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+
+                return Ok(new { message = $"Se actualizaron {listaPrecios.Count} precios exitosamente." });
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+                return StatusCode(500, $"Error interno: {ex.Message}");
+            }
+        }
+        // GET: api/Productos/stock-critico
+        [HttpGet("stock-critico")]
+        public async Task<ActionResult> GetStockCritico()
+        {
+            // Buscamos productos donde el stock actual sea igual o menor al mínimo
+            // Excluimos servicios si tienes (ej. productos que no manejan stock)
+            var productosCriticos = await _context.Productos
+                .Where(p => p.StockActual <= p.StockMinimo)
+                .Select(p => new {
+                    p.CodigoProd,
+                    p.Descripcion,
+                    p.StockActual,
+                    p.StockMinimo,
+                    Estado = p.StockActual <= 0 ? "Agotado" : "Bajo Stock",
+                    Faltante = p.StockMinimo - p.StockActual
+                })
+                .OrderBy(p => p.StockActual)
+                .ToListAsync();
+
+            return Ok(productosCriticos);
+        }
+        [HttpGet("buscar")]
+        public async Task<IActionResult> Buscar([FromQuery] string termino, [FromQuery] decimal tasaDelDia)
+        {
+            if (string.IsNullOrWhiteSpace(termino)) return BadRequest("Termo de busca vazio.");
+
+            // Buscamos em ProductosUnidad incluindo a tabela maestra Productos
+            // para filtrar tanto pelo nome do produto como pelo nome da unidade ou código
+            var resultados = await _context.ProductosUnidad
+                .Include(u => u.Producto)
+                .Where(u => u.Producto.Descripcion.Contains(termino) || 
+                            u.NombreUnidad.Contains(termino) || 
+                            u.CodigoBarras == termino ||
+                            u.CodigoProd.Contains(termino))
+                .Take(15)
+                .ToListAsync();
+
+            if (!resultados.Any())
+                return NotFound(new { message = "Nenhum produto encontrado." });
+
+            var respuesta = resultados.Select(u => new
+            {
+                IdProductoUnidad = u.IdProductoUnidad,
+                CodigoProd = u.CodigoProd,
+                // Exemplo: "HARINA PAN BLANCA 1KG (Bulto 20 unidades)"
+                Descripcion = $"{u.Producto.Descripcion} ({u.NombreUnidad})",
+                Unidad = u.NombreUnidad,
+                PrecioUSD = u.PrecioMonedaBase ?? 0m,
+                // Calculamos o preço em BS com base na taxa enviada pelo frontend
+                PrecioVES = Math.Round((u.PrecioMonedaBase ?? 0m) * tasaDelDia, 2),
+                StockActual = u.Producto.StockActual,
+                CodigoBarras = u.CodigoBarras ?? "S/C",
+                EsPeso = u.IdUnidad == 3 || u.IdUnidad == 4 // Kilo ou Gramo (Baseado nos seus IDs 3 e 4)
+            });
+
+            return Ok(respuesta);
+        }
+        
     }
-    
-    // ====================================================================
-    // 6. BUSCADOR (Busca productos por Descripción, Código o Código de Barras)
-    // Llama a: GET /api/Productos/Buscar?q={consulta}
-    // ====================================================================
-    [HttpGet("Buscar")] 
-    public async Task<ActionResult<IEnumerable<Producto>>> BuscarProductos([FromQuery] string q)
+    public class ActualizarPrecioDTO
     {
-        // El frontend requiere al menos 3 caracteres, pero el backend debe ser robusto.
-        if (string.IsNullOrWhiteSpace(q) || q.Length < 3)
-        {
-            return Ok(new List<Producto>()); // Devuelve lista vacía, no error
-        }
-
-        var term = q.ToLower();
-
-        var productos = await _context.Productos
-            // Búsqueda flexible en múltiples campos
-            .Where(p => 
-                (p.Descripcion != null && p.Descripcion.ToLower().Contains(term)) || 
-                (p.CodigoProd.ToString().Contains(term)) || // Búsqueda por Cód. Prod. numérico
-                (p.CodigoBarras != null && p.CodigoBarras.ToLower().Contains(term))
-            )
-            // ✅ NUEVA INCLUSIÓN: Cargar la Categoría y TasaIVA
-            .Include(p => p.Categoria)
-            .Include(p => p.TasaIVA)
-            // Fin de Nuevas Inclusiones
-            // VITAL: Incluir las unidades de venta para que el frontend pueda configurarlas
-            .Include(p => p.UnidadesDeVenta) 
-                .ThenInclude(pu => pu.UnidadMedida)
-            .Take(30) // Límite de resultados
-            .ToListAsync();
-
-        return Ok(productos);
+    public string IdProductoUnidad { get; set; } // El ID específico de la presentación (Caja, Detal, etc.)
+    public decimal NuevoPrecioUSD { get; set; } // El nuevo precio 1 que aceptó el usuario
     }
 }

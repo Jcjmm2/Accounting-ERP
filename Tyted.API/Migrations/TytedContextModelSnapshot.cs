@@ -22,6 +22,34 @@ namespace Tyted.API.Migrations
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
 
+            modelBuilder.Entity("Tyted.API.Models.AbonoCXC", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("CuentaPorCobrarId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime>("FechaAbono")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("MetodoPago")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<decimal>("MontoAbonadoMonedaBase")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<string>("Notas")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("AbonosCXC");
+                });
+
             modelBuilder.Entity("Tyted.API.Models.Categoria", b =>
                 {
                     b.Property<int>("IdCategoria")
@@ -41,26 +69,47 @@ namespace Tyted.API.Migrations
                     b.HasKey("IdCategoria");
 
                     b.ToTable("Categorias");
+                });
 
-                    b.HasData(
-                        new
-                        {
-                            IdCategoria = 1,
-                            Nombre = "Víveres Básicos",
-                            PorcentajeMargen = 15.00m
-                        },
-                        new
-                        {
-                            IdCategoria = 2,
-                            Nombre = "Artículos de Higiene",
-                            PorcentajeMargen = 30.00m
-                        },
-                        new
-                        {
-                            IdCategoria = 3,
-                            Nombre = "Snacks y Golosinas",
-                            PorcentajeMargen = 35.00m
-                        });
+            modelBuilder.Entity("Tyted.API.Models.Cliente", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Direccion")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Email")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<decimal>("LimiteCreditoUSD")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<string>("Nombre")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<bool>("PermitirCredito")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Rif")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("Telefono")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Rif")
+                        .IsUnique();
+
+                    b.ToTable("Clientes");
                 });
 
             modelBuilder.Entity("Tyted.API.Models.Compra", b =>
@@ -71,10 +120,22 @@ namespace Tyted.API.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<bool>("AplicaLibroCompras")
+                        .HasColumnType("bit");
+
                     b.Property<int>("CodigoProv")
                         .HasColumnType("int");
 
+                    b.Property<bool>("EsCredito")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("EsGastoServicio")
+                        .HasColumnType("bit");
+
                     b.Property<DateTime>("FechaCompra")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("FechaVencimiento")
                         .HasColumnType("datetime2");
 
                     b.Property<bool>("IsAnulada")
@@ -85,6 +146,14 @@ namespace Tyted.API.Migrations
 
                     b.Property<decimal>("IvaMonedaExt")
                         .HasColumnType("decimal(18, 4)");
+
+                    b.Property<string>("NumeroControl")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("NumeroFactura")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
 
                     b.Property<decimal>("SubtotalMonedaBase")
                         .HasColumnType("decimal(18, 4)");
@@ -124,8 +193,10 @@ namespace Tyted.API.Migrations
                     b.Property<decimal>("Cantidad")
                         .HasColumnType("decimal(18, 4)");
 
-                    b.Property<int>("CodigoProd")
-                        .HasColumnType("int");
+                    b.Property<string>("CodigoProd")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
 
                     b.Property<int>("CompraId")
                         .HasColumnType("int");
@@ -142,9 +213,6 @@ namespace Tyted.API.Migrations
                     b.Property<decimal>("IvaLineaMonedaExt")
                         .HasColumnType("decimal(18, 4)");
 
-                    b.Property<int?>("ProductoCodigoProd")
-                        .HasColumnType("int");
-
                     b.Property<decimal>("SubtotalLineaMonedaBase")
                         .HasColumnType("decimal(18, 4)");
 
@@ -152,7 +220,7 @@ namespace Tyted.API.Migrations
                         .HasColumnType("decimal(18, 4)");
 
                     b.Property<decimal>("TasaIVA")
-                        .HasColumnType("decimal(5, 4)");
+                        .HasColumnType("decimal(18, 4)");
 
                     b.Property<decimal>("TotalLineaMonedaBase")
                         .HasColumnType("decimal(18, 4)");
@@ -160,37 +228,360 @@ namespace Tyted.API.Migrations
                     b.Property<decimal>("TotalLineaMonedaExt")
                         .HasColumnType("decimal(18, 4)");
 
+                    b.Property<string>("UnidadCompra")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
                     b.HasKey("Id");
 
-                    b.HasIndex("CompraId");
+                    b.HasIndex("CodigoProd");
 
-                    b.HasIndex("ProductoCodigoProd");
+                    b.HasIndex("CompraId");
 
                     b.ToTable("ComprasDetalle");
                 });
 
-            modelBuilder.Entity("Tyted.API.Models.Producto", b =>
+            modelBuilder.Entity("Tyted.API.Models.CuentaPorCobrar", b =>
                 {
-                    b.Property<int>("CodigoProd")
+                    b.Property<int>("Id")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("int");
 
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("CodigoProd"));
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
-                    b.Property<int?>("CategoriaIdCategoria")
+                    b.Property<string>("Estado")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("FechaEmision")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("FechaVencimiento")
+                        .HasColumnType("datetime2");
+
+                    b.Property<decimal>("MontoTotalUSD")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<decimal>("SaldoPendienteUSD")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<int>("VentaId")
                         .HasColumnType("int");
 
-                    b.Property<string>("CodigoBarras")
+                    b.HasKey("Id");
+
+                    b.HasIndex("VentaId");
+
+                    b.ToTable("CuentasPorCobrar");
+                });
+
+            modelBuilder.Entity("Tyted.API.Models.CuentaPorPagar", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("CompraId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Estado")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("FechaRegistro")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("FechaVencimiento")
+                        .HasColumnType("datetime2");
+
+                    b.Property<decimal>("MontoTotalUSD")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<decimal>("SaldoPendienteUSD")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompraId");
+
+                    b.ToTable("CuentasPorPagar");
+                });
+
+            modelBuilder.Entity("Tyted.API.Models.Empresa", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Direccion")
+                        .HasMaxLength(500)
+                        .HasColumnType("nvarchar(500)");
+
+                    b.Property<string>("Email")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("LeyendaFactura")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("RIF")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("RazonSocial")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("Telefono")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("TipoContribuyente")
+                        .IsRequired()
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Empresa");
+                });
+
+            modelBuilder.Entity("Tyted.API.Models.EmpresaConfig", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Clave")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("Descripcion")
+                        .HasMaxLength(255)
+                        .HasColumnType("nvarchar(255)");
+
+                    b.Property<string>("Valor")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("EmpresaConfigs");
+                });
+
+            modelBuilder.Entity("Tyted.API.Models.InventarioMovimiento", b =>
+                {
+                    b.Property<int>("IdMovimiento")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("IdMovimiento"));
+
+                    b.Property<decimal>("Cantidad")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<string>("CodigoProd")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<int?>("CompraId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Concepto")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<decimal>("CostoUnitarioUSD")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<DateTime>("Fecha")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Tipo")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.HasKey("IdMovimiento");
+
+                    b.HasIndex("CodigoProd");
+
+                    b.HasIndex("CompraId");
+
+                    b.ToTable("InventarioMovimientos");
+                });
+
+            modelBuilder.Entity("Tyted.API.Models.Moneda", b =>
+                {
+                    b.Property<int>("IdMoneda")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("IdMoneda"));
+
+                    b.Property<bool>("EsMonedaBase")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("Nombre")
+                        .IsRequired()
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("Siglas")
+                        .IsRequired()
+                        .HasMaxLength(3)
+                        .HasColumnType("nvarchar(3)");
+
+                    b.HasKey("IdMoneda");
+
+                    b.ToTable("Monedas");
+                });
+
+            modelBuilder.Entity("Tyted.API.Models.NotaEntregaCompra", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("FechaRecepcion")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("IdProductoUnidad")
+                        .HasColumnType("int");
+
+                    b.Property<string>("NumeroNota")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<bool>("ProcesadoAFactura")
+                        .HasColumnType("bit");
+
+                    b.Property<int>("ProveedorId")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("TotalEstimadoUSD")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("NotasEntregaCompra");
+                });
+
+            modelBuilder.Entity("Tyted.API.Models.NotaEntregaCompraDetalle", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal>("CantidadRecibida")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<string>("CodigoProd")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<decimal>("CostoUnitarioUSD")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<int>("NotaEntregaCompraId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("NotaEntregaCompraId");
+
+                    b.ToTable("NotasEntregaCompraDetalle");
+                });
+
+            modelBuilder.Entity("Tyted.API.Models.Pedido", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("ClienteId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Estado")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("Fecha")
+                        .HasColumnType("datetime2");
+
+                    b.Property<decimal>("MontoTotalUSD")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ClienteId");
+
+                    b.ToTable("Pedidos");
+                });
+
+            modelBuilder.Entity("Tyted.API.Models.PedidoDetalle", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal?>("Cantidad")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<string>("CodigoProd")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int?>("PedidoId")
+                        .HasColumnType("int");
+
+                    b.Property<decimal?>("PrecioUnitarioUSD")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<decimal?>("SubtotalUSD")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PedidoId");
+
+                    b.ToTable("PedidosDetalle");
+                });
+
+            modelBuilder.Entity("Tyted.API.Models.Producto", b =>
+                {
+                    b.Property<string>("CodigoProd")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("CodigoBarras")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
 
                     b.Property<int>("CodigoProv")
                         .HasColumnType("int");
 
+                    b.Property<decimal>("CostoUnitarioBase")
+                        .HasColumnType("decimal(18, 4)");
+
                     b.Property<string>("Descripcion")
                         .IsRequired()
-                        .HasMaxLength(255)
-                        .HasColumnType("nvarchar(255)");
+                        .HasMaxLength(510)
+                        .HasColumnType("nvarchar(510)");
 
                     b.Property<DateTime>("FechaAdquisicion")
                         .HasColumnType("datetime2");
@@ -204,27 +595,33 @@ namespace Tyted.API.Migrations
                     b.Property<int>("IdTasaIVA")
                         .HasColumnType("int");
 
-                    b.Property<int?>("ProveedorCodigoProv")
-                        .HasColumnType("int");
+                    b.Property<decimal?>("ImpuestoLicorPorcentaje")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<bool?>("ManejaImpuestoLicor")
+                        .HasColumnType("bit");
+
+                    b.Property<bool>("PermiteDesglose")
+                        .HasColumnType("bit");
 
                     b.Property<decimal>("StockActual")
-                        .HasColumnType("decimal(18, 2)");
+                        .HasColumnType("decimal(18, 4)");
 
-                    b.Property<int?>("TasaIVAIdTasaIVA")
-                        .HasColumnType("int");
+                    b.Property<decimal>("StockMinimo")
+                        .HasColumnType("decimal(18, 4)");
 
                     b.Property<string>("TipoArt")
                         .IsRequired()
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
 
                     b.HasKey("CodigoProd");
 
-                    b.HasIndex("CategoriaIdCategoria");
+                    b.HasIndex("CodigoProv");
 
-                    b.HasIndex("ProveedorCodigoProv");
+                    b.HasIndex("IdCategoria");
 
-                    b.HasIndex("TasaIVAIdTasaIVA");
+                    b.HasIndex("IdTasaIVA");
 
                     b.ToTable("Productos");
                 });
@@ -238,42 +635,63 @@ namespace Tyted.API.Migrations
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("IdProductoUnidad"));
 
                     b.Property<decimal>("CantidadEquivalente")
-                        .HasColumnType("decimal(18, 2)");
-
-                    b.Property<int>("CodigoProd")
-                        .HasColumnType("int");
-
-                    b.Property<decimal>("CostoUnitarioMonedaBase")
                         .HasColumnType("decimal(18, 4)");
 
-                    b.Property<decimal>("CostoUnitarioMonedaExt")
+                    b.Property<string>("CodigoBarras")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<string>("CodigoProd")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<decimal?>("CostoUnitarioMonedaBase")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<decimal?>("CostoUnitarioMonedaExt")
                         .HasColumnType("decimal(18, 4)");
 
                     b.Property<int>("IdUnidad")
                         .HasColumnType("int");
 
+                    b.Property<decimal?>("Margen1")
+                        .HasColumnType("decimal(5, 2)");
+
+                    b.Property<decimal?>("Margen2")
+                        .HasColumnType("decimal(5, 2)");
+
+                    b.Property<decimal?>("Margen3")
+                        .HasColumnType("decimal(5, 2)");
+
                     b.Property<string>("NombreUnidad")
                         .IsRequired()
-                        .HasMaxLength(100)
-                        .HasColumnType("nvarchar(100)");
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
 
-                    b.Property<decimal>("PrecioMonedaBase")
+                    b.Property<decimal?>("Precio2MonedaBase")
                         .HasColumnType("decimal(18, 4)");
 
-                    b.Property<decimal>("PrecioMonedaExt")
+                    b.Property<decimal?>("Precio2MonedaExt")
                         .HasColumnType("decimal(18, 4)");
 
-                    b.Property<int?>("ProductoCodigoProd")
-                        .HasColumnType("int");
+                    b.Property<decimal?>("Precio3MonedaBase")
+                        .HasColumnType("decimal(18, 4)");
 
-                    b.Property<int?>("UnidadMedidaIdUnidad")
-                        .HasColumnType("int");
+                    b.Property<decimal?>("Precio3MonedaExt")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<decimal?>("PrecioMonedaBase")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<decimal?>("PrecioMonedaExt")
+                        .HasColumnType("decimal(18, 4)");
 
                     b.HasKey("IdProductoUnidad");
 
-                    b.HasIndex("ProductoCodigoProd");
+                    b.HasIndex("CodigoProd");
 
-                    b.HasIndex("UnidadMedidaIdUnidad");
+                    b.HasIndex("IdUnidad");
 
                     b.ToTable("ProductosUnidad");
                 });
@@ -302,9 +720,11 @@ namespace Tyted.API.Migrations
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("RIF")
+                        .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Razonsocial")
+                        .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("Telefono")
@@ -323,18 +743,17 @@ namespace Tyted.API.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("IdTasa"));
 
+                    b.Property<decimal?>("FactorSugerido")
+                        .HasColumnType("decimal(18, 6)");
+
                     b.Property<DateTime>("FechaVigencia")
                         .HasColumnType("datetime2");
 
                     b.Property<string>("MonedaDestino")
-                        .IsRequired()
-                        .HasMaxLength(3)
-                        .HasColumnType("nvarchar(3)");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("MonedaOrigen")
-                        .IsRequired()
-                        .HasMaxLength(3)
-                        .HasColumnType("nvarchar(3)");
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<decimal>("Tasa")
                         .HasColumnType("decimal(18, 6)");
@@ -367,32 +786,6 @@ namespace Tyted.API.Migrations
                     b.HasKey("IdTasaIVA");
 
                     b.ToTable("TasasIVA");
-
-                    b.HasData(
-                        new
-                        {
-                            IdTasaIVA = 1,
-                            Nombre = "Exento (0%)",
-                            Porcentaje = 0.00m
-                        },
-                        new
-                        {
-                            IdTasaIVA = 2,
-                            Nombre = "Tasa Reducida (8%)",
-                            Porcentaje = 8.00m
-                        },
-                        new
-                        {
-                            IdTasaIVA = 3,
-                            Nombre = "Tasa General (16%)",
-                            Porcentaje = 16.00m
-                        },
-                        new
-                        {
-                            IdTasaIVA = 4,
-                            Nombre = "Tasa Adicional (31%)",
-                            Porcentaje = 31.00m
-                        });
                 });
 
             modelBuilder.Entity("Tyted.API.Models.UnidadMedida", b =>
@@ -411,39 +804,174 @@ namespace Tyted.API.Migrations
                     b.HasKey("IdUnidad");
 
                     b.ToTable("UnidadesMedida");
+                });
 
-                    b.HasData(
-                        new
-                        {
-                            IdUnidad = 1,
-                            NombreUnidad = "Unidad"
-                        },
-                        new
-                        {
-                            IdUnidad = 2,
-                            NombreUnidad = "Caja"
-                        },
-                        new
-                        {
-                            IdUnidad = 3,
-                            NombreUnidad = "Paquete"
-                        },
-                        new
-                        {
-                            IdUnidad = 4,
-                            NombreUnidad = "Kilogramo"
-                        },
-                        new
-                        {
-                            IdUnidad = 5,
-                            NombreUnidad = "Litro"
-                        });
+            modelBuilder.Entity("Tyted.API.Models.Usuario", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<bool>("Activo")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("NombreCompleto")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("PasswordHash")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Rol")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Username")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.HasKey("Id");
+
+                    b.ToTable("Usuarios");
+                });
+
+            modelBuilder.Entity("Tyted.API.Models.Venta", b =>
+                {
+                    b.Property<int>("VentaId")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasColumnName("Id");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("VentaId"));
+
+                    b.Property<int?>("ClienteId")
+                        .HasColumnType("int");
+
+                    b.Property<bool>("EsCredito")
+                        .HasColumnType("bit");
+
+                    b.Property<DateTime?>("FechaVencimiento")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("FechaVenta")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool>("IsAnulada")
+                        .HasColumnType("bit");
+
+                    b.Property<decimal>("IvaMonedaBase")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<decimal>("IvaMonedaExt")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<string>("MetodoPago")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("NumeroFactura")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<decimal>("SubtotalMonedaBase")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<decimal>("SubtotalMonedaExt")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<decimal>("TasaDeCambio")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<decimal?>("TasaDia")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<string>("TipoMoneda")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<decimal>("TotalMonedaBase")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<decimal>("TotalMonedaExt")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<decimal?>("TotalUSD")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<decimal?>("TotalVES")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.HasKey("VentaId");
+
+                    b.HasIndex("ClienteId");
+
+                    b.ToTable("Ventas");
+                });
+
+            modelBuilder.Entity("Tyted.API.Models.VentaDetalle", b =>
+                {
+                    b.Property<int>("IdDetalle")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int")
+                        .HasColumnName("Id");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("IdDetalle"));
+
+                    b.Property<decimal>("Cantidad")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<string>("CodigoProd")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<int>("IdProductoUnidad")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("IvaLineaMonedaExt")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<string>("NombreUnidad")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<decimal>("PrecioUnitarioMonedaBase")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<decimal>("PrecioUnitarioMonedaExt")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<decimal>("SubtotalLineaMonedaBase")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<decimal>("SubtotalLineaMonedaExt")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<decimal>("TasaIVA")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<decimal>("TotalLineaMonedaBase")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<decimal>("TotalLineaMonedaExt")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<int>("VentaId")
+                        .HasColumnType("int");
+
+                    b.HasKey("IdDetalle");
+
+                    b.HasIndex("CodigoProd");
+
+                    b.HasIndex("IdProductoUnidad");
+
+                    b.HasIndex("VentaId");
+
+                    b.ToTable("VentasDetalle");
                 });
 
             modelBuilder.Entity("Tyted.API.Models.Compra", b =>
                 {
                     b.HasOne("Tyted.API.Models.Proveedor", "Proveedor")
-                        .WithMany()
+                        .WithMany("Compras")
                         .HasForeignKey("CodigoProv")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
@@ -453,34 +981,106 @@ namespace Tyted.API.Migrations
 
             modelBuilder.Entity("Tyted.API.Models.CompraDetalle", b =>
                 {
+                    b.HasOne("Tyted.API.Models.Producto", "Producto")
+                        .WithMany()
+                        .HasForeignKey("CodigoProd")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
                     b.HasOne("Tyted.API.Models.Compra", "Compra")
                         .WithMany("Detalles")
                         .HasForeignKey("CompraId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 
+                    b.Navigation("Compra");
+
+                    b.Navigation("Producto");
+                });
+
+            modelBuilder.Entity("Tyted.API.Models.CuentaPorCobrar", b =>
+                {
+                    b.HasOne("Tyted.API.Models.Venta", "Venta")
+                        .WithMany()
+                        .HasForeignKey("VentaId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Venta");
+                });
+
+            modelBuilder.Entity("Tyted.API.Models.CuentaPorPagar", b =>
+                {
+                    b.HasOne("Tyted.API.Models.Compra", "Compra")
+                        .WithMany()
+                        .HasForeignKey("CompraId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Compra");
+                });
+
+            modelBuilder.Entity("Tyted.API.Models.InventarioMovimiento", b =>
+                {
                     b.HasOne("Tyted.API.Models.Producto", "Producto")
                         .WithMany()
-                        .HasForeignKey("ProductoCodigoProd");
+                        .HasForeignKey("CodigoProd")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Tyted.API.Models.Compra", "Compra")
+                        .WithMany()
+                        .HasForeignKey("CompraId");
 
                     b.Navigation("Compra");
 
                     b.Navigation("Producto");
                 });
 
+            modelBuilder.Entity("Tyted.API.Models.NotaEntregaCompraDetalle", b =>
+                {
+                    b.HasOne("Tyted.API.Models.NotaEntregaCompra", null)
+                        .WithMany("Detalles")
+                        .HasForeignKey("NotaEntregaCompraId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+                });
+
+            modelBuilder.Entity("Tyted.API.Models.Pedido", b =>
+                {
+                    b.HasOne("Tyted.API.Models.Cliente", "ClienteRelacion")
+                        .WithMany()
+                        .HasForeignKey("ClienteId");
+
+                    b.Navigation("ClienteRelacion");
+                });
+
+            modelBuilder.Entity("Tyted.API.Models.PedidoDetalle", b =>
+                {
+                    b.HasOne("Tyted.API.Models.Pedido", null)
+                        .WithMany("Detalles")
+                        .HasForeignKey("PedidoId");
+                });
+
             modelBuilder.Entity("Tyted.API.Models.Producto", b =>
                 {
-                    b.HasOne("Tyted.API.Models.Categoria", "Categoria")
-                        .WithMany("Productos")
-                        .HasForeignKey("CategoriaIdCategoria");
-
                     b.HasOne("Tyted.API.Models.Proveedor", "Proveedor")
                         .WithMany()
-                        .HasForeignKey("ProveedorCodigoProv");
+                        .HasForeignKey("CodigoProv")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Tyted.API.Models.Categoria", "Categoria")
+                        .WithMany()
+                        .HasForeignKey("IdCategoria")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
 
                     b.HasOne("Tyted.API.Models.TasaIVA", "TasaIVA")
-                        .WithMany("Productos")
-                        .HasForeignKey("TasaIVAIdTasaIVA");
+                        .WithMany()
+                        .HasForeignKey("IdTasaIVA")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
 
                     b.Navigation("Categoria");
 
@@ -493,23 +1093,68 @@ namespace Tyted.API.Migrations
                 {
                     b.HasOne("Tyted.API.Models.Producto", "Producto")
                         .WithMany("UnidadesDeVenta")
-                        .HasForeignKey("ProductoCodigoProd");
+                        .HasForeignKey("CodigoProd")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
 
                     b.HasOne("Tyted.API.Models.UnidadMedida", "UnidadMedida")
                         .WithMany()
-                        .HasForeignKey("UnidadMedidaIdUnidad");
+                        .HasForeignKey("IdUnidad")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
 
                     b.Navigation("Producto");
 
                     b.Navigation("UnidadMedida");
                 });
 
-            modelBuilder.Entity("Tyted.API.Models.Categoria", b =>
+            modelBuilder.Entity("Tyted.API.Models.Venta", b =>
                 {
-                    b.Navigation("Productos");
+                    b.HasOne("Tyted.API.Models.Cliente", "ClienteRelacion")
+                        .WithMany()
+                        .HasForeignKey("ClienteId");
+
+                    b.Navigation("ClienteRelacion");
+                });
+
+            modelBuilder.Entity("Tyted.API.Models.VentaDetalle", b =>
+                {
+                    b.HasOne("Tyted.API.Models.Producto", "Producto")
+                        .WithMany()
+                        .HasForeignKey("CodigoProd")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Tyted.API.Models.ProductosUnidad", "ProductoUnidad")
+                        .WithMany()
+                        .HasForeignKey("IdProductoUnidad")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Tyted.API.Models.Venta", "Venta")
+                        .WithMany("Detalles")
+                        .HasForeignKey("VentaId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Producto");
+
+                    b.Navigation("ProductoUnidad");
+
+                    b.Navigation("Venta");
                 });
 
             modelBuilder.Entity("Tyted.API.Models.Compra", b =>
+                {
+                    b.Navigation("Detalles");
+                });
+
+            modelBuilder.Entity("Tyted.API.Models.NotaEntregaCompra", b =>
+                {
+                    b.Navigation("Detalles");
+                });
+
+            modelBuilder.Entity("Tyted.API.Models.Pedido", b =>
                 {
                     b.Navigation("Detalles");
                 });
@@ -519,9 +1164,14 @@ namespace Tyted.API.Migrations
                     b.Navigation("UnidadesDeVenta");
                 });
 
-            modelBuilder.Entity("Tyted.API.Models.TasaIVA", b =>
+            modelBuilder.Entity("Tyted.API.Models.Proveedor", b =>
                 {
-                    b.Navigation("Productos");
+                    b.Navigation("Compras");
+                });
+
+            modelBuilder.Entity("Tyted.API.Models.Venta", b =>
+                {
+                    b.Navigation("Detalles");
                 });
 #pragma warning restore 612, 618
         }
