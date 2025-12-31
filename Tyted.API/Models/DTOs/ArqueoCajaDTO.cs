@@ -19,6 +19,8 @@ namespace Tyted.API.Models
         public decimal DiferenciaVES { get; set; }
         public string Estado { get; set; } = string.Empty; // "Cuadrado", "Faltante", "Sobrante"
         public string Mensaje { get; set; } = string.Empty;
+        public decimal EsperadoUSD { get; set; } // Lo que el sistema dice que hay en Efectivo
+        public decimal EsperadoVES { get; set; } // Lo que el sistema dice que hay en Pago Móvil
     }
 
 }

@@ -98,7 +98,10 @@ namespace Tyted.API.Services
                 venta.SubtotalMonedaExt = venta.Detalles.Sum(d => d.SubtotalLineaMonedaExt);
                 venta.TotalMonedaExt = venta.Detalles.Sum(d => d.TotalLineaMonedaExt);
                 venta.IvaMonedaExt = venta.TotalMonedaExt - venta.SubtotalMonedaExt;
-
+                venta.TotalUSD = venta.TotalMonedaBase; // Evita el NULL en SQL
+                venta.TotalVES = venta.TotalMonedaExt;
+                venta.TasaDia = venta.TasaDeCambio;
+                
                 _context.Ventas.Add(venta);
                 await _context.SaveChangesAsync(); 
 

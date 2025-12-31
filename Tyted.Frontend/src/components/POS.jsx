@@ -219,65 +219,74 @@ const POS = () => {
     setTimeout(() => inputBusquedaRef.current?.focus(), 150);
   };
 
-    const finalizarVenta = async (metodo) => {
-        if (carrito.length === 0) return;
+const finalizarVenta = async (metodo) => {
+    if (carrito.length === 0) return;
 
-        const ventaData = {
-            clienteId: cliente.id || 1,
-            tipoMoneda: "USD",
-            tasaDeCambio: tasa,
-            metodoPago: metodo,
-            subtotalMonedaBase: subtotalUSD,
-            ivaMonedaBase: totalIVAUSD,
-            totalMonedaBase: totalUSD,
-            subtotalMonedaExt: subtotalUSD * tasa,
-            ivaMonedaExt: totalIVAUSD * tasa,
-            totalMonedaExt: totalUSD * tasa,
-            isAnulada: false,
-            detalles: carrito.map(item => ({
-                codigoProd: item.codigoProd,
-                idProductoUnidad: item.idProductoUnidad,
-                nombreUnidad: item.unidad,
-                cantidad: item.cantidad,
-                tasaIVA: item.tasaIVA || 0,
-                precioUnitarioMonedaBase: item.precio,
-                subtotalLineaMonedaBase: item.precio * item.cantidad,
-                totalLineaMonedaBase: (item.precio * item.cantidad) * (1 + (item.tasaIVA / 100))
-            }))
-        };
+    const ventaData = {
+        clienteId: cliente.id || 1,
+        tipoMoneda: "USD",
+        tasaDeCambio: tasa,
+        metodoPago: metodo,
+        subtotalMonedaBase: subtotalUSD,
+        ivaMonedaBase: totalIVAUSD,
+        totalMonedaBase: totalUSD,
+        totalUSD: totalUSD,
+        subtotalMonedaExt: subtotalUSD * tasa,
+        ivaMonedaExt: totalIVAUSD * tasa,
+        totalMonedaExt: totalUSD * tasa,
+        isAnulada: false,
+        detalles: carrito.map(item => ({
+            codigoProd: item.codigoProd,
+            idProductoUnidad: item.idProductoUnidad,
+            nombreUnidad: item.unidad,
+            cantidad: item.cantidad,
+            tasaIVA: item.tasaIVA || 0,
+            precioUnitarioMonedaBase: item.precio,
+            subtotalLineaMonedaBase: item.precio * item.cantidad,
+            totalLineaMonedaBase: (item.precio * item.cantidad) * (1 + (item.tasaIVA / 100))
+        }))
+    };
 
-        try {
-            const response = await fetch(`${API_URL}/Ventas`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(ventaData)
-            });
+    try {
+        const response = await fetch(`${API_URL}/Ventas`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(ventaData)
+        });
 
-            if (response.ok) {
-                const resultado = await response.json();
-            
-                // 1. IMPRESIÓN AUTOMÁTICA
-                imprimirTicket(resultado);
-
-                // 2. LIMPIEZA COMPLETA PARA EL PRÓXIMO CLIENTE
-                setCarrito([]);
-                setPagoCliente(0);
-                setBusqueda("");
-                setResultadosBusqueda([]);
-                setCliente(CLIENTE_DEFECTO); // Volvemos al cliente por defecto
-            
-                // 3. FOCO AL BUSCADOR
-                setTimeout(() => inputBusquedaRef.current?.focus(), 150);
-            
-            } else {
-            // Si el servidor responde con error (404, 500, etc)
-            const errorTexto = await response.text(); // Leemos como texto para evitar el SyntaxError
-            console.error("Error del servidor:", errorTexto);
-            alert(`Error ${response.status}: No se pudo procesar la venta.`);
+        // Verificamos si la respuesta es exitosa (Status 200-299)
+        if (!response.ok) {
+            // Leemos el mensaje de error enviado por el servidor (BadRequest)
+            const errorTexto = await response.text();
+            // Lanzamos una excepción con ese mensaje para que caiga en el catch
+            throw new Error(errorTexto || `Error ${response.status}: No se pudo procesar la venta.`);
         }
+
+        // Si llegó aquí, la venta fue exitosa
+        const resultado = await response.json();
+        
+        // 1. IMPRESIÓN AUTOMÁTICA
+        imprimirTicket(resultado);
+
+        // 2. LIMPIEZA COMPLETA PARA EL PRÓXIMO CLIENTE
+        setCarrito([]);
+        setPagoCliente(0);
+        setBusqueda("");
+        setResultadosBusqueda([]);
+        setCliente(CLIENTE_DEFECTO); 
+    
+        // 3. FOCO AL BUSCADOR
+        setTimeout(() => inputBusquedaRef.current?.focus(), 150);
+        
+        // Opcional: una pequeña notificación de éxito
+        console.log("Venta registrada con éxito");
+
     } catch (err) {
-        console.error("Error de conexión:", err);
-        alert("No hay conexión con el servidor (Verifica si el API está corriendo).");
+        // AQUÍ CAPTURAMOS TODOS LOS ERRORES (Caja cerrada, error de red, etc.)
+        console.error("Error en la operación:", err.message);
+        
+        // Se muestra el mensaje del BadRequest: "OPERACIÓN DENEGADA: La caja está cerrada..."
+        alert(`⚠️ ATENCIÓN:\n${err.message}`);
     }
 };
 

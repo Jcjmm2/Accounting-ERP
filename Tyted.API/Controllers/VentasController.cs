@@ -61,54 +61,78 @@ namespace Tyted.API.Controllers
             }
         }
 
-        [HttpGet("reporte-diario")]
-        public async Task<ActionResult> GetReporte(DateTime? fecha)
+        [HttpGet("totales-sistema-hoy")]
+        public async Task<IActionResult> GetTotalesTurnoActual()
         {
-            var fechaConsulta = fecha ?? DateTime.Now;
-            var reporte = await _ventaService.GetReporteDiarioAsync(fechaConsulta);
-            return Ok(reporte);
+            // 1. Buscar la sesión que está abierta actualmente
+            var cajaActiva = await _context.CajaSesiones
+                .FirstOrDefaultAsync(c => c.IsAbierta && c.Usuario == "CAJERO_PRINCIPAL");
+
+            if (cajaActiva == null) return Ok(new { sistemaUSD = 0, sistemaPM = 0 });
+
+            // 2. Sumar ventas DESDE que se abrió la caja hasta ahora
+            var ventas = await _context.Ventas
+                .Where(v => v.FechaVenta >= cajaActiva.FechaApertura && !v.IsAnulada)
+                .ToListAsync();
+
+            var totalUSD = ventas.Where(v => v.MetodoPago == "EFECTIVO USD").Sum(v => v.TotalMonedaBase);
+            var totalPM = ventas.Where(v => v.MetodoPago == "PAGO MOVIL").Sum(v => v.TotalMonedaBase);
+
+            return Ok(new { 
+                sistemaUSD = totalUSD, 
+                sistemaPM = totalPM 
+            });
         }
 
         [HttpPost("consultar-cuadre-caja")]
         public async Task<IActionResult> ConsultarCuadreCaja([FromBody] ArqueoCajaDTO arqueo)
         {
-            var hoy = DateTime.Today;
-            var ventasHoy = await _context.Ventas
-                .Where(v => v.FechaVenta.Date == hoy && !v.IsAnulada)
+            var cajaActiva = await _context.CajaSesiones
+                .FirstOrDefaultAsync(c => c.IsAbierta && c.Usuario == "CAJERO_PRINCIPAL");
+
+            if (cajaActiva == null) return BadRequest("No hay una sesión de caja abierta.");
+
+            var ventasTurno = await _context.Ventas
+                .Where(v => v.FechaVenta >= cajaActiva.FechaApertura && !v.IsAnulada)
                 .ToListAsync();
 
-            // 1. Lo que dice el sistema que hay en cada método
-            decimal sistemaUSD = ventasHoy
+            decimal sistemaUSD = ventasTurno
                 .Where(v => v.MetodoPago == "EFECTIVO USD")
-                .Sum(v => v.TotalMonedaBase);
+                .Sum(v => (v.TotalUSD ?? v.TotalMonedaBase)); 
 
-            decimal sistemaPagoMovil = ventasHoy
+            decimal sistemaPagoMovil = ventasTurno
                 .Where(v => v.MetodoPago == "PAGO MOVIL")
-                .Sum(v => v.TotalMonedaBase); // Se suma en base (USD) para comparar con el DTO
+                .Sum(v => (v.TotalUSD ?? v.TotalMonedaBase));
 
-            // 2. Cálculo de diferencias individuales
             decimal difUSD = arqueo.EfectivoUSDDeclarado - sistemaUSD;
             decimal difPM = arqueo.PagoMovilDeclarado - sistemaPagoMovil;
 
-            // 3. Resultado global
-            // Una caja está cuadrada SOLO si TODAS las diferencias son cero
-            bool estaCuadrado = (difUSD == 0 && difPM == 0);
+            bool estaCuadrado = Math.Abs(difUSD) < 0.01m && Math.Abs(difPM) < 0.01m;
 
             return Ok(new ResultadoArqueoDTO {
+                // ASIGNAMOS LOS VALORES DEL SISTEMA AQUÍ:
+                EsperadoUSD = sistemaUSD,
+                EsperadoVES = sistemaPagoMovil,
+        
                 DiferenciaUSD = difUSD,
-                DiferenciaVES = difPM, // Usamos este campo para la diferencia de Pago Móvil
+                DiferenciaVES = difPM,
                 Estado = estaCuadrado ? "Cuadrado" : "Descuadrado",
                 Mensaje = estaCuadrado ? "Caja perfectamente cuadrada" : 
                           $"Diferencia USD: ${difUSD:N2} | Diferencia Pago Móvil: ${difPM:N2}"
             });
         }
+
         [HttpGet("reporte-productos")]
-        public async Task<IActionResult> GetVentasPorProducto(DateTime? fecha = null)
+        public async Task<IActionResult> GetVentasPorProducto()
         {
-            var f = fecha ?? DateTime.Today;
+            // CORRECCIÓN: El reporte de productos también debe ser del turno actual
+            var cajaActiva = await _context.CajaSesiones
+                .FirstOrDefaultAsync(c => c.IsAbierta && c.Usuario == "CAJERO_PRINCIPAL");
+
+            if (cajaActiva == null) return Ok(new List<object>());
 
             var reporte = await _context.VentasDetalle
-                .Where(d => d.Venta.FechaVenta.Date == f.Date && !d.Venta.IsAnulada)
+                .Where(d => d.Venta.FechaVenta >= cajaActiva.FechaApertura && !d.Venta.IsAnulada)
                 .GroupBy(d => new { d.CodigoProd, d.NombreUnidad })
                 .Select(g => new
                 {
