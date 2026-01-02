@@ -10,89 +10,100 @@ const POS = () => {
   const { tasa, API_URL } = useContext(ConfigContext);
   const [carrito, setCarrito] = useState([]);
   const [busqueda, setBusqueda] = useState("");
+  const [resultadosBusqueda, setResultadosBusqueda] = useState([]);
+  const [indexSeleccionado, setIndexSeleccionado] = useState(-1);
   const [pagoCliente, setPagoCliente] = useState(0);
   const [cliente, setCliente] = useState(CLIENTE_DEFECTO);
   const [mostrarModalCliente, setMostrarModalCliente] = useState(false);
-  const [resultadosBusqueda, setResultadosBusqueda] = useState([]);
   const [productoEnPesaje, setProductoEnPesaje] = useState(null);
-  const [cantidadPeso, setCantidadPeso] = useState("");
-    useEffect(() => {
-      const manejarTeclas = (e) => {
-          // ESC: Limpia buscador y resultados
-          if (e.key === "Escape") {
-              setBusqueda("");
-              setResultadosBusqueda([]);
-          }
-
-          // F2: Enfoca el buscador desde cualquier parte
-          if (e.key === "F2") {
-              e.preventDefault();
-              inputBusquedaRef.current?.focus();
-          }
-          // F9: Abre el Arqueo de Caja
-          if (e.key === "F9") {
-              e.preventDefault();
-              setMostrarArqueo(true);
-          }
-
-          // Dentro del manejarTeclas...
-          if (e.key === "F10") {
-              e.preventDefault();
-              finalizarVenta("EFECTIVO USD");
-          }
-          if (e.key === "F11") {
-              e.preventDefault();
-              finalizarVenta("PAGO MOVIL");
-          }
-      };
-
-      window.addEventListener("keydown", manejarTeclas);
-      return () => window.removeEventListener("keydown", manejarTeclas);
-  }, [carrito, busqueda, cliente]);
-
-  // --- ESTADOS DE CAJA ---
-  const [cajaAbierta, setCajaAbierta] = useState(true); 
-
-  // Verificamos el estado apenas carga el componente
-  useEffect(() => {
-      verificarEstadoCaja();
-  }, []);
-
-  const verificarEstadoCaja = async () => {
-      try {
-          const res = await fetch(`${API_URL}/Ventas/estado-caja`);
-          if (res.ok) {
-              const estaAbierta = await res.json();
-              setCajaAbierta(estaAbierta);
-          }
-      } catch (e) {
-          console.error("Error verificando caja:", e);
-          // Opcional: setCajaAbierta(false) para bloquear si el servidor está caído
-      }
-  };
-
+  const [cajaAbierta, setCajaAbierta] = useState(true);
   const [mostrarArqueo, setMostrarArqueo] = useState(false);
+  const [pagos, setPagos] = useState({
+    efectivoUSD: 0,
+    efectivoVES: 0,
+    pagoMovil: 0,
+    puntoBDV: 0,
+    puntoBancamiga: 0,
+    metal: 0
+    });
 
   // Referencia para devolver el foco al buscador automáticamente
   const inputBusquedaRef = useRef(null);
+  useEffect(() => {
+      const manejarTeclas = (e) => {
+        if (productoEnPesaje) return;
+        if (e.key === "Escape") {
+            setBusqueda("");
+            setResultadosBusqueda([]);
+            setIndexSeleccionado(-1);
+        }
 
-  // --- Cálculos Centralizados ---
-  const subtotalUSD = carrito.reduce((acc, item) => {const linea = Number(item.precio) * item.cantidad;return acc + Math.round(linea * 100) / 100;}, 0);
-  const totalIVAUSD = carrito.reduce((acc, item) => {
-    const precio = Number(item.precio) || 0;
-    const tasaIva = Number(item.tasaIVA) || 0;
-    return acc + (precio * (tasaIva / 100) * item.cantidad);
-  }, 0);
+        if (e.key === "F2") {
+            e.preventDefault();
+            inputBusquedaRef.current?.focus();
+        }
 
-  const totalUSD = subtotalUSD + totalIVAUSD;
-  const totalVES = totalUSD * (tasa || 0);
-  const vueltoUSD = pagoCliente > totalUSD ? pagoCliente - totalUSD : 0;
-  const vueltoVES = vueltoUSD * tasa;
+        if (e.key === "F6") {
+            e.preventDefault();
+            if (carrito.length > 0) {
+                cambiarCantidadManual(carrito[carrito.length - 1]);
+            }
+        }
 
-  // --- Funciones de Lógica ---
+        if (e.key === "F7") {
+            e.preventDefault();
+            // CAMBIO: Ahora verifica el índice seleccionado por el cajero
+            const idx = indexSeleccionado !== -1 ? indexSeleccionado : 0; 
+            const productoResaltado = resultadosBusqueda[idx];
 
-  const manejarBusqueda = async (valor) => {
+            if (productoResaltado?.codigoProd) { 
+            verPresentaciones(productoResaltado.codigoProd);
+            }
+        }
+
+        if (e.key === "F9") {
+            e.preventDefault();
+            setMostrarArqueo(true);
+        }
+
+        if (e.key === "F10") {
+            e.preventDefault();
+            finalizarVenta();
+        }
+
+        // Navegación por flechas con preventDefault para evitar scroll de página
+        if (e.key === "ArrowDown") {
+            e.preventDefault();
+            if (resultadosBusqueda.length > 0) {
+                setIndexSeleccionado(prev => 
+                    prev < resultadosBusqueda.length - 1 ? prev + 1 : prev
+                );
+            }
+        }
+
+        if (e.key === "ArrowUp") {
+            e.preventDefault();
+            if (resultadosBusqueda.length > 0) {
+                setIndexSeleccionado(prev => (prev > 0 ? prev - 1 : 0));
+            }
+        }
+
+        if (e.key === "Enter") {
+            if (indexSeleccionado !== -1 && resultadosBusqueda[indexSeleccionado]) {
+                e.preventDefault();
+                agregarAlCarrito(resultadosBusqueda[indexSeleccionado]);
+            }
+        }
+    };
+
+    window.addEventListener("keydown", manejarTeclas);
+    return () => window.removeEventListener("keydown", manejarTeclas);
+    // Dependencias actualizadas para que el teclado reconozca cambios en los resultados
+  }, [carrito, busqueda, cliente, resultadosBusqueda, indexSeleccionado]);
+
+    const manejarBusqueda = async (valor) => {
     setBusqueda(valor);
+    setIndexSeleccionado(-1);
     if (valor.length < 2) {
         setResultadosBusqueda([]);
         return;
@@ -129,6 +140,7 @@ const POS = () => {
         console.error("Error buscando:", error);
     }
   };
+
   const verPresentaciones = async (codigoMaestro) => {
     setBusqueda(codigoMaestro); // Ponemos "HUE-01" en el cuadro
     
@@ -139,7 +151,10 @@ const POS = () => {
             const data = await res.json();
             // Seteamos los resultados SIN aplicar el filtro de "una sola línea" 
             // para que el cajero vea el desglose completo
-            setResultadosBusqueda(data); 
+            setResultadosBusqueda(data);
+            if (data.length > 0) {
+                setIndexSeleccionado(0);
+            } 
         }
     } catch (error) {
         console.error("Error al expandir presentaciones:", error);
@@ -193,8 +208,56 @@ const POS = () => {
       // 3. Limpieza de interfaz
       setBusqueda("");
       setResultadosBusqueda([]);
+      setTimeout(() => {
+              inputBusquedaRef.current?.focus();
+          }, 100);
   };
 
+   // --- Cálculos Centralizados ---
+  const subtotalUSD = carrito.reduce((acc, item) => {const linea = Number(item.precio) * item.cantidad;return acc + Math.round(linea * 100) / 100;}, 0);
+  const totalIVAUSD = carrito.reduce((acc, item) => {
+    const precio = Number(item.precio) || 0;
+    const tasaIva = Number(item.tasaIVA) || 0;
+    return acc + (precio * (tasaIva / 100) * item.cantidad);
+  }, 0);
+
+  const totalUSD = subtotalUSD + totalIVAUSD;
+  const totalVES = totalUSD * (tasa || 0);
+  // --- Funciones de Lógica ---
+
+
+  // Resetear índice al buscar
+  useEffect(() => {
+      setIndexSeleccionado(-1);
+  }, [resultadosBusqueda]);
+
+  // Auto-scroll para la selección del teclado
+  useEffect(() => {
+      if (indexSeleccionado !== -1) {
+          const elemento = document.getElementById(`prod-res-${indexSeleccionado}`);
+          if (elemento) {
+              elemento.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+          }
+      }
+  }, [indexSeleccionado]);
+
+  const [cantidadPeso, setCantidadPeso] = useState("");
+   
+// Resetear el índice cada vez que cambien los resultados de búsqueda
+useEffect(() => {
+    setIndexSeleccionado(-1);
+}, [resultadosBusqueda]);
+// Agrega esto debajo de tus otros useEffect
+useEffect(() => {
+    if (indexSeleccionado !== -1) {
+        const elemento = document.getElementById(`prod-res-${indexSeleccionado}`);
+        if (elemento) {
+            elemento.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+        }
+    }
+}, [indexSeleccionado]);
+
+  
   const confirmarPeso = (e) => {
     if (e) e.preventDefault();
     const valor = parseFloat(cantidadPeso);
@@ -219,22 +282,80 @@ const POS = () => {
     setTimeout(() => inputBusquedaRef.current?.focus(), 150);
   };
 
-const finalizarVenta = async (metodo) => {
+// Agregamos todos los métodos solicitados
+
+
+// Cálculo del total pagado convirtiendo todo a USD (Moneda base)
+const totalPagadoUSD = 
+    Number(pagos.efectivoUSD) + 
+    (Number(pagos.efectivoVES) / tasa) + 
+    (Number(pagos.pagoMovil) / tasa) + 
+    (Number(pagos.puntoBDV) / tasa) + 
+    (Number(pagos.puntoBancamiga) / tasa) + 
+    (Number(pagos.metal) );
+
+const vueltoUSD = totalPagadoUSD > totalUSD ? totalPagadoUSD - totalUSD : 0;
+const faltaPorPagar = totalUSD > totalPagadoUSD ? totalUSD - totalPagadoUSD : 0;
+
+const cambiarCantidadManual = (item) => {
+  const nuevaCant = prompt(`Nueva cantidad para ${item.descripcion}:`, item.cantidad);
+  
+  if (nuevaCant !== null && !isNaN(nuevaCant) && String(nuevaCant).trim() !== "") {
+    const valor = parseFloat(nuevaCant);
+    if (valor <= 0) return;
+
+    setCarrito(carritoActual => 
+      carritoActual.map(i => 
+        i.idProductoUnidad === item.idProductoUnidad 
+        ? { ...i, cantidad: valor } 
+        : i
+      )
+    );
+  }
+  setTimeout(() => inputBusquedaRef.current?.focus(), 150);
+};
+
+const finalizarVenta = async () => {
+    // 1. Verificaciones iniciales
     if (carrito.length === 0) return;
 
+    // 2. Validación de pago suficiente (Margen de 0.01 por decimales)
+    if (totalPagadoUSD < (totalUSD - 0.01)) {
+        alert(`⚠️ PAGO INSUFICIENTE:\nFaltan: $${faltaPorPagar.toFixed(2)} (${(faltaPorPagar * tasa).toFixed(2)} Bs.)`);
+        return;
+    }
+
+    // 3. Preparación del objeto de venta (Data unificada)
     const ventaData = {
         clienteId: cliente.id || 1,
         tipoMoneda: "USD",
         tasaDeCambio: tasa,
-        metodoPago: metodo,
+        metodoPago: "MIXTO", // Identificador para pagos múltiples
+        
+        // Totales en Moneda Base (Dólares)
         subtotalMonedaBase: subtotalUSD,
         ivaMonedaBase: totalIVAUSD,
         totalMonedaBase: totalUSD,
         totalUSD: totalUSD,
+
+        // Totales en Moneda Extranjera (Bolívares)
         subtotalMonedaExt: subtotalUSD * tasa,
         ivaMonedaExt: totalIVAUSD * tasa,
         totalMonedaExt: totalUSD * tasa,
+
+        // Desglose detallado de pagos para el Arqueo de Caja
+        detallesPago: { 
+            efectivoUSD: Number(pagos.efectivoUSD),
+            efectivoVES: Number(pagos.efectivoVES),
+            pagoMovil: Number(pagos.pagoMovil),
+            puntoBDV: Number(pagos.puntoBDV),
+            puntoBancamiga: Number(pagos.puntoBancamiga),
+            metal: Number(pagos.metal)
+        },
+
         isAnulada: false,
+        
+        // Detalle de productos
         detalles: carrito.map(item => ({
             codigoProd: item.codigoProd,
             idProductoUnidad: item.idProductoUnidad,
@@ -254,38 +375,39 @@ const finalizarVenta = async (metodo) => {
             body: JSON.stringify(ventaData)
         });
 
-        // Verificamos si la respuesta es exitosa (Status 200-299)
+        // Manejo de errores del servidor (Caja cerrada, falta de stock, etc.)
         if (!response.ok) {
-            // Leemos el mensaje de error enviado por el servidor (BadRequest)
             const errorTexto = await response.text();
-            // Lanzamos una excepción con ese mensaje para que caiga en el catch
             throw new Error(errorTexto || `Error ${response.status}: No se pudo procesar la venta.`);
         }
 
-        // Si llegó aquí, la venta fue exitosa
+        // Si la venta es exitosa
         const resultado = await response.json();
         
-        // 1. IMPRESIÓN AUTOMÁTICA
+        // 1. Impresión de ticket
         imprimirTicket(resultado);
 
-        // 2. LIMPIEZA COMPLETA PARA EL PRÓXIMO CLIENTE
+        // 2. Limpieza de estados para la siguiente venta
         setCarrito([]);
-        setPagoCliente(0);
+        setPagos({ 
+            efectivoUSD: 0, 
+            efectivoVES: 0, 
+            pagoMovil: 0, 
+            puntoBDV: 0, 
+            puntoBancamiga: 0, 
+            metal: 0 
+        });
+        setCliente(CLIENTE_DEFECTO);
         setBusqueda("");
         setResultadosBusqueda([]);
-        setCliente(CLIENTE_DEFECTO); 
-    
-        // 3. FOCO AL BUSCADOR
+
+        // 3. Devolver el foco al buscador
         setTimeout(() => inputBusquedaRef.current?.focus(), 150);
         
-        // Opcional: una pequeña notificación de éxito
-        console.log("Venta registrada con éxito");
+        console.log("Venta Mixta registrada con éxito");
 
     } catch (err) {
-        // AQUÍ CAPTURAMOS TODOS LOS ERRORES (Caja cerrada, error de red, etc.)
         console.error("Error en la operación:", err.message);
-        
-        // Se muestra el mensaje del BadRequest: "OPERACIÓN DENEGADA: La caja está cerrada..."
         alert(`⚠️ ATENCIÓN:\n${err.message}`);
     }
 };
@@ -341,8 +463,35 @@ const finalizarVenta = async (metodo) => {
     ventana.document.close();
  };
 
+   useEffect(() => {
+      verificarEstadoCaja();
+  }, []);
+  useEffect(() => {
+      if (cajaAbierta) {
+          // Usamos un pequeño delay para asegurar que el DOM esté listo
+          const timer = setTimeout(() => {
+              inputBusquedaRef.current?.focus();
+          }, 300);
+          return () => clearTimeout(timer);
+      }
+  }, [cajaAbierta]);
+
+  const verificarEstadoCaja = async () => {
+      try {
+          const res = await fetch(`${API_URL}/Ventas/estado-caja`);
+          if (res.ok) {
+              const estaAbierta = await res.json();
+              setCajaAbierta(estaAbierta);
+          }
+      } catch (e) {
+          console.error("Error verificando caja:", e);
+          setCajaAbierta(false);
+          // Opcional: setCajaAbierta(false) para bloquear si el servidor está caído
+      }
+  };
+
   
-  return (
+return (
     <>
       {/* 1. ENVOLTORIO PRINCIPAL: Controla el bloqueo visual y funcional */}
       <div className={`transition-all duration-700 ${!cajaAbierta ? "pointer-events-none opacity-30 grayscale blur-[2px]" : ""}`} style={{ zIndex: 1 }}>
@@ -385,15 +534,27 @@ const finalizarVenta = async (metodo) => {
                     </tr>
                   </thead>
                   <tbody>
-                    {carrito.map(item => (
-                      <tr key={item.idProductoUnidad} className="border-b hover:bg-blue-50/50 transition">
+                    {/* Corregido: Agregado (item, index) para que funcione el resaltado del último item */}
+                    {carrito.map((item, index) => (
+                      <tr 
+                        key={item.idProductoUnidad} 
+                        className={`border-b hover:bg-blue-50/50 transition ${index === carrito.length - 1 ? 'bg-yellow-50/30' : ''}`}
+                      >
                         <td className="p-4">
                           <div className="font-bold text-gray-800 uppercase text-sm">{item.descripcion}</div>
                           <div className="text-[10px] font-mono text-gray-400">{item.codigoProd}</div>
                         </td>
-                        <td className="p-4 text-center font-black text-blue-600 text-lg">
-                          {Number(item.cantidad).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 3 })}
-                          <span className="text-[10px] ml-1 text-gray-400 font-normal">{item.unidad}</span>
+                        <td className="p-4 text-center">
+                          <div className="flex flex-col items-center">
+                            <button 
+                              onClick={() => cambiarCantidadManual(item)}
+                              className="font-black text-blue-600 text-lg bg-blue-50 px-3 py-1 rounded-lg border border-blue-200 hover:bg-blue-500 hover:text-white transition-all shadow-sm"
+                              title="Click para cambiar cantidad (o F6 para el último)"
+                            >
+                              {Number(item.cantidad).toLocaleString('en-US', { maximumFractionDigits: 3 })}
+                            </button>
+                            <span className="text-[10px] mt-1 text-gray-400 font-normal uppercase">{item.unidad}</span>
+                          </div>
                         </td>
                         <td className="p-4 font-mono text-gray-600 text-sm">${item.precio.toFixed(2)}</td>
                         <td className="p-4 text-right font-mono">
@@ -416,16 +577,16 @@ const finalizarVenta = async (metodo) => {
           </div>
 
           {/* SECCIÓN DERECHA: TOTALES Y BÚSQUEDA */}
-          <div className="w-96 p-4 bg-white border-l shadow-2xl flex flex-col gap-4">
-  
-            {/* Buscador con Z-Index superior para evitar bloqueos */}
+          <div className="w-96 p-4 bg-white border-l shadow-2xl flex flex-col gap-4 overflow-y-auto">
+
+            {/* 1. Buscador de Productos */}
             <div className="relative" style={{ zIndex: 50 }}>
               <label className="block text-[10px] font-black mb-1 text-gray-400 uppercase">
                 F2 - Buscador de Productos
               </label>
-              <input           
+              <input
                 ref={inputBusquedaRef}
-                type="text" 
+                type="text"
                 value={busqueda}
                 onChange={(e) => manejarBusqueda(e.target.value)}
                 className="w-full p-4 border-2 border-blue-50 rounded-xl focus:border-blue-500 outline-none text-lg shadow-sm font-bold placeholder:font-normal"
@@ -433,57 +594,67 @@ const finalizarVenta = async (metodo) => {
                 autoFocus
               />
 
-              {/* Contenedor de Resultados con prioridad máxima de clic */}
+              {/* Resultados de Búsqueda con soporte para navegación por teclado */}
               {resultadosBusqueda.length > 0 && (
-                <div 
+                <div
                   className="absolute left-0 right-0 bg-white border-2 border-blue-500 rounded-xl shadow-[0px_10px_40px_rgba(0,0,0,0.4)] mt-1 max-h-80 overflow-y-auto"
-                  style={{ zIndex: 9999, pointerEvents: 'auto' }} 
+                  style={{ zIndex: 9999 }}
                 >
                   {resultadosBusqueda.map((prod, index) => (
-                    <div 
-                      key={`${prod.idProductoUnidad}-${index}`} 
-                      tabIndex="0" 
+                    <div
+                      id={`prod-res-${index}`}
+                      key={`${prod.idProductoUnidad}-${index}`}
                       role="button"
-                      className="p-4 hover:bg-blue-100 border-b flex justify-between items-center cursor-pointer outline-none focus:bg-blue-200 transition-colors group"
+                      tabIndex="0"
+                      className={`p-4 border-b flex justify-between items-center cursor-pointer transition-colors outline-none group
+                        ${index === indexSeleccionado 
+                          ? "bg-blue-600 text-white shadow-inner" 
+                          : "hover:bg-blue-100 text-gray-800"
+                        }`}
                       onClick={(e) => {
                         e.preventDefault();
                         e.stopPropagation();
                         agregarAlCarrito(prod);
                       }}
+                      // Mantenemos soporte de Enter individual por accesibilidad
                       onKeyDown={(e) => {
                         if (e.key === 'Enter') {
                           e.preventDefault();
-                          e.stopPropagation();
                           agregarAlCarrito(prod);
                         }
                       }}
                     >
                       <div className="flex-1">
-                        <span className="font-bold block text-gray-800 uppercase text-xs pointer-events-none">
+                        <span className={`font-bold block uppercase text-xs ${index === indexSeleccionado ? "text-white" : "text-gray-800"}`}>
                           {prod.descripcion}
                         </span>
                         <div className="flex items-center gap-2">
-                          <small className="text-gray-400 font-mono text-[10px] pointer-events-none">
-                            {prod.codigoProd} | {prod.unidad}
+                          <small className={`font-mono text-[10px] ${index === indexSeleccionado ? "text-blue-100" : "text-gray-400"}`}>
+                            {prod.codigo} | {prod.unidad}
                           </small>
-        
-                          {/* Botón para ver otras presentaciones (Kilo/Gramo/etc) */}
+            
+                          {/* Botón de Presentaciones (F7) */}
                           <button
-                            type="button"
-                            onClick={(e) => {
-                              e.preventDefault();
-                              e.stopPropagation(); // IMPORTANTE: Evita que se dispare el agregarAlCarrito del padre
-                              verPresentaciones(prod.codigoProd);
-                            }}
-                            className="bg-blue-50 text-blue-600 px-2 py-0.5 rounded text-[10px] font-black hover:bg-blue-600 hover:text-white transition-all transform active:scale-90"
-                            title="Ver más presentaciones"
+                              type="button"
+                              onClick={(e) => {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  verPresentaciones(prod.codigoProd);
+                              }}
+                              className={`px-2 py-0.5 rounded text-[10px] font-black border transition-colors
+                                  ${index === indexSeleccionado 
+                                      ? "bg-white text-blue-600 border-white" // Resaltado cuando está seleccionado
+                                      : "bg-blue-50 text-blue-600 border-blue-200"
+                                  }`}
                           >
-                            📦 +
+                              {/* CAMBIO: Texto indicativo más claro */}
+                              {index === indexSeleccionado ? "ENTER SELECCIONAR" : "📦 + F7"}
                           </button>
                         </div>
                       </div>
-                      <div className="text-right pointer-events-none">
-                        <span className="block font-black text-blue-600 text-sm">
+        
+                      <div className="text-right">
+                        <span className={`block font-black text-sm ${index === indexSeleccionado ? "text-white" : "text-blue-600"}`}>
                           ${(prod.precioUSD || 0).toFixed(2)}
                         </span>
                       </div>
@@ -493,73 +664,128 @@ const finalizarVenta = async (metodo) => {
               )}
             </div>
 
-            {/* Desglose de Totales */}
-            <div className="bg-gray-900 p-6 rounded-3xl text-white shadow-xl space-y-3">
-              <div className="flex justify-between text-gray-400 text-xs uppercase font-bold">
-                <span>Subtotal:</span><b className="font-mono text-white text-sm">${subtotalUSD.toFixed(2)}</b>
+            {/* 2. Pantalla de Totales (Negra) */}
+            <div className="bg-gray-900 p-5 rounded-3xl text-white shadow-xl space-y-2">
+              <div className="flex justify-between text-gray-400 text-[10px] uppercase font-bold">
+                <span>Subtotal:</span><b className="font-mono text-white">${subtotalUSD.toFixed(2)}</b>
               </div>
-              <div className="flex justify-between text-gray-400 text-xs uppercase font-bold">
-                <span>IVA:</span><b className="font-mono text-white text-sm">${totalIVAUSD.toFixed(2)}</b>
+              <div className="flex justify-between text-gray-400 text-[10px] uppercase font-bold">
+                <span>IVA:</span><b className="font-mono text-white">${totalIVAUSD.toFixed(2)}</b>
               </div>
-              <div className="pt-4 border-t border-gray-700">
+              <div className="pt-2 border-t border-gray-700 mt-2">
                 <div className="text-right">
-                  <div className="text-5xl font-black text-green-400 font-mono">${totalUSD.toFixed(2)}</div>
-                  <div className="text-sm font-bold text-gray-400 mt-1 italic">
-                     ≈ {totalVES.toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs.
+                  <div className="text-4xl font-black text-green-400 font-mono">${totalUSD.toFixed(2)}</div>
+                  <div className="text-[11px] font-bold text-gray-400 italic">
+                    ≈ {totalVES.toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs.
                   </div>
                 </div>
               </div>
-              
-              <div className="space-y-3 mt-6">
+    
+              <div className="grid grid-cols-2 gap-2 mt-4">
                 <button 
                   onClick={() => setMostrarArqueo(true)} 
-                  className="w-full bg-white/10 hover:bg-white/20 text-white text-[10px] font-black py-2 rounded-xl transition-all uppercase tracking-widest border border-white/10"
+                  className="bg-white/10 hover:bg-white/20 text-white text-[9px] font-black py-2 rounded-lg border border-white/5 transition-all uppercase"
                 >
-                  📊 F9 - Arqueo de Caja
+                  📊 F9 Arqueo
                 </button>
-                <button 
-                  onClick={() => finalizarVenta("EFECTIVO USD")}
-                  className="w-full bg-green-500 hover:bg-green-600 text-white font-black py-4 rounded-2xl shadow-lg transition-all flex justify-between px-6 items-center group"
-                >
-                  <span className="text-xs uppercase">F10 - EFECTIVO USD</span>
-                  <span className="text-xl group-active:scale-90 transition-transform">${totalUSD.toFixed(2)}</span>
-                </button>
-
-                <button 
-                  onClick={() => finalizarVenta("PAGO MOVIL")}
-                  className="w-full bg-blue-500 hover:bg-blue-600 text-white font-black py-4 rounded-2xl shadow-lg transition-all flex justify-between px-6 items-center group"
-                >
-                  <span className="text-xs uppercase">F11 - PAGO MOVIL</span>
-                  <span className="text-sm group-active:scale-90 transition-transform">{totalVES.toLocaleString('es-VE')} Bs.</span>
-                </button>
+                {/*<button 
+                  className="bg-white/10 text-white text-[9px] font-black py-2 rounded-lg opacity-40 cursor-not-allowed uppercase"
+                ></div>*/}
+                  {/*⚙️ Opciones*/}
+                {/*</button>*/}
               </div>
             </div>
+            
 
-            {/* Calculadora de Vuelto */}
-            <div className="p-4 bg-yellow-50 rounded-2xl border border-yellow-200">
-              <label className="block text-[10px] font-black text-yellow-700 mb-1 uppercase">Pago del Cliente ($)</label>
-              <input 
-                type="number" 
-                value={pagoCliente || ""}
-                onChange={(e) => setPagoCliente(Number(e.target.value))}
-                className="w-full p-2 text-3xl border-b-2 border-yellow-300 bg-transparent font-mono outline-none text-yellow-900"
-                placeholder="0.00"
-              />
-              {pagoCliente > 0 && (
-                <div className="mt-3 text-right animate-pulse">
-                  <span className="block text-[10px] font-black text-red-500 uppercase italic">Cambio a entregar:</span>
-                  <span className="text-3xl font-black text-red-600">${vueltoUSD.toFixed(2)}</span>
-                  <div className="text-xs font-bold text-red-400">{vueltoVES.toLocaleString('es-VE')} Bs.</div>
+            {/* 3. Panel de Pagos Multimoneda */}
+            <div className="p-4 bg-gray-50 rounded-2xl border border-gray-200 space-y-3 shadow-inner">
+              <h3 className="text-[10px] font-black text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                <span className="w-2 h-2 bg-blue-500 rounded-full animate-pulse"></span>
+                Métodos de Pago
+              </h3>
+
+              <div className="space-y-2">
+                <div className="flex items-center bg-white p-2 rounded-xl border border-green-200 shadow-sm">
+                  <span className="text-[10px] font-black w-20 text-green-700">EFECTIVO $</span>
+                  <input 
+                    type="number" 
+                    value={pagos.efectivoUSD || ""} 
+                    onChange={(e) => setPagos({...pagos, efectivoUSD: e.target.value})} 
+                    className="w-full outline-none text-right font-mono font-bold text-green-600" 
+                    placeholder="0.00" 
+                  />
                 </div>
-              )}
+
+                <div className="space-y-1.5 bg-blue-50/50 p-2.5 rounded-xl border border-blue-100">
+                  <span className="text-[8px] font-black text-blue-500 block mb-1 uppercase tracking-tighter">Pagos en Bolívares (Tasa: {tasa})</span>
+                  {[
+                    { label: 'EFECTIVO BS', key: 'efectivoVES' },
+                    { label: 'PAGO MÓVIL', key: 'pagoMovil' },
+                    { label: 'PUNTO BDV', key: 'puntoBDV' },
+                    { label: 'PUNTO BAMIGA', key: 'puntoBancamiga' }
+                  ].map((metodo) => (
+                    <div key={metodo.key} className="flex items-center bg-white p-1.5 rounded-lg border border-blue-100 shadow-sm">
+                      <span className="text-[9px] font-bold w-24 text-gray-500 uppercase">{metodo.label}</span>
+                      <input 
+                        type="number" 
+                        value={pagos[metodo.key] || ""} 
+                        onChange={(e) => setPagos({...pagos, [metodo.key]: e.target.value})} 
+                        className="w-full outline-none text-right text-xs font-mono font-bold" 
+                        placeholder="0.00" 
+                      />
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex items-center bg-amber-50 p-2 rounded-xl border border-amber-200 shadow-sm">
+                  <span className="text-[10px] font-black w-20 text-amber-700">METAL (USD)</span>
+                  <input 
+                    type="number" 
+                    value={pagos.metal || ""} 
+                    onChange={(e) => setPagos({...pagos, metal: e.target.value})} 
+                    className="w-full bg-transparent outline-none text-right font-mono font-bold text-amber-800" 
+                    placeholder="0.00" 
+                  />
+                </div>
+              </div>
+
+              <div className="mt-4 p-3 rounded-2xl bg-gray-900 text-white shadow-lg transition-all">
+                {faltaPorPagar > 0.01 ? (
+                  <div className="flex justify-between items-center">
+                    <div className="flex flex-col">
+                      <span className="text-[9px] text-orange-400 font-black uppercase tracking-widest">Faltante</span>
+                      <span className="text-[10px] text-gray-400">Restante en Bs: {(faltaPorPagar * tasa).toFixed(2)}</span>
+                    </div>
+                    <span className="text-2xl font-mono text-orange-400 font-black">${faltaPorPagar.toFixed(2)}</span>
+                  </div>
+                ) : (          
+                  <div className="flex justify-between items-center">
+                    <div className="flex flex-col">
+                      <span className="text-[9px] text-green-400 font-black uppercase tracking-widest">Cambio</span>
+                      <span className="text-[10px] text-gray-400">Entregar en Bs: {(vueltoUSD * tasa).toFixed(2)}</span>
+                    </div>
+                    <span className="text-2xl font-mono text-green-400 font-black">${vueltoUSD.toFixed(2)}</span>
+                  </div>
+                )}
+              </div>
+
+              <button 
+                onClick={finalizarVenta}
+                disabled={totalPagadoUSD < (totalUSD - 0.01)}
+                className={`w-full py-4 rounded-2xl font-black text-base transition-all shadow-md ${
+                    totalPagadoUSD >= (totalUSD - 0.01) 
+                    ? "bg-green-500 hover:bg-green-600 text-white active:scale-95 cursor-pointer" 
+                    : "bg-gray-200 text-gray-400 cursor-not-allowed"
+                }`}
+              >
+                {totalPagadoUSD >= (totalUSD - 0.01) ? "🛒 REGISTRAR VENTA (F10)" : "ESPERANDO PAGO..."}
+              </button>
             </div>
           </div>
         </div>
       </div>
 
-      {/* 2. MODALES (Fuera del div de bloqueo) */}
-      
-      {/* Modal de Apertura - Este bloquea todo si cajaAbierta es false */}
+      {/* 2. MODALES */}
       <ModalApertura 
           isOpen={!cajaAbierta} 
           API_URL={API_URL} 
@@ -569,20 +795,26 @@ const finalizarVenta = async (metodo) => {
           }} 
       />
 
-      {/* Modal de Pesaje - CORREGIDO */}
       {productoEnPesaje && (
         <div className="fixed inset-0 bg-black/80 flex items-center justify-center z-[10000] backdrop-blur-sm">
           <div className="bg-white p-8 rounded-3xl shadow-2xl w-96 text-center border-4 border-blue-500">
             <h2 className="text-2xl font-black mb-2 uppercase text-gray-800">{productoEnPesaje.descripcion}</h2>
             <p className="text-blue-600 font-bold mb-6 italic">Ingrese cantidad en {productoEnPesaje.unidad}</p>
       
-            <form onSubmit={confirmarPeso}>
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+              confirmarPeso(e);
+              }}>
               <input 
                 id="input-peso-balanza"
                 type="number" 
                 step="0.001"
                 value={cantidadPeso}
                 onChange={(e) => setCantidadPeso(e.target.value)}
+                onKeyDown={(e) => {
+                              if (e.key === 'Enter') e.stopPropagation();
+                          }}
                 className="w-full text-5xl p-4 border-b-4 border-blue-500 outline-none text-center font-mono mb-8 bg-blue-50"
                 placeholder="0.000"
                 autoFocus
@@ -590,7 +822,7 @@ const finalizarVenta = async (metodo) => {
               <div className="flex gap-4">
                 <button 
                   type="button"
-                  onClick={() => setProductoEnPesaje(null)}
+                  onClick={() => {setProductoEnPesaje(null);setTimeout(() => inputBusquedaRef.current?.focus(), 100);}}
                   className="flex-1 bg-gray-200 py-4 rounded-xl font-bold text-gray-600 hover:bg-gray-300 transition"
                 >
                   CANCELAR
