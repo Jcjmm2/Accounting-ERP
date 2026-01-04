@@ -7,6 +7,16 @@ namespace Tyted.API.Models
         public decimal TotalVendidoVES { get; set; }
         public decimal TotalIVAUSD { get; set; }
         public int CantidadVentas { get; set; }
+        
+        // --- AGREGAR ESTO PARA EL ARQUEO ---
+        public decimal MontoEfectivoUSD { get; set; }
+        public decimal MontoEfectivoVES { get; set; }
+        public decimal MontoPagoMovil { get; set; }
+        public decimal MontoBDV { get; set; }
+        public decimal MontoBancamiga { get; set; }
+        public decimal MontoMetal { get; set; }
+        // -----------------------------------
+
         public List<VentasPorMetodoPago> DesgloseMetodos { get; set; } = new();
         public List<TopProductoDTO> TopProductos { get; set; } = new();
     }

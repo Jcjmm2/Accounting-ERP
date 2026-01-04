@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
-using Microsoft.EntityFrameworkCore; // IMPORTANTE: Para usar Include y ToListAsync
-using Tyted.API.Data; // IMPORTANTE: Donde reside tu TytedContext
+using Microsoft.EntityFrameworkCore;
+using Tyted.API.Data;
 using Tyted.API.Models;
 using Tyted.API.Services;
 
@@ -11,33 +11,28 @@ namespace Tyted.API.Controllers
     public class VentasController : ControllerBase
     {
         private readonly VentaService _ventaService;
-        private readonly TytedContext _context; // Agregamos el contexto
+        private readonly TytedContext _context;
 
-        private readonly VentaDetalle _ventaDetalle;
-
-        // Actualizamos el constructor para recibir AMBOS servicios
         public VentasController(VentaService ventaService, TytedContext context)
         {
             _ventaService = ventaService;
             _context = context;
-            
-            
         }
+
+        // --- GESTIÓN DE VENTAS ---
 
         [HttpPost]
         public async Task<IActionResult> RegistrarVenta([FromBody] Venta venta)
         {
             var caja = await _context.CajaSesiones
-                    .FirstOrDefaultAsync(c => c.IsAbierta && c.Usuario == "CAJERO_PRINCIPAL");
+                .FirstOrDefaultAsync(c => c.IsAbierta && c.Usuario == "CAJERO_PRINCIPAL");
 
-                if (caja == null)
-                {
-                    return BadRequest("OPERACIÓN DENEGADA: La caja está cerrada. Debe realizar una apertura para facturar.");
-                }
+            if (caja == null)
+                return BadRequest("OPERACIÓN DENEGADA: La caja está cerrada. Debe realizar una apertura para facturar.");
 
-               
             try
             {
+                // El VentaService debe estar preparado para recibir 'venta.Pagos'
                 var nuevaVenta = await _ventaService.RegistrarVentaAsync(venta);
                 return Ok(nuevaVenta);
             }
@@ -61,71 +56,102 @@ namespace Tyted.API.Controllers
             }
         }
 
-        [HttpGet("totales-sistema-hoy")]
-        public async Task<IActionResult> GetTotalesTurnoActual()
+        // --- ARQUEO Y CIERRE DE CAJA ---
+
+        [HttpGet("reporte-diario")]
+        public async Task<IActionResult> GetReporteDiario()
         {
-            // 1. Buscar la sesión que está abierta actualmente
-            var cajaActiva = await _context.CajaSesiones
-                .FirstOrDefaultAsync(c => c.IsAbierta && c.Usuario == "CAJERO_PRINCIPAL");
-
-            if (cajaActiva == null) return Ok(new { sistemaUSD = 0, sistemaPM = 0 });
-
-            // 2. Sumar ventas DESDE que se abrió la caja hasta ahora
-            var ventas = await _context.Ventas
-                .Where(v => v.FechaVenta >= cajaActiva.FechaApertura && !v.IsAnulada)
-                .ToListAsync();
-
-            var totalUSD = ventas.Where(v => v.MetodoPago == "EFECTIVO USD").Sum(v => v.TotalMonedaBase);
-            var totalPM = ventas.Where(v => v.MetodoPago == "PAGO MOVIL").Sum(v => v.TotalMonedaBase);
-
-            return Ok(new { 
-                sistemaUSD = totalUSD, 
-                sistemaPM = totalPM 
-            });
+            var reporte = await _ventaService.GetReporteDiarioAsync(null);
+                return Ok(reporte);
         }
 
         [HttpPost("consultar-cuadre-caja")]
         public async Task<IActionResult> ConsultarCuadreCaja([FromBody] ArqueoCajaDTO arqueo)
         {
-            var cajaActiva = await _context.CajaSesiones
-                .FirstOrDefaultAsync(c => c.IsAbierta && c.Usuario == "CAJERO_PRINCIPAL");
+            // Obtenemos lo que el sistema dice que debería haber según las facturas
+            var totalesSistema = await _ventaService.GetReporteDiarioAsync(null);
 
-            if (cajaActiva == null) return BadRequest("No hay una sesión de caja abierta.");
+            // Calculamos diferencias individuales
+            decimal difUSD = (decimal)arqueo.EfectivoUSDDeclarado - totalesSistema.MontoEfectivoUSD;
+            decimal difVES = (decimal)arqueo.EfectivoVESDeclarado - totalesSistema.MontoEfectivoVES;
+            decimal difPM = (decimal)arqueo.PagoMovilDeclarado - totalesSistema.MontoPagoMovil;
+            decimal difBDV = (decimal)arqueo.BDVDeclarado - totalesSistema.MontoBDV;
+            decimal difBancamiga = (decimal)arqueo.BancamigaDeclarado - totalesSistema.MontoBancamiga;
+            decimal difMetal = (decimal)arqueo.MetalDeclarado - totalesSistema.MontoMetal;
 
-            var ventasTurno = await _context.Ventas
-                .Where(v => v.FechaVenta >= cajaActiva.FechaApertura && !v.IsAnulada)
-                .ToListAsync();
+            // Se considera cuadrado si las 3 monedas coinciden (margen 0.01)
+            bool estaCuadrado = Math.Abs(difUSD) < 0.01m && 
+                                Math.Abs(difVES) < 0.01m && 
+                                Math.Abs(difPM) < 0.01m &&
+                                Math.Abs(difBDV) < 0.01m &&
+                                Math.Abs(difBancamiga) < 0.01m &&
+                                Math.Abs(difMetal) < 0.01m 
+                                ;
 
-            decimal sistemaUSD = ventasTurno
-                .Where(v => v.MetodoPago == "EFECTIVO USD")
-                .Sum(v => (v.TotalUSD ?? v.TotalMonedaBase)); 
-
-            decimal sistemaPagoMovil = ventasTurno
-                .Where(v => v.MetodoPago == "PAGO MOVIL")
-                .Sum(v => (v.TotalUSD ?? v.TotalMonedaBase));
-
-            decimal difUSD = arqueo.EfectivoUSDDeclarado - sistemaUSD;
-            decimal difPM = arqueo.PagoMovilDeclarado - sistemaPagoMovil;
-
-            bool estaCuadrado = Math.Abs(difUSD) < 0.01m && Math.Abs(difPM) < 0.01m;
-
-            return Ok(new ResultadoArqueoDTO {
-                // ASIGNAMOS LOS VALORES DEL SISTEMA AQUÍ:
-                EsperadoUSD = sistemaUSD,
-                EsperadoVES = sistemaPagoMovil,
-        
-                DiferenciaUSD = difUSD,
-                DiferenciaVES = difPM,
+            return Ok(new {
                 Estado = estaCuadrado ? "Cuadrado" : "Descuadrado",
-                Mensaje = estaCuadrado ? "Caja perfectamente cuadrada" : 
-                          $"Diferencia USD: ${difUSD:N2} | Diferencia Pago Móvil: ${difPM:N2}"
+                DiferenciaUSD = difUSD,
+                DiferenciaVES = difVES, 
+                DiferenciaPM = difPM,
+                DiferenciaBDV = difBDV,
+                DiferenciaBancamiga = difBancamiga,
+                DiferenciaMetal = difMetal,
+                Mensaje = estaCuadrado ? "Caja Cuadrada" : "Existen diferencias en el arqueo"
             });
         }
+
+        // --- SESIONES DE CAJA ---
+
+        [HttpPost("abrir-caja")]
+        public async Task<IActionResult> AbrirCaja([FromBody] decimal montoInicial)
+        {
+            var existe = await _context.CajaSesiones.AnyAsync(c => c.IsAbierta);
+            if (existe) return BadRequest("Ya existe una sesión de caja abierta.");
+
+            var nuevaCaja = new CajaSesion
+            {
+                FechaApertura = DateTime.Now,
+                MontoAperturaUSD = montoInicial,
+                Usuario = "CAJERO_PRINCIPAL",
+                IsAbierta = true
+            };
+
+            _context.CajaSesiones.Add(nuevaCaja);
+            await _context.SaveChangesAsync();
+            return Ok(new { message = "Caja abierta exitosamente" });
+        }
+
+        [HttpPost("cerrar-caja")]
+        public async Task<IActionResult> CerrarCaja([FromBody] ArqueoCajaDTO arqueo)
+        {
+            var caja = await _context.CajaSesiones
+                .FirstOrDefaultAsync(c => c.IsAbierta && c.Usuario == "CAJERO_PRINCIPAL");
+
+            if (caja == null) return BadRequest("No hay una caja abierta para cerrar.");
+
+            caja.FechaCierre = DateTime.Now;
+            caja.MontoCierreEfectivoUSD = arqueo.EfectivoUSDDeclarado;
+            caja.MontoCierrePagoMovilUSD = arqueo.PagoMovilDeclarado;
+            caja.ObservacionesCierre = arqueo.Observaciones;
+            caja.IsAbierta = false; 
+
+            await _context.SaveChangesAsync();
+            return Ok(new { message = "Caja cerrada exitosamente" });
+        }
+
+        [HttpGet("estado-caja")]
+        public async Task<IActionResult> GetEstadoCaja()
+        {
+            var abierta = await _context.CajaSesiones
+                .AnyAsync(c => c.IsAbierta && c.Usuario == "CAJERO_PRINCIPAL");
+            return Ok(abierta);
+        }
+
+        // --- REPORTES ---
 
         [HttpGet("reporte-productos")]
         public async Task<IActionResult> GetVentasPorProducto()
         {
-            // CORRECCIÓN: El reporte de productos también debe ser del turno actual
             var cajaActiva = await _context.CajaSesiones
                 .FirstOrDefaultAsync(c => c.IsAbierta && c.Usuario == "CAJERO_PRINCIPAL");
 
@@ -146,52 +172,5 @@ namespace Tyted.API.Controllers
 
             return Ok(reporte);
         }
-        [HttpPost("abrir-caja")]
-        public async Task<IActionResult> AbrirCaja([FromBody] decimal montoInicial)
-        {
-            // Verificar si ya hay una abierta para no duplicar
-            var existe = await _context.CajaSesiones.AnyAsync(c => c.IsAbierta);
-            if (existe) return BadRequest("Ya existe una sesión de caja abierta.");
-
-            var nuevaCaja = new CajaSesion
-            {
-                FechaApertura = DateTime.Now,
-                MontoAperturaUSD = montoInicial,
-                Usuario = "CAJERO_PRINCIPAL",
-                IsAbierta = true
-            };
-
-            _context.CajaSesiones.Add(nuevaCaja);
-            await _context.SaveChangesAsync();
-            return Ok(new { message = "Caja abierta exitosamente" });
-        }
-        [HttpPost("cerrar-caja")]
-        public async Task<IActionResult> CerrarCaja([FromBody] ArqueoCajaDTO arqueo)
-        {
-            var caja = await _context.CajaSesiones
-                .FirstOrDefaultAsync(c => c.IsAbierta && c.Usuario == "CAJERO_PRINCIPAL");
-
-            if (caja == null) return BadRequest("No hay una caja abierta para cerrar.");
-
-            caja.FechaCierre = DateTime.Now;
-            caja.MontoCierreEfectivoUSD = arqueo.EfectivoUSDDeclarado;
-            caja.MontoCierrePagoMovilUSD = arqueo.PagoMovilDeclarado;
-            caja.ObservacionesCierre = arqueo.Observaciones; // <--- Se guarda en la DB
-            caja.IsAbierta = false; 
-
-            await _context.SaveChangesAsync();
-            return Ok(new { message = "Caja cerrada exitosamente" });
-        }
-        [HttpGet("estado-caja")]
-        public async Task<IActionResult> GetEstadoCaja()
-        {
-            // Verifica si hay una caja abierta para el usuario actual
-            var abierta = await _context.CajaSesiones
-                .AnyAsync(c => c.IsAbierta && c.Usuario == "CAJERO_PRINCIPAL");
-            
-            // Retorna simplemente true o false
-            return Ok(abierta);
-        }
     }
-    
 }

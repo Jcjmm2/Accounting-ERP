@@ -106,21 +106,22 @@ namespace Tyted.API.Services
 
                     if (producto != null)
                     {
-                        // En compras, la cantidad suele estar en la unidad base del producto
-                        decimal cantidadARestar = detalle.Cantidad;
+                        // --- CORRECCIÓN AQUÍ: Buscar el factor para revertir la cantidad real ---
+                        var unidadProducto = await _context.ProductosUnidad
+                            .FirstOrDefaultAsync(u => u.IdProductoUnidad == detalle.IdProductoUnidad);
 
-                        // --- MEJORA CRÍTICA: VALIDACIÓN DE STOCK ---
-                        // No podemos anular la entrada de 100 harinas si solo quedan 10 en stock 
-                        // (porque significaría que ya vendiste 90 y no puedes "devolver" lo que no tienes).
-                        if (producto.StockActual < cantidadARestar)
+                        decimal factor = unidadProducto?.CantidadEquivalente ?? 1;
+                        decimal cantidadRealARestar = detalle.Cantidad * factor;
+
+                        // --- VALIDACIÓN DE STOCK CON CANTIDAD REAL ---
+                        if (producto.StockActual < cantidadRealARestar)
                         {
-                            throw new Exception($"Imposible anular: El producto {producto.Descripcion} (Código: {producto.CodigoProd}) " +
-                                $"tiene un stock actual de {producto.StockActual}, el cual es insuficiente para restar las " +
-                                $"{cantidadARestar} unidades de esta compra. Es posible que ya se haya vendido parte del lote.");
+                            throw new Exception($"Imposible anular: El producto {producto.Descripcion} " +
+                                $"tiene stock insuficiente ({producto.StockActual}) para revertir la entrada de {cantidadRealARestar} unidades.");
                         }
 
-                // 1. DESCUENTO DE INVENTARIO
-                        producto.StockActual -= cantidadARestar;
+                        // 1. DESCUENTO DE INVENTARIO (NORMALIZADO)
+                        producto.StockActual -= cantidadRealARestar;
 
                         // 2. KARDEX (REGISTRO DE SALIDA POR ANULACIÓN)
                         var movimiento = new InventarioMovimiento
@@ -128,7 +129,7 @@ namespace Tyted.API.Services
                             CodigoProd = detalle.CodigoProd ?? "0",
                             Tipo = "SALIDA",
                             Concepto = $"Anulación Compra #{compra.Id} - Fact {compra.NumeroFactura}",
-                            Cantidad = cantidadARestar,
+                            Cantidad = cantidadRealARestar, // Registrar la cantidad real que sale
                             CostoUnitarioUSD = producto.CostoUnitarioBase,
                             Fecha = DateHelper.GetVenezuelaTime()
                         };

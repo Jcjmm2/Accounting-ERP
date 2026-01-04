@@ -49,6 +49,8 @@ namespace Tyted.API.Models
         public Cliente? Cliente { get; set; }
         public string? MetodoPago { get; set; }
 
+        public virtual ICollection<VentaPago> Pagos { get; set; } = new List<VentaPago>();
+
         // Estos campos existen en SQL pero no los usamos en la lógica del service, 
         // los dejamos por compatibilidad
         public decimal? TasaDia { get; set; }
@@ -61,4 +63,5 @@ namespace Tyted.API.Models
         public bool EsCredito { get; set; } = false;
         public DateTime? FechaVencimiento { get; set; } // Solo si es crédito
     }
+
 }

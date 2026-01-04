@@ -48,6 +48,11 @@ namespace Tyted.API.Controllers
         [HttpPost]
         public async Task<ActionResult<Compra>> PostCompra(Compra compra)
         {
+            if (!ModelState.IsValid)
+                {
+                    // Esto te dirá exactamente qué campo está fallando
+                    return BadRequest(ModelState); 
+                }
             try
             {
                 var nuevaCompra = await _compraService.RegistrarCompraAsync(compra);

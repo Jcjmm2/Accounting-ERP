@@ -8,6 +8,9 @@ namespace Tyted.API.Models
         public decimal EfectivoUSDDeclarado { get; set; }
         public decimal EfectivoVESDeclarado { get; set; }
         public decimal PagoMovilDeclarado { get; set; }
+        public decimal BDVDeclarado { get; set; }
+        public decimal BancamigaDeclarado { get; set; }
+        public decimal MetalDeclarado { get; set; }
         
         // Observaciones (por si hay algún billete roto, etc.)
         public string? Observaciones { get; set; }

@@ -140,6 +140,21 @@ const POS = () => {
         console.error("Error buscando:", error);
     }
   };
+    
+  // Gestión de Foco Automático
+  useEffect(() => {
+      // 1. Si el modal de arqueo está abierto, SALIMOS. 
+      // No queremos que el buscador le robe el foco a los inputs del cuadre.
+      if (mostrarArqueo) return;
+
+      // 2. Si hay un producto en pesaje, el foco lo maneja ese modal, así que SALIMOS.
+      if (productoEnPesaje) return;
+
+      // 3. Si todo lo anterior es falso, mantenemos el foco en la búsqueda
+      // (ideal para escáneres de códigos de barra o ventas rápidas)
+      inputBusquedaRef.current?.focus();
+    
+    }, [busqueda, resultadosBusqueda, productoEnPesaje, mostrarArqueo]);
 
   const verPresentaciones = async (codigoMaestro) => {
     setBusqueda(codigoMaestro); // Ponemos "HUE-01" en el cuadro
@@ -316,101 +331,112 @@ const cambiarCantidadManual = (item) => {
 };
 
 const finalizarVenta = async () => {
-    // 1. Verificaciones iniciales
-    if (carrito.length === 0) return;
+  // 1. Verificaciones iniciales
+  if (carrito.length === 0) return;
 
-    // 2. Validación de pago suficiente (Margen de 0.01 por decimales)
-    if (totalPagadoUSD < (totalUSD - 0.01)) {
-        alert(`⚠️ PAGO INSUFICIENTE:\nFaltan: $${faltaPorPagar.toFixed(2)} (${(faltaPorPagar * tasa).toFixed(2)} Bs.)`);
-        return;
+  // Calculamos el total pagado sumando todos los campos (convertidos a USD)
+  const totalPagadoUSD = 
+    Number(pagos.efectivoUSD) + 
+    Number(pagos.metal) + 
+    (Number(pagos.efectivoVES) / tasa) + 
+    (Number(pagos.pagoMovil) / tasa) + 
+    (Number(pagos.puntoBDV) / tasa) + 
+    (Number(pagos.puntoBancamiga) / tasa);
+
+  // 2. Validación de pago suficiente
+  if (totalPagadoUSD < (totalUSD - 0.01)) {
+    const falta = totalUSD - totalPagadoUSD;
+    alert(`⚠️ PAGO INSUFICIENTE:\nFaltan: $${falta.toFixed(2)} (${(falta * tasa).toFixed(2)} Bs.)`);
+    return;
+  }
+
+  // 3. Construcción del Array de Pagos para la base de datos (Tabla VentasPagos)
+  const listaPagos = [
+    { metodoPago: 'EFECTIVO_USD', montoMonedaBase: Number(pagos.efectivoUSD), montoMonedaExt: Number(pagos.efectivoUSD), tasaDeCambio: 1 },
+    { metodoPago: 'EFECTIVO_VES', montoMonedaBase: Number(pagos.efectivoVES) / tasa, montoMonedaExt: Number(pagos.efectivoVES), tasaDeCambio: tasa },
+    { metodoPago: 'PAGO_MOVIL', montoMonedaBase: Number(pagos.pagoMovil) / tasa, montoMonedaExt: Number(pagos.pagoMovil), tasaDeCambio: tasa },
+    { metodoPago: 'PUNTO_BDV', montoMonedaBase: Number(pagos.puntoBDV) / tasa, montoMonedaExt: Number(pagos.puntoBDV), tasaDeCambio: tasa },
+    { metodoPago: 'PUNTO_BANCAMIGA', montoMonedaBase: Number(pagos.puntoBancamiga) / tasa, montoMonedaExt: Number(pagos.puntoBancamiga), tasaDeCambio: tasa },
+    { metodoPago: 'METAL', montoMonedaBase: Number(pagos.metal), montoMonedaExt: Number(pagos.metal), tasaDeCambio: 1 }
+  ].filter(p => p.montoMonedaBase > 0); // Solo enviamos los que tengan monto
+
+  // 4. Preparación del objeto de venta final
+  const ventaData = {
+    clienteId: cliente.id || 1,
+    fechaVenta: new Date().toISOString(),
+    tipoMoneda: "USD",
+    tasaDia: tasa, // Importante para el VentaService
+    tasaDeCambio: tasa,
+    metodoPago: listaPagos.length > 1 ? "MIXTO" : (listaPagos[0]?.metodoPago || "EFECTIVO_USD"),
+    isAnulada: false,
+    
+    // Totales
+    totalUSD: totalUSD,
+    totalVES: totalUSD * tasa,
+    totalMonedaBase: totalUSD,
+    totalMonedaExt: totalUSD * tasa,
+    subtotalMonedaBase: subtotalUSD,
+    ivaMonedaBase: totalIVAUSD,
+
+    // Array de pagos para la relación uno-a-muchos en C#
+    pagos: listaPagos, 
+
+    // Detalle de productos con codigoProd para validación de stock/IVA
+    detalles: carrito.map(item => ({
+      codigoProd: item.codigoProd, // <-- Crítico para evitar "Producto no existe"
+      idProductoUnidad: item.idProductoUnidad || item.id,
+      nombreUnidad: item.unidad,
+      cantidad: parseFloat(item.cantidad),
+      precioUnitarioMonedaBase: parseFloat(item.precio),
+      subtotalLineaMonedaBase: item.precio * item.cantidad,
+      tasaIVA: item.tasaIVA || 0,
+      totalLineaMonedaBase: (item.precio * item.cantidad) * (1 + (item.tasaIVA / 100))
+    }))
+  };
+
+  try {
+    const response = await fetch(`${API_URL}/Ventas`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(ventaData)
+    });
+
+    if (!response.ok) {
+      // Intentamos leer el mensaje de error del backend
+      let msgError = "Error al procesar la venta";
+      try {
+        const errorData = await response.json();
+        msgError = errorData.message || msgError;
+      } catch {
+        msgError = await response.text() || msgError;
+      }
+      throw new Error(msgError);
     }
 
-    // 3. Preparación del objeto de venta (Data unificada)
-    const ventaData = {
-        clienteId: cliente.id || 1,
-        tipoMoneda: "USD",
-        tasaDeCambio: tasa,
-        metodoPago: "MIXTO", // Identificador para pagos múltiples
-        
-        // Totales en Moneda Base (Dólares)
-        subtotalMonedaBase: subtotalUSD,
-        ivaMonedaBase: totalIVAUSD,
-        totalMonedaBase: totalUSD,
-        totalUSD: totalUSD,
-
-        // Totales en Moneda Extranjera (Bolívares)
-        subtotalMonedaExt: subtotalUSD * tasa,
-        ivaMonedaExt: totalIVAUSD * tasa,
-        totalMonedaExt: totalUSD * tasa,
-
-        // Desglose detallado de pagos para el Arqueo de Caja
-        detallesPago: { 
-            efectivoUSD: Number(pagos.efectivoUSD),
-            efectivoVES: Number(pagos.efectivoVES),
-            pagoMovil: Number(pagos.pagoMovil),
-            puntoBDV: Number(pagos.puntoBDV),
-            puntoBancamiga: Number(pagos.puntoBancamiga),
-            metal: Number(pagos.metal)
-        },
-
-        isAnulada: false,
-        
-        // Detalle de productos
-        detalles: carrito.map(item => ({
-            codigoProd: item.codigoProd,
-            idProductoUnidad: item.idProductoUnidad,
-            nombreUnidad: item.unidad,
-            cantidad: item.cantidad,
-            tasaIVA: item.tasaIVA || 0,
-            precioUnitarioMonedaBase: item.precio,
-            subtotalLineaMonedaBase: item.precio * item.cantidad,
-            totalLineaMonedaBase: (item.precio * item.cantidad) * (1 + (item.tasaIVA / 100))
-        }))
-    };
-
-    try {
-        const response = await fetch(`${API_URL}/Ventas`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(ventaData)
-        });
-
-        // Manejo de errores del servidor (Caja cerrada, falta de stock, etc.)
-        if (!response.ok) {
-            const errorTexto = await response.text();
-            throw new Error(errorTexto || `Error ${response.status}: No se pudo procesar la venta.`);
-        }
-
-        // Si la venta es exitosa
-        const resultado = await response.json();
-        
-        // 1. Impresión de ticket
+    const resultado = await response.json();
+    
+    // 5. Éxito: Impresión y Limpieza de estados
+    if (typeof imprimirTicket === 'function') {
         imprimirTicket(resultado);
-
-        // 2. Limpieza de estados para la siguiente venta
-        setCarrito([]);
-        setPagos({ 
-            efectivoUSD: 0, 
-            efectivoVES: 0, 
-            pagoMovil: 0, 
-            puntoBDV: 0, 
-            puntoBancamiga: 0, 
-            metal: 0 
-        });
-        setCliente(CLIENTE_DEFECTO);
-        setBusqueda("");
-        setResultadosBusqueda([]);
-
-        // 3. Devolver el foco al buscador
-        setTimeout(() => inputBusquedaRef.current?.focus(), 150);
-        
-        console.log("Venta Mixta registrada con éxito");
-
-    } catch (err) {
-        console.error("Error en la operación:", err.message);
-        alert(`⚠️ ATENCIÓN:\n${err.message}`);
     }
-};
+
+    setCarrito([]);
+    setPagos({ 
+      efectivoUSD: 0, efectivoVES: 0, pagoMovil: 0, 
+      puntoBDV: 0, puntoBancamiga: 0, metal: 0 
+    });
+    setCliente(CLIENTE_DEFECTO);
+    setBusqueda("");
+    setResultadosBusqueda([]);
+
+    alert("✅ Venta registrada con éxito");
+    setTimeout(() => inputBusquedaRef.current?.focus(), 150);
+    
+  } catch (err) {
+    console.error("Error en la operación:", err);
+    alert(`⚠️ ATENCIÓN:\n${err.message}`);
+  }
+  };
 
     const imprimirTicket = (venta) => {
     const ventana = window.open('', 'PRINT', 'height=600,width=400');
@@ -489,7 +515,6 @@ const finalizarVenta = async () => {
           // Opcional: setCajaAbierta(false) para bloquear si el servidor está caído
       }
   };
-
   
 return (
     <>
@@ -843,6 +868,7 @@ return (
         isOpen={mostrarArqueo} 
         onClose={() => setMostrarArqueo(false)}
         API_URL={API_URL}
+        //onWheel={(e) => e.target.blur()}
       />  
 
       <ModalCliente 

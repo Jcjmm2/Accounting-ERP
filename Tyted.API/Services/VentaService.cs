@@ -211,13 +211,24 @@ namespace Tyted.API.Services
         public async Task<ReporteCajaDTO> GetReporteDiarioAsync(DateTime? fechaParametro)
         {
             var hoyVenezuela = fechaParametro ?? DateHelper.GetVenezuelaTime();
-            var hoyInicio = hoyVenezuela.Date; 
-            var hoyFin = hoyInicio.AddDays(1).AddTicks(-1);
+
+            // CAMBIO CLAVE: Buscamos la sesión abierta más reciente sin importar el string del usuario
+            // o buscamos la última sesión cerrada si no hay ninguna abierta.
+            var sesionActiva = await _context.CajaSesiones
+                .OrderByDescending(s => s.FechaApertura)
+                .FirstOrDefaultAsync(s => s.IsAbierta);
+
+            // Si no hay sesión abierta, el reporte debe ser 0 pero con la fecha correcta
+            if (sesionActiva == null) 
+                return new ReporteCajaDTO { Fecha = hoyVenezuela };
+
+            // Buscamos las ventas. Agregamos un pequeño margen de 1 minuto atrás a la fecha de apertura 
+            // por si acaso hubo retrasos en la grabación de la sesión
+            var fechaInicioBusqueda = sesionActiva.FechaApertura.AddSeconds(-10);
 
             var ventasDelDia = await _context.Ventas
-                .Include(v => v.Detalles) 
-                    .ThenInclude(d => d.Producto) 
-                .Where(v => v.FechaVenta >= hoyInicio && v.FechaVenta <= hoyFin && !v.IsAnulada)
+                .Include(v => v.Pagos) 
+                .Where(v => v.FechaVenta >= fechaInicioBusqueda && !v.IsAnulada)
                 .ToListAsync();
 
             var reporte = new ReporteCajaDTO
@@ -226,16 +237,31 @@ namespace Tyted.API.Services
                 CantidadVentas = ventasDelDia.Count,
                 TotalVendidoUSD = ventasDelDia.Sum(v => v.TotalMonedaBase),
                 TotalVendidoVES = ventasDelDia.Sum(v => v.TotalMonedaExt),
-                TotalIVAUSD = ventasDelDia.Sum(v => v.IvaMonedaBase),
 
-                DesgloseMetodos = ventasDelDia
-                    .GroupBy(v => v.MetodoPago ?? "Otros")
-                    .Select(g => new VentasPorMetodoPago
-                    {
-                        Metodo = g.Key,
-                        MontoUSD = g.Sum(v => v.TotalMonedaBase),
-                        MontoVES = g.Sum(v => v.TotalMonedaExt)
-                    }).ToList(),
+                // ESTOS NOMBRES DEBEN COINCIDIR CON EL FRONTEND O VICEVERSA
+                // Vamos a mapearlos explícitamente para el Arqueo:
+                MontoEfectivoUSD = ventasDelDia.SelectMany(v => v.Pagos)
+                    .Where(p => p.MetodoPago.ToUpper().Contains("EFECTIVO_USD"))
+                    .Sum(p => p.MontoMonedaBase),
+
+                MontoEfectivoVES = ventasDelDia.SelectMany(v => v.Pagos)
+                    .Where(p => p.MetodoPago.ToUpper().Contains("EFECTIVO_VES"))
+                    .Sum(p => p.MontoMonedaExt),
+
+                MontoPagoMovil = ventasDelDia.SelectMany(v => v.Pagos)
+                    .Where(p => p.MetodoPago.ToUpper().Contains("PAGO_MOVIL"))
+                    .Sum(p => p.MontoMonedaExt),
+                // AGREGA ESTOS PARA QUE REACT LOS RECONOZCA:
+                MontoBDV = ventasDelDia.SelectMany(v => v.Pagos)
+                        .Where(p => p.MetodoPago.ToUpper().Contains("PUNTO_BDV")).Sum(p => p.MontoMonedaExt),
+
+                MontoBancamiga = ventasDelDia.SelectMany(v => v.Pagos)
+                        .Where(p => p.MetodoPago.ToUpper().Contains("PUNTO_BANCAMIGA")).Sum(p => p.MontoMonedaExt),
+                        
+                MontoMetal = ventasDelDia.SelectMany(v => v.Pagos)
+                    .Where(p => p.MetodoPago.ToUpper().Contains("METAL_USD"))
+                    .Sum(p => p.MontoMonedaBase)
+                
             };
 
             return reporte;

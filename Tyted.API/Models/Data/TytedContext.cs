@@ -26,6 +26,7 @@ namespace Tyted.API.Data
         public DbSet<Usuario> Usuarios { get; set; } = default!;
         public DbSet<Cliente> Clientes { get; set; } = default!;
         public DbSet<CajaSesion> CajaSesiones { get; set; }
+        public DbSet<VentaPago> VentasPagos { get; set; }
         
         // --- CRÉDITOS ---
         public DbSet<CuentaPorCobrar> CuentasPorCobrar { get; set; } = default!;
