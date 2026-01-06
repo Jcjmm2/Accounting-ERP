@@ -259,7 +259,7 @@ namespace Tyted.API.Services
                         .Where(p => p.MetodoPago.ToUpper().Contains("PUNTO_BANCAMIGA")).Sum(p => p.MontoMonedaExt),
                         
                 MontoMetal = ventasDelDia.SelectMany(v => v.Pagos)
-                    .Where(p => p.MetodoPago.ToUpper().Contains("METAL_USD"))
+                    .Where(p => p.MetodoPago.ToUpper().Contains("METAL"))
                     .Sum(p => p.MontoMonedaBase)
                 
             };

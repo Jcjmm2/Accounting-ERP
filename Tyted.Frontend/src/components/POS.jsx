@@ -24,7 +24,7 @@ const POS = () => {
     pagoMovil: 0,
     puntoBDV: 0,
     puntoBancamiga: 0,
-    metal: 0
+    Metal: 0
     });
 
   // Referencia para devolver el foco al buscador automáticamente
