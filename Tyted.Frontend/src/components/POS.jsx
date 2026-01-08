@@ -297,17 +297,27 @@ useEffect(() => {
     setTimeout(() => inputBusquedaRef.current?.focus(), 150);
   };
 
-// Agregamos todos los métodos solicitados
+  // Agregamos todos los métodos solicitados
 
-
+  // Agrega esta función antes de tus cálculos de totales
+  const manejarCambioPago = (e) => {
+    const { name, value } = e.target;
+    // Solo permitimos números y punto decimal
+    if (value === '' || /^[0-9]*\.?[0-9]*$/.test(value)) {
+        setPagos(prev => ({
+            ...prev,
+            [name]: value // Guardamos como string para que el input sea fluido
+        }));
+    }
+  };
 // Cálculo del total pagado convirtiendo todo a USD (Moneda base)
 const totalPagadoUSD = 
-    Number(pagos.efectivoUSD) + 
-    (Number(pagos.efectivoVES) / tasa) + 
-    (Number(pagos.pagoMovil) / tasa) + 
-    (Number(pagos.puntoBDV) / tasa) + 
-    (Number(pagos.puntoBancamiga) / tasa) + 
-    (Number(pagos.metal) );
+    (parseFloat(pagos.efectivoUSD|| 0)) + 
+    (parseFloat(pagos.efectivoVES || 0) / tasa) + 
+    (parseFloat(pagos.pagoMovil || 0) / tasa) + 
+    (parseFloat(pagos.puntoBDV || 0) / tasa) + 
+    (parseFloat(pagos.puntoBancamiga || 0) / tasa) + 
+    (parseFloat(pagos.metal || 0) );
 
 const vueltoUSD = totalPagadoUSD > totalUSD ? totalPagadoUSD - totalUSD : 0;
 const faltaPorPagar = totalUSD > totalPagadoUSD ? totalUSD - totalPagadoUSD : 0;
@@ -336,8 +346,8 @@ const finalizarVenta = async () => {
 
   // Calculamos el total pagado sumando todos los campos (convertidos a USD)
   const totalPagadoUSD = 
-    Number(pagos.efectivoUSD) + 
-    Number(pagos.metal) + 
+    (Number(pagos.efectivoUSD)) + 
+    (Number(pagos.metal)) + 
     (Number(pagos.efectivoVES) / tasa) + 
     (Number(pagos.pagoMovil) / tasa) + 
     (Number(pagos.puntoBDV) / tasa) + 
@@ -747,7 +757,8 @@ return (
                     { label: 'EFECTIVO BS', key: 'efectivoVES' },
                     { label: 'PAGO MÓVIL', key: 'pagoMovil' },
                     { label: 'PUNTO BDV', key: 'puntoBDV' },
-                    { label: 'PUNTO BAMIGA', key: 'puntoBancamiga' }
+                    { label: 'PUNTO BANCAMIGA', key: 'puntoBancamiga' }
+                    
                   ].map((metodo) => (
                     <div key={metodo.key} className="flex items-center bg-white p-1.5 rounded-lg border border-blue-100 shadow-sm">
                       <span className="text-[9px] font-bold w-24 text-gray-500 uppercase">{metodo.label}</span>

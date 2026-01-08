@@ -60,75 +60,91 @@ const ModalArqueo = ({ isOpen, onClose, API_URL }) => {
         }
     }, [isOpen]);
 
-    // --- 3. FUNCIONES ---
-
     const imprimirTicketCierre = () => {
-        const ventana = window.open('', '_blank', 'width=400,height=600');
-        ventana.document.write(`
-            <html>
-                <head>
-                    <title>Ticket de Cierre</title>
-                    <style>
-                        body { font-family: 'Courier New', Courier, monospace; padding: 20px; font-size: 12px; line-height: 1.4; }
-                        .center { text-align: center; }
-                        .bold { font-weight: bold; }
-                        .border { border-top: 1px dashed black; margin: 10px 0; padding-top: 10px; }
-                        table { width: 100%; border-collapse: collapse; }
-                        td { padding: 2px 0; }
-                        .monto { text-align: right; }
-                        .header-table { font-size: 10px; color: #555; }
-                    </style>
-                </head>
-                <body>
-                    <div class="center">
-                        <h2 class="bold" style="margin-bottom: 5px;">REPORTE DE CIERRE</h2>
-                        <p style="margin: 0;">Fecha: ${new Date().toLocaleString()}</p>
-                        <p style="margin: 0;">Tasa: ${tasa} Bs/$</p>
-                    </div>
+    // 1. Calculamos los totales justo antes de imprimir para asegurar datos frescos
+    const totalSistemaUSD = datosSistema.sistemaUSD + datosSistema.sistemaMetal + 
+        ((datosSistema.sistemaVES + datosSistema.sistemaPM + datosSistema.sistemaBDV + datosSistema.sistemaBancamiga) / tasa);
 
-                    <div class="border">
-                        <p class="bold center" style="margin: 0 0 5px 0;">DETALLE DECLARADO</p>
-                        <table>
-                            <tr class="header-table"><td>CONCEPTO</td><td class="monto">DECLARADO</td></tr>
-                            <tr><td>Efectivo USD:</td><td class="monto">${parseFloat(declarado.efectivoUSD || 0).toFixed(2)} $</td></tr>
-                            <tr><td>Efectivo VES:</td><td class="monto">${parseFloat(declarado.efectivoVES || 0).toFixed(2)} Bs</td></tr>
-                            <tr><td>Pago Móvil:</td><td class="monto">${parseFloat(declarado.pagoMovil || 0).toFixed(2)} Bs</td></tr>
-                            <tr><td>Punto BDV:</td><td class="monto">${parseFloat(declarado.puntoBDV || 0).toFixed(2)} Bs</td></tr>
-                            <tr><td>Punto Bancamiga:</td><td class="monto">${parseFloat(declarado.puntoBancamiga || 0).toFixed(2)} Bs</td></tr>
-                            <tr><td>Metal/Otros:</td><td class="monto">${parseFloat(declarado.Metal || 0).toFixed(2)} $</td></tr>
-                        </table>
-                    </div>
+    const totalDeclaradoUSD = (parseFloat(declarado.efectivoUSD) || 0) + (parseFloat(declarado.Metal) || 0) + 
+        (((parseFloat(declarado.efectivoVES) || 0) + (parseFloat(declarado.pagoMovil) || 0) + 
+          (parseFloat(declarado.puntoBDV) || 0) + (parseFloat(declarado.puntoBancamiga) || 0)) / tasa);
 
-                    <div class="border">
-                        <p class="bold center" style="margin: 0 0 5px 0;">RESULTADO DEL CUADRE</p>
-                        <table>
-                            <tr><td>ESTADO:</td><td class="monto bold">${resultado?.estado?.toUpperCase()}</td></tr>
-                            <tr><td>Dif. USD:</td><td class="monto bold">${resultado?.diferenciaUSD?.toFixed(2)} $</td></tr>
-                            <tr><td>Dif. VES:</td><td class="monto bold">${resultado?.diferenciaVES?.toFixed(2)} Bs</td></tr>
-                            <tr><td>Dif. VES:</td><td class="monto bold">${resultado?.diferenciapagoMovil?.toFixed(2)} Bs</td></tr>
-                            <tr><td>Dif. VES:</td><td class="monto bold">${resultado?.diferenciaPuntoBDV?.toFixed(2)} Bs</td></tr>
-                            <tr><td>Dif. VES:</td><td class="monto bold">${resultado?.diferenciapuntoBancamiga?.toFixed(2)} Bs</td></tr>
-                            <tr><td>Dif. VES:</td><td class="monto bold">${resultado?.diferenciapuntoMetal?.toFixed(2)} Bs</td></tr>
-                        </table>
-                    </div>
+    const ventana = window.open('', '_blank', 'width=400,height=600');
+    ventana.document.write(`
+        <html>
+            <head>
+                <title>Ticket de Cierre</title>
+                <style>
+                    body { font-family: 'Courier New', Courier, monospace; padding: 20px; font-size: 12px; line-height: 1.4; }
+                    .center { text-align: center; }
+                    .bold { font-weight: bold; }
+                    .border { border-top: 1px dashed black; margin: 10px 0; padding-top: 10px; }
+                    table { width: 100%; border-collapse: collapse; }
+                    td { padding: 2px 0; }
+                    .monto { text-align: right; }
+                    .header-table { font-size: 10px; color: #555; }
+                    .resumen-caja { background-color: #f0f0f0; padding: 5px; margin-top: 5px; }
+                </style>
+            </head>
+            <body>
+                <div class="center">
+                    <h2 class="bold" style="margin-bottom: 5px;">REPORTE DE CIERRE</h2>
+                    <p style="margin: 0;">Fecha: ${new Date().toLocaleString()}</p>
+                    <p style="margin: 0;">Tasa: ${tasa} Bs/$</p>
+                </div>
 
-                    <div class="border">
-                        <p class="bold">OBSERVACIONES:</p>
-                        <p>${observaciones || 'Sin observaciones'}</p>
-                    </div>
+                <div class="border">
+                    <p class="bold center" style="margin: 0 0 5px 0;">DETALLE DECLARADO</p>
+                    <table>
+                        <tr class="header-table"><td>CONCEPTO</td><td class="monto">DECLARADO</td></tr>
+                        <tr><td>Efectivo USD:</td><td class="monto">${parseFloat(declarado.efectivoUSD || 0).toFixed(2)} $</td></tr>
+                        <tr><td>Efectivo VES:</td><td class="monto">${parseFloat(declarado.efectivoVES || 0).toFixed(2)} Bs</td></tr>
+                        <tr><td>Pago Móvil:</td><td class="monto">${parseFloat(declarado.pagoMovil || 0).toFixed(2)} Bs</td></tr>
+                        <tr><td>Punto BDV:</td><td class="monto">${parseFloat(declarado.puntoBDV || 0).toFixed(2)} Bs</td></tr>
+                        <tr><td>Punto Bancamiga:</td><td class="monto">${parseFloat(declarado.puntoBancamiga || 0).toFixed(2)} Bs</td></tr>
+                        <tr><td>Metal/Otros:</td><td class="monto">${parseFloat(declarado.Metal || 0).toFixed(2)} $</td></tr>
+                    </table>
+                </div>
 
-                    <div class="center" style="margin-top: 50px;">
-                        <p>_______________________</p>
-                        <p>Firma del Cajero</p>
-                        <p style="font-size: 9px; margin-top: 10px;">ID: CAJERO_PRINCIPAL</p>
-                    </div>
-                </body>
-            </html>
-        `);
-        ventana.document.close();
-        ventana.print();
-        ventana.close();
-    };
+                <div class="border resumen-caja">
+                    <p class="bold center" style="margin: 0 0 5px 0;">RESUMEN GENERAL (TOTALES)</p>
+                    <table>
+                        <tr><td>TOTAL SISTEMA:</td><td class="monto bold">${totalSistemaUSD.toFixed(2)} $</td></tr>
+                        <tr><td>TOTAL DECLARADO:</td><td class="monto bold">${totalDeclaradoUSD.toFixed(2)} $</td></tr>
+                        <tr class="header-table"><td colspan="2" class="monto">Equiv: ${(totalDeclaradoUSD * tasa).toFixed(2)} Bs</td></tr>
+                    </table>
+                </div>
+
+                <div class="border">
+                    <p class="bold center" style="margin: 0 0 5px 0;">RESULTADO DEL CUADRE</p>
+                    <table>
+                        <tr><td>ESTADO:</td><td class="monto bold">${(resultado?.estado || 'N/A').toUpperCase()}</td></tr>
+                        <tr><td>Dif. USD:</td><td class="monto bold">${resultado?.diferenciaUSD?.toFixed(2)} $</td></tr>
+                        <tr><td>Dif. VES:</td><td class="monto bold">${resultado?.diferenciaVES?.toFixed(2)} Bs</td></tr>
+                        <tr><td>Dif. PM:</td><td class="monto bold">${resultado?.diferenciaPM?.toFixed(2)} Bs</td></tr>
+                        <tr><td>Dif. BDV:</td><td class="monto bold">${resultado?.diferenciaBDV?.toFixed(2)} Bs</td></tr>
+                        <tr><td>Dif. Bancamiga:</td><td class="monto bold">${resultado?.diferenciaBancamiga?.toFixed(2)} Bs</td></tr>
+                        <tr><td>Dif. Metal:</td><td class="monto bold">${resultado?.diferenciaMetal?.toFixed(2)} $</td></tr>
+                    </table>
+                </div>
+
+                <div class="border">
+                    <p class="bold">OBSERVACIONES:</p>
+                    <p>${observaciones || 'Sin observaciones'}</p>
+                </div>
+
+                <div class="center" style="margin-top: 50px;">
+                    <p>_______________________</p>
+                    <p>Firma del Cajero</p>
+                    <p style="font-size: 9px; margin-top: 10px;">ID: CAJERO_PRINCIPAL</p>
+                </div>
+            </body>
+        </html>
+    `);
+    ventana.document.close();
+    ventana.print();
+    ventana.close();
+};
 
     const obtenerTotalesSistema = async () => {
         try {
@@ -180,11 +196,11 @@ const ModalArqueo = ({ isOpen, onClose, API_URL }) => {
             const payload = {
                 usuario: "CAJERO_PRINCIPAL",
                 montoCierreEfectivoUSD: parseFloat(declarado.efectivoUSD) || 0,
-                montoCierrePagoMovilUSD: (parseFloat(declarado.efectivoVES) || 0) / tasa,
-                montoCierrePagoMovilUSD: (parseFloat(declarado.pagoMovil) || 0) / tasa,
-                montoCierrePagoMovilUSD: (parseFloat(declarado.puntoBDV) || 0) / tasa,
-                montoCierrePagoMovilUSD: (parseFloat(declarado.puntoBancamiga) || 0) / tasa,
-                montoCierrePagoMovilUSD: (parseFloat(declarado.Metal) || 0),
+                montoCierreEfectivoVES: (parseFloat(declarado.efectivoVES) || 0) / tasa,
+                montoCierrePagoMovil: (parseFloat(declarado.pagoMovil) || 0) / tasa,
+                montoCierrePuntoBDV: (parseFloat(declarado.puntoBDV) || 0) / tasa,
+                montoCierrePuntoBancamiga: (parseFloat(declarado.puntoBancamiga) || 0) / tasa,
+                montoCierremetal: (parseFloat(declarado.Metal) || 0),
                 observacionesCierre: observaciones || "Cierre de turno estándar",
             };
             const res = await fetch(`${API_URL}/Ventas/cerrar-caja`, {
@@ -238,7 +254,7 @@ const ModalArqueo = ({ isOpen, onClose, API_URL }) => {
                             <FilaComparacion titulo="Pago Móvil (Bs)" esperado={datosSistema.sistemaPM} campo="pagoMovil" color="bg-purple-50 border-purple-100" declarado={declarado} setDeclarado={setDeclarado} autoFocus={false} />
                             <FilaComparacion titulo="Punto BDV (Bs)" esperado={datosSistema.sistemaBDV} campo="puntoBDV" color="bg-red-50 border-red-100" declarado={declarado} setDeclarado={setDeclarado} autoFocus={false} />
                             <FilaComparacion titulo="Punto Bancamiga (Bs)" esperado={datosSistema.sistemaBancamiga} campo="puntoBancamiga" color="bg-blue-50 border-blue-100" declarado={declarado} setDeclarado={setDeclarado} autoFocus={false} />
-                            <FilaComparacion titulo="Metal / Otros ($)" esperado={datosSistema.sistemaMetal} campo="metal" color="bg-gray-50 border-gray-100" declarado={declarado} setDeclarado={setDeclarado} autoFocus={false} />
+                            <FilaComparacion titulo="Metal / Otros ($)" esperado={datosSistema.sistemaMetal} campo="Metal" color="bg-gray-50 border-gray-100" declarado={declarado} setDeclarado={setDeclarado} autoFocus={false} />
                         </div>
 
                         {!resultado ? (
@@ -251,12 +267,12 @@ const ModalArqueo = ({ isOpen, onClose, API_URL }) => {
                                     {resultado.estado?.toUpperCase()}
                                 </div>
                                 <div className="flex justify-between px-2 text-sm font-mono">
-                                    <span>Dif. USD: <b className={resultado.diferenciaUSD < 0 ? 'text-red-600' : 'text-green-600'}>{resultado.diferenciaUSD.toFixed(2)} $</b></span>
-                                    <span>Dif. VES: <b className={resultado.diferenciaVES < 0 ? 'text-red-600' : 'text-green-600'}>{resultado.diferenciaVES.toFixed(2)} Bs</b></span>
-                                    <span>Dif. PM: <b className={resultado.diferenciaPM < 0 ? 'text-red-600' : 'text-green-600'}>{resultado.diferenciaPM.toFixed(2)} Bs</b></span>
-                                    <span>Dif. BDV: <b className={resultado.diferenciaBDV < 0 ? 'text-red-600' : 'text-green-600'}>{resultado.diferenciaBDV.toFixed(2)} Bs</b></span>
-                                    <span>Dif. Bancamiga: <b className={resultado.diferenciaBancamiga < 0 ? 'text-red-600' : 'text-green-600'}>{resultado.diferenciaBancamiga.toFixed(2)} Bs</b></span>
-                                    <span>Dif. Metal: <b className={resultado.diferenciaMetal < 0 ? 'text-red-600' : 'text-green-600'}>{resultado.diferenciaMetal.toFixed(2)} $</b></span>
+                                    <span>Dif. USD: <b className={resultado.diferenciaUSD < 0 ? 'text-red-600' : 'text-green-600'}>{(resultado.diferenciaUSD|| 0).toFixed(2)} $</b></span>
+                                    <span>Dif. VES: <b className={resultado.diferenciaVES < 0 ? 'text-red-600' : 'text-green-600'}>{(resultado.diferenciaVES|| 0).toFixed(2)} Bs</b></span>
+                                    <span>Dif. PM: <b className={resultado.diferenciaPM < 0 ? 'text-red-600' : 'text-green-600'}>{(resultado.diferenciaPM || 0).toFixed(2)} Bs</b></span>
+                                    <span>Dif. BDV: <b className={resultado.diferenciaBDV < 0 ? 'text-red-600' : 'text-green-600'}>{(resultado.diferenciaBDV|| 0).toFixed(2)} Bs</b></span>
+                                    <span>Dif. Bancamiga: <b className={resultado.diferenciaBancamiga < 0 ? 'text-red-600' : 'text-green-600'}>{(resultado.diferenciaBancamiga|| 0).toFixed(2)} Bs</b></span>
+                                    <span>Dif. Metal: <b className={resultado.diferenciametal < 0 ? 'text-red-600' : 'text-green-600'}>{(resultado.diferenciaMetal|| 0).toFixed(2)} $</b></span>
                                 </div>
                                 <textarea className="w-full p-3 border-2 border-gray-100 rounded-xl text-sm outline-none focus:border-blue-200" placeholder="Notas..." value={observaciones} onChange={e => setObservaciones(e.target.value)} />
                                 <button onClick={finalizarCierreDefinitivo} disabled={cargando} className="w-full bg-red-600 text-white font-black py-4 rounded-xl shadow-xl hover:bg-red-700">

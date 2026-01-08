@@ -20,6 +20,10 @@ namespace Tyted.API.Models
     {
         public decimal DiferenciaUSD { get; set; }
         public decimal DiferenciaVES { get; set; }
+        public decimal DiferenciaPagoMovil { get; set; }
+        public decimal DiferenciaBDV { get; set; }
+        public decimal DiferenciaBancamiga { get; set; }
+        public decimal DiferenciaMetal { get; set; }
         public string Estado { get; set; } = string.Empty; // "Cuadrado", "Faltante", "Sobrante"
         public string Mensaje { get; set; } = string.Empty;
         public decimal EsperadoUSD { get; set; } // Lo que el sistema dice que hay en Efectivo
