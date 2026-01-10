@@ -138,39 +138,43 @@ PrecioVES = Math.Round((u.PrecioMonedaBase ?? 0m) * tasaDelDia, 2)
 
             return Ok(respuesta);
         }
-        [HttpPost("actualizar-precios-masivo")]
+        [HttpPut("ActualizarPreciosMasivo")]
         public async Task<IActionResult> ActualizarPreciosMasivo([FromBody] List<ActualizarPrecioDTO> listaPrecios)
         {
             if (listaPrecios == null || !listaPrecios.Any())
                 return BadRequest("No se enviaron datos.");
 
-            // 1. Obtenemos la tasa de cambio actual para actualizar también el precio en VES
+            // 1. Obtenemos la tasa de cambio actual para actualizar también los precios en VES
             var tasaObj = await _context.TasaDeCambio
                 .Where(t => t.MonedaOrigen == "USD" && t.MonedaDestino == "VES")
                 .OrderByDescending(t => t.FechaVigencia)
                 .FirstOrDefaultAsync();
 
             decimal valorTasa = tasaObj?.Tasa ?? 1.0m;
-            if (valorTasa <= 0) valorTasa = 1.0m;
 
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
                 foreach (var item in listaPrecios)
                 {
-                    // 1. Convertimos el valor del DTO a un entero real
                     int idBuscado = Convert.ToInt32(item.IdProductoUnidad);
 
-                    // 2. USAMOS la variable 'idBuscado' para la comparación
                     var unidad = await _context.ProductosUnidad
                         .FirstOrDefaultAsync(u => u.IdProductoUnidad == idBuscado);
 
                     if (unidad != null)
                     {
-                        // ... el resto de tu lógica se mantiene igual
-                        unidad.PrecioMonedaBase = item.NuevoPrecioUSD;
-                        unidad.PrecioMonedaExt = Math.Round(item.NuevoPrecioUSD * valorTasa, 2);
+                        // Actualización de Precios en Dólares (Moneda Base)
+                        unidad.PrecioMonedaBase = item.Precio1;
+                        unidad.Precio2MonedaBase = item.Precio2;
+                        unidad.Precio3MonedaBase = item.Precio3;
 
+                        // Sincronización automática con Bolívares (Moneda Extranjera)
+                        unidad.PrecioMonedaExt = Math.Round(item.Precio1 * valorTasa, 2);
+                        unidad.Precio2MonedaExt = Math.Round(item.Precio2 * valorTasa, 2);
+                        unidad.Precio3MonedaExt = Math.Round(item.Precio3 * valorTasa, 2);
+
+                        // Actualizar Costos si el producto maestro cambió
                         var maestro = await _context.Productos.FindAsync(unidad.CodigoProd);
                         if (maestro != null)
                         {
@@ -185,7 +189,7 @@ PrecioVES = Math.Round((u.PrecioMonedaBase ?? 0m) * tasaDelDia, 2)
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
 
-                return Ok(new { message = $"Se actualizaron {listaPrecios.Count} precios exitosamente." });
+                return Ok(new { message = $"Se actualizaron {listaPrecios.Count} presentaciones exitosamente." });
             }
             catch (Exception ex)
             {
@@ -193,6 +197,13 @@ PrecioVES = Math.Round((u.PrecioMonedaBase ?? 0m) * tasaDelDia, 2)
                 return StatusCode(500, $"Error interno: {ex.Message}");
             }
         }
+        public class ActualizarPrecioDTO
+    {
+        public string IdProductoUnidad { get; set; }
+        public decimal Precio1 { get; set; } // NuevoPrecioUSD (Precio Principal)
+        public decimal Precio2 { get; set; } // Precio Mayor / Especial
+        public decimal Precio3 { get; set; } // Precio Distribuidor / Otro
+    }
         // GET: api/Productos/stock-critico
         [HttpGet("stock-critico")]
         public async Task<ActionResult> GetStockCritico()

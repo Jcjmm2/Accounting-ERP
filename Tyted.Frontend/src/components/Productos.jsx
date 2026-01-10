@@ -7,8 +7,10 @@ const Productos = () => {
     const [loading, setLoading] = useState(true);
     const [busqueda, setBusqueda] = useState("");
 
-    // Estado para el modal de detalles/precios
+    // Estado para el modal y edición
     const [productoDetalle, setProductoDetalle] = useState(null);
+    const [editandoPrecios, setEditandoPrecios] = useState({}); // Guarda cambios temporales {idUnidad: {p1, p2, p3}}
+    const [guardando, setGuardando] = useState(false);
 
     useEffect(() => {
         cargarProductos();
@@ -26,6 +28,48 @@ const Productos = () => {
             console.error("Error al cargar productos:", error);
         } finally {
             setLoading(false);
+        }
+    };
+
+    // Maneja el cambio de inputs en la tabla
+    const handlePrecioChange = (idUnidad, nivel, valor) => {
+        setEditandoPrecios(prev => ({
+            ...prev,
+            [idUnidad]: {
+                ...prev[idUnidad],
+                [nivel]: parseFloat(valor) || 0
+            }
+        }));
+    };
+
+    const guardarCambios = async () => {
+        setGuardando(true);
+        try {
+            // Transformamos el objeto de cambios en una lista para el backend
+            const cambios = Object.keys(editandoPrecios).map(id => ({
+                idProductoUnidad: id,
+                precio1: editandoPrecios[id].precio1,
+                precio2: editandoPrecios[id].precio2,
+                precio3: editandoPrecios[id].precio3
+            }));
+
+            // Nota: Debes asegurar que este endpoint exista en tu ProductosUnidadController
+            const res = await fetch(`${API_URL}/Productos/ActualizarPreciosMasivo`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(cambios)
+            });
+
+            if (res.ok) {
+                alert("Precios actualizados correctamente");
+                setProductoDetalle(null);
+                setEditandoPrecios({});
+                cargarProductos();
+            }
+        } catch (error) {
+            alert("Error al guardar cambios");
+        } finally {
+            setGuardando(false);
         }
     };
 
@@ -58,14 +102,12 @@ const Productos = () => {
                             <th>Código</th>
                             <th>Descripción</th>
                             <th>Categoría</th>
-                            <th>Existencia Total</th>
+                            <th>Existencia</th>
                             <th>Acciones</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {productosFiltrados.length === 0 ? (
-                            <tr><td colSpan="5" style={{ textAlign: 'center' }}>No se encontraron productos</td></tr>
-                        ) : productosFiltrados.map(p => (
+                        {productosFiltrados.map(p => (
                             <tr key={p.codigoProd}>
                                 <td><strong>{p.codigoProd}</strong></td>
                                 <td>{p.descripcion}</td>
@@ -75,11 +117,23 @@ const Productos = () => {
                                 </td>
                                 <td>
                                     <button 
-                                        onClick={() => setProductoDetalle(p)}
+                                        onClick={() => {
+                                            setProductoDetalle(p);
+                                            // Inicializamos los valores de edición con los actuales
+                                            const inicial = {};
+                                            p.unidadesDeVenta.forEach(u => {
+                                                inicial[u.idProductoUnidad] = {
+                                                    precio1: u.precioMonedaBase,
+                                                    precio2: u.precio2MonedaBase || 0,
+                                                    precio3: u.precio3MonedaBase || 0
+                                                };
+                                            });
+                                            setEditandoPrecios(inicial);
+                                        }}
                                         className="btn-primary"
                                         style={{ padding: '5px 10px', fontSize: '0.8rem' }}
                                     >
-                                        💰 Ver Precios
+                                        ✏️ Editar Precios
                                     </button>
                                 </td>
                             </tr>
@@ -88,47 +142,85 @@ const Productos = () => {
                 </table>
             )}
 
-            {/* Modal de Presentaciones y Precios */}
+            {/* Modal de Edición de Niveles de Precios */}
             {productoDetalle && (
                 <div className="modal-overlay">
-                    <div className="modulo-container" style={{ width: '600px', maxHeight: '80vh', overflowY: 'auto' }}>
+                    <div className="modulo-container" style={{ width: '850px', maxHeight: '90vh', overflowY: 'auto' }}>
                         <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                            <h3>Presentaciones: {productoDetalle.descripcion}</h3>
+                            <h3>Gestión de Precios: {productoDetalle.descripcion}</h3>
                             <button onClick={() => setProductoDetalle(null)} className="btn-close">✕</button>
                         </div>
                         
-                        <p><small>Tasa del día aplicada: <strong>{tasa} Bs/$</strong></small></p>
+                        <p style={{ color: '#64748b', marginBottom: '15px' }}>
+                            Valores en <strong>USD</strong>. Se calculan automáticamente a <strong>{tasa} Bs</strong>.
+                        </p>
 
-                        <table style={{ marginTop: '10px', fontSize: '0.9rem' }}>
+                        <table className="tabla-edicion-precios">
                             <thead>
                                 <tr style={{ background: '#f1f5f9' }}>
                                     <th>Unidad</th>
-                                    <th>Código Barras</th>
-                                    <th>Precio ($)</th>
-                                    <th>Precio (Bs)</th>
+                                    <th>Precio 1 ($)</th>
+                                    <th>Precio 2 ($)</th>
+                                    <th>Precio 3 ($)</th>
+                                    <th>Ref. Bs (P1)</th>
                                 </tr>
                             </thead>
                             <tbody>
                                 {productoDetalle.unidadesDeVenta?.map(u => (
                                     <tr key={u.idProductoUnidad}>
-                                        <td>{u.nombreUnidad}</td>
-                                        <td>{u.codigoBarras || 'N/A'}</td>
-                                        <td style={{ fontWeight: 'bold' }}>${u.precioMonedaBase?.toFixed(2)}</td>
-                                        <td style={{ color: '#2563eb' }}>
-                                            {(u.precioMonedaBase * tasa).toLocaleString('es-VE')} Bs
+                                        <td style={{ fontWeight: '600' }}>{u.nombreUnidad}</td>
+                                        <td>
+                                            <input 
+                                                type="number"
+                                                className="input-precio-editable"
+                                                value={editandoPrecios[u.idProductoUnidad]?.precio1}
+                                                onChange={(e) => handlePrecioChange(u.idProductoUnidad, 'precio1', e.target.value)}
+                                                onFocus={(e) => e.target.select()}
+                                            />
+                                        </td>
+                                        <td>
+                                            <input 
+                                                type="number"
+                                                className="input-precio-editable"
+                                                value={editandoPrecios[u.idProductoUnidad]?.precio2}
+                                                onChange={(e) => handlePrecioChange(u.idProductoUnidad, 'precio2', e.target.value)}
+                                                onFocus={(e) => e.target.select()}
+                                            />
+                                        </td>
+                                        <td>
+                                            <input 
+                                                type="number"
+                                                className="input-precio-editable"
+                                                value={editandoPrecios[u.idProductoUnidad]?.precio3}
+                                                onChange={(e) => handlePrecioChange(u.idProductoUnidad, 'precio3', e.target.value)}
+                                                onFocus={(e) => e.target.select()}
+                                            />
+                                        </td>
+                                        <td style={{ color: '#2563eb', fontSize: '0.85rem' }}>
+                                            {((editandoPrecios[u.idProductoUnidad]?.precio1 || 0) * tasa).toFixed(2)} Bs
                                         </td>
                                     </tr>
                                 ))}
                             </tbody>
                         </table>
 
-                        <button 
-                            onClick={() => setProductoDetalle(null)} 
-                            className="btn-primary" 
-                            style={{ width: '100%', marginTop: '20px', background: '#cbd5e1', color: '#1e293b' }}
-                        >
-                            Cerrar
-                        </button>
+                        <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
+                            <button 
+                                onClick={() => setProductoDetalle(null)} 
+                                className="btn-secondary"
+                                style={{ flex: 1 }}
+                            >
+                                Cancelar
+                            </button>
+                            <button 
+                                onClick={guardarCambios} 
+                                className="btn-primary" 
+                                disabled={guardando}
+                                style={{ flex: 2, background: '#10b981' }}
+                            >
+                                {guardando ? "Guardando..." : "💾 Guardar Todos los Precios"}
+                            </button>
+                        </div>
                     </div>
                 </div>
             )}

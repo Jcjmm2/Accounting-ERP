@@ -21,24 +21,19 @@ namespace Tyted.API.Controllers
         [HttpPost]
         public async Task<ActionResult<ProductosUnidad>> PostProductosUnidad(ProductosUnidad unidad)
         {
-            // 1. Buscamos de forma selectiva para evitar el error de Cast en CodigoProv
-            // Traemos solo lo necesario para validar y calcular
             var infoProducto = await _context.Productos
                 .Where(p => p.CodigoProd == unidad.CodigoProd)
                 .Select(p => new { p.CodigoProd, p.PermiteDesglose }) 
                 .FirstOrDefaultAsync();
 
             if (infoProducto == null)
-            {
                 return NotFound($"Error: El producto con código {unidad.CodigoProd} no existe.");
-            }
 
-            // 2. Lógica de Costo 0 y Desglose (usando infoProducto)
+            // 1. Lógica de Costo Prorrateado (Mismo que ya tenías)
             if (unidad.CostoUnitarioMonedaBase == 0)
             {
                 if (infoProducto.PermiteDesglose)
                 {
-                    // Buscamos el bulto (Cantidad > 1) para prorratear el costo
                     var bulto = await _context.ProductosUnidad
                         .AsNoTracking()
                         .Where(u => u.CodigoProd == unidad.CodigoProd && u.CantidadEquivalente > 1)
@@ -46,21 +41,13 @@ namespace Tyted.API.Controllers
                         .FirstOrDefaultAsync();
 
                     if (bulto != null)
-                    {
                         unidad.CostoUnitarioMonedaBase = bulto.CostoUnitarioMonedaBase / bulto.CantidadEquivalente;
-                    }
                     else
-                    {
-                        return BadRequest("Este producto permite desglose, pero no se encontró un bulto registrado para calcular el costo.");
-                    }
-                }
-                else
-                {
-                    return BadRequest("Este producto no permite desglose automático. Debe ingresar el costo manualmente.");
+                        return BadRequest("No se encontró un bulto para calcular el costo del desglose.");
                 }
             }
 
-            // 3. Obtener Tasa de Cambio actual
+            // 2. Obtener Tasa de Cambio actual
             var tasaObj = await _context.TasaDeCambio
                 .Where(t => t.MonedaOrigen == "USD" && t.MonedaDestino == "VES")
                 .OrderByDescending(t => t.FechaVigencia)
@@ -68,28 +55,30 @@ namespace Tyted.API.Controllers
 
             decimal valorTasa = tasaObj?.Tasa ?? 1.0m;
 
-            // 4. Cálculos de Precios en Moneda Base (Dólares)
-            unidad.PrecioMonedaBase = unidad.CostoUnitarioMonedaBase * (1 + (unidad.Margen1 ?? 0) / 100);
-    
-            if (unidad.Margen2.HasValue)
+            // 3. Cálculos de Precios Basados en Márgenes (Si vienen márgenes del frontend)
+            // Esto asegura que si creas una unidad con 20% de margen, se calculen los 3 precios.
+            if (unidad.PrecioMonedaBase == 0 && unidad.Margen1.HasValue)
+                unidad.PrecioMonedaBase = unidad.CostoUnitarioMonedaBase * (1 + (unidad.Margen1.Value / 100));
+
+            if (unidad.Precio2MonedaBase == null && unidad.Margen2.HasValue)
                 unidad.Precio2MonedaBase = unidad.CostoUnitarioMonedaBase * (1 + (unidad.Margen2.Value / 100));
 
-            if (unidad.Margen3.HasValue)
+            if (unidad.Precio3MonedaBase == null && unidad.Margen3.HasValue)
                 unidad.Precio3MonedaBase = unidad.CostoUnitarioMonedaBase * (1 + (unidad.Margen3.Value / 100));
 
-            // 5. Conversión a Moneda Extranjera (Bolívares)
+            // 4. Sincronización con Bolívares (VES) - FUNDAMENTAL
+            // Aquí aseguramos que los 3 niveles tengan su equivalente en bolívares al guardar
             unidad.CostoUnitarioMonedaExt = unidad.CostoUnitarioMonedaBase * valorTasa;
             unidad.PrecioMonedaExt = unidad.PrecioMonedaBase * valorTasa;
             unidad.Precio2MonedaExt = (unidad.Precio2MonedaBase ?? 0) * valorTasa;
             unidad.Precio3MonedaExt = (unidad.Precio3MonedaBase ?? 0) * valorTasa;
 
-            // 6. Limpieza de navegación para evitar errores de validación e inserción
+            // 5. Limpieza de navegación
             ModelState.Remove("Producto");
             ModelState.Remove("UnidadMedida");
             unidad.Producto = null; 
             unidad.UnidadMedida = null;
 
-            // 7. Guardar en Base de Datos
             _context.ProductosUnidad.Add(unidad);
             await _context.SaveChangesAsync();
 
