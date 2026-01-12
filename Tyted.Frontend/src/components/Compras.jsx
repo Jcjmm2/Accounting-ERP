@@ -2,44 +2,59 @@ import React, { useState, useEffect, useContext } from 'react';
 import { ConfigContext } from '../Context/ConfigContext';
 
 const Compras = () => {
-    const { API_URL } = useContext(ConfigContext);
-    
+    // 1. Contexto y Configuración
+    const { API_URL, tasa } = useContext(ConfigContext);
+
+    // 2. Estados de Datos
     const [proveedores, setProveedores] = useState([]);
     const [productosMaster, setProductosMaster] = useState([]);
+    const [tasasReferencia, setTasasReferencia] = useState([]);
     
+    // 3. Estados de la Compra y Formulario
+    const [paso, setPaso] = useState(1);
+    const [tasaCompra, setTasaCompra] = useState(tasa || 0); // Inicializa con la tasa del contexto
+    const [guardando, setGuardando] = useState(false);
     const [compra, setCompra] = useState({
         idProveedor: '',
         numeroFactura: '',
         detalles: []
     });
 
+    // 4. Estado de propuestas para el Paso 2
     const [propuestas, setPropuestas] = useState([]);
-    const [paso, setPaso] = useState(1); 
 
+    // 5. Carga de datos inicial
     useEffect(() => {
         cargarDatosIniciales();
+        cargarTasasReferencia();
     }, []);
+
+    // Actualizar tasaCompra si la tasa del contexto cambia (opcional)
+    useEffect(() => {
+        if (!tasaCompra && tasa) setTasaCompra(tasa);
+    }, [tasa]);
 
     const cargarDatosIniciales = async () => {
         try {
             const [resProv, resProd] = await Promise.all([
                 fetch(`${API_URL}/Proveedores`),
-                fetch(`${API_URL}/Productos`) 
+                fetch(`${API_URL}/Productos`)
             ]);
             
             if (resProv.ok) setProveedores(await resProv.json());
             
             if (resProd.ok) {
                 const data = await resProd.json();
-                // CORRECCIÓN: Guardamos CodigoProd y nombreUnidad para el POST posterior
                 const listaAplanada = data.flatMap(prod => 
                     prod.unidadesDeVenta.map(u => ({
                         idProductoUnidad: u.idProductoUnidad,
-                        codigoProdOriginal: prod.codigoProd, // REQUERIDO POR BACKEND
-                        nombreUnidad: u.nombreUnidad,        // REQUERIDO POR BACKEND
+                        codigoProdOriginal: prod.codigoProd,
+                        nombreUnidad: u.nombreUnidad,
                         nombreMostrar: `${prod.descripcion} (${u.nombreUnidad})`,
-                        codigoBarras: u.codigoBarras || prod.codigoBarras || 'N/A',
-                        costoActual: u.costoUnitarioMonedaBase || 0
+                        costoActual: u.costoUnitarioMonedaBase || 0,
+                        precioVentaActual: u.precioMonedaBase || 0,
+                        precio2Actual: u.precio2MonedaBase || 0, 
+                        precio3Actual: u.precio3MonedaBase || 0
                     }))
                 );
                 setProductosMaster(listaAplanada);
@@ -49,26 +64,22 @@ const Compras = () => {
         }
     };
 
-    const agregarLinea = () => {
-        const nuevoDetalle = {
-            idProductoUnidad: '', 
-            cantidad: 1,
-            costoUnitarioMonedaBase: 0 
-        };
-        setCompra({ ...compra, detalles: [...compra.detalles, nuevoDetalle] });
+    const cargarTasasReferencia = async () => {
+        try {
+            const res = await fetch(`${API_URL}/TasaDeCambio/comparativa-compras`);
+            if (res.ok) {
+                const data = await res.json();
+                setTasasReferencia(data);
+            }
+        } catch (e) { console.error("Error tasas:", e); }
     };
 
-    const seleccionarProducto = (index, producto) => {
-        const nuevosDetalles = [...compra.detalles];
-        nuevosDetalles[index] = {
-            ...nuevosDetalles[index],
-            idProductoUnidad: producto.idProductoUnidad,
-            // Guardamos temporalmente datos para mostrar en la tabla si es necesario
-            nombreMostrar: producto.nombreMostrar,
-            codigoBarras: producto.codigoBarras,
-            costoUnitarioMonedaBase: producto.costoActual 
-        };
-        setCompra({ ...compra, detalles: nuevosDetalles });
+    // --- LÓGICA DE DETALLES ---
+    const agregarLinea = () => {
+        setCompra({ 
+            ...compra, 
+            detalles: [...compra.detalles, { idProductoUnidad: '', cantidad: 1, costoUnitarioMonedaBase: 0 }] 
+        });
     };
 
     const manejarCambioDetalle = (index, campo, valor) => {
@@ -77,34 +88,54 @@ const Compras = () => {
         setCompra({ ...compra, detalles: nuevosDetalles });
     };
 
+    const eliminarLinea = (index) => {
+        const d = [...compra.detalles];
+        d.splice(index, 1);
+        setCompra({...compra, detalles: d});
+    };
+
     const reiniciarFormulario = () => {
         setCompra({ idProveedor: '', numeroFactura: '', detalles: [] });
         setPropuestas([]);
         setPaso(1);
     };
 
+    // --- PROCESAMIENTO ---
     const procesarCompra = async () => {
         if (!compra.idProveedor || compra.detalles.length === 0) {
-            alert("Complete el proveedor y añada productos.");
-            return;
+            return alert("Complete el proveedor y añada productos.");
         }
 
-        // CORRECCIÓN: Construcción del objeto según los errores del ModelState de C#
+        const detallesCalculados = compra.detalles.map(d => {
+            const infoProd = productosMaster.find(p => p.idProductoUnidad == d.idProductoUnidad);
+            const costoBase = parseFloat(d.costoUnitarioMonedaBase || 0);
+            const cantidad = parseFloat(d.cantidad || 0);
+
+            return {
+                IdProductoUnidad: parseInt(d.idProductoUnidad),
+                CodigoProd: infoProd?.codigoProdOriginal || "",
+                UnidadCompra: infoProd?.nombreUnidad || "",
+                Cantidad: cantidad,
+                CostoUnitarioMonedaBase: costoBase,
+                SubtotalLineaMonedaBase: costoBase * cantidad,
+                TotalLineaMonedaBase: costoBase * cantidad,
+                CostoUnitarioMonedaExt: costoBase * tasaCompra,
+                TotalLineaMonedaExt: (costoBase * cantidad) * tasaCompra,
+                TasaIVA: 0 
+            };
+        });
+
         const compraParaEnviar = {
-            CodigoProv: parseInt(compra.idProveedor), // Nombre exacto pedido por el error
+            CodigoProv: parseInt(compra.idProveedor),
             NumeroFactura: compra.numeroFactura,
             FechaCompra: new Date().toISOString(),
-            TipoMoneda: "USD", // Campo requerido según tu error 400
-            Detalles: compra.detalles.map(d => {
-                const infoProd = productosMaster.find(p => p.idProductoUnidad == d.idProductoUnidad);
-                return {
-                    IdProductoUnidad: parseInt(d.idProductoUnidad),
-                    CodigoProd: infoProd?.codigoProdOriginal || "", // Requerido por el error
-                    UnidadCompra: infoProd?.nombreUnidad || "",     // Requerido por el error
-                    Cantidad: parseFloat(d.cantidad || 0),
-                    CostoUnitarioMonedaBase: parseFloat(d.costoUnitarioMonedaBase || 0)
-                };
-            })
+            TipoMoneda: "USD",
+            TasaDeCambio: tasaCompra,
+            Detalles: detallesCalculados,
+            TotalMonedaBase: detallesCalculados.reduce((acc, cur) => acc + cur.TotalLineaMonedaBase, 0),
+            TotalMonedaExt: detallesCalculados.reduce((acc, cur) => acc + cur.TotalLineaMonedaExt, 0),
+            SubtotalMonedaBase: detallesCalculados.reduce((acc, cur) => acc + cur.SubtotalLineaMonedaBase, 0),
+            IvaMonedaBase: 0
         };
 
         try {
@@ -114,151 +145,264 @@ const Compras = () => {
                 body: JSON.stringify(compraParaEnviar)
             });
 
-            const data = await res.json();
             if (res.ok) {
-                if (data.propuestasPrecios && data.propuestasPrecios.length > 0) {
-                    setPropuestas(data.propuestasPrecios);
-                    setPaso(2);
-                } else {
-                    alert("Compra registrada exitosamente.");
-                    reiniciarFormulario();
-                }
+                const listaPropuestas = compra.detalles.map(d => {
+                    const info = productosMaster.find(p => p.idProductoUnidad == d.idProductoUnidad);
+                    const costoFactura = parseFloat(d.costoUnitarioMonedaBase) || 0;
+
+                    return {
+                        idProductoUnidad: parseInt(d.idProductoUnidad),
+                        descripcion: info?.nombreMostrar || "Producto",
+                        costoAnterior: info?.costoActual || 0,
+                        precio1Anterior: info?.precioVentaActual || 0,
+                        precio2Anterior: info?.precio2Actual || 0,
+                        precio3Anterior: info?.precio3Actual || 0,
+                        nuevoCostoBase: costoFactura,
+                        nuevoPrecioBase: (info?.precioVentaActual > costoFactura) ? info.precioVentaActual : (costoFactura * 1.20),
+                        nuevoPrecio2Base: (info?.precio2Actual > costoFactura) ? info.precio2Actual : (costoFactura * 1.15),
+                        nuevoPrecio3Base: (info?.precio3Actual > costoFactura) ? info.precio3Actual : (costoFactura * 1.10),
+                    };
+                });
+                setPropuestas(listaPropuestas);
+                setPaso(2);
             } else {
-                // Si vuelve a dar error, lo vemos detallado en consola
-                console.error("Error 400 del servidor:", data.errors || data);
-                alert("Error de validación. Revisa los campos obligatorios.");
+                const data = await res.json();
+                alert("Error al registrar: " + (data.message || "Revise los datos"));
             }
         } catch (error) {
-            console.error("Error en la petición:", error);
+            console.error("Error:", error);
+            alert("Error de conexión al procesar la compra.");
         }
     };
 
     const enviarNuevosPrecios = async () => {
-        // ... (Se mantiene igual, enviando el array de propuestas)
+        if (guardando) return;
         try {
+            setGuardando(true);
             const res = await fetch(`${API_URL}/Compras/confirmar-precios`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(propuestas) 
             });
+            
             if (res.ok) {
-                alert("Inventario y precios actualizados.");
+                alert("✅ Compra finalizada e Inventario/Precios actualizados.");
                 reiniciarFormulario();
+            } else {
+                const err = await res.json();
+                alert("❌ Error: " + err.message);
             }
-        } catch (e) { console.error(e); }
+        } catch (e) { 
+            alert("❌ Error de conexión al servidor");
+        } finally {
+            setGuardando(false);
+        }
     };
 
+    // --- RENDER ---
     return (
-        <div className="modulo-container" style={{ padding: '20px', fontFamily: 'sans-serif' }}>
-            <h2>{paso === 1 ? "📦 Registro de Compra" : "⚖️ Ajuste de Precios de Venta"}</h2>
+        <div className="modulo-container" style={{ padding: '20px', maxWidth: '900px', margin: '0 auto', fontFamily: 'sans-serif' }}>
+            <h2 style={{ borderBottom: '2px solid #eee', paddingBottom: '10px' }}>
+                        {paso === 1 ? "📦 Registro de Factura" : "⚖️ Paso 2: Ajuste de Precios"}
+                    </h2>
 
-            {paso === 1 ? (
-                <div className="registro-compra">
-                    <div style={{ display: 'flex', gap: '20px', marginBottom: '20px', backgroundColor: '#f8fafc', padding: '15px', borderRadius: '8px' }}>
+                    {paso === 1 ? (
+                        <div className="registro-compra">
+                    {/* --- Selector de Tasa Histórico y Manual --- */}
+                    <div style={{ 
+                        backgroundColor: '#f0f9ff', 
+                        padding: '20px', 
+                        borderRadius: '10px', 
+                        marginBottom: '25px',
+                        border: '1px solid #bae6fd' 
+                    }}>
+                        <label style={{ display: 'block', marginBottom: '10px', fontWeight: 'bold', color: '#0369a1' }}>
+                            📅 Tasa de Cambio para esta Factura:
+                        </label>
+    
+                        <div style={{ display: 'flex', gap: '15px', alignItems: 'center', flexWrap: 'wrap' }}>
+                            {/* SELECTOR DESPLEGABLE CON HISTORIAL */}
+                            <select 
+                                value={tasasReferencia.some(t => t.tasa === tasaCompra) ? tasaCompra : ""} 
+                                onChange={(e) => {
+                                    const val = parseFloat(e.target.value);
+                                    if (val > 0) setTasaCompra(val);
+                                }}
+                                style={{ 
+                                    flex: '2', // Le damos más espacio al nombre y fecha
+                                    padding: '10px', 
+                                    borderRadius: '6px', 
+                                    border: '1px solid #0ea5e9',
+                                    fontSize: '0.95rem',
+                                    backgroundColor: 'white',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                <option value="">-- Seleccionar del Historial (Nombre - Tasa - Fecha) --</option>
+                                {tasasReferencia.map((t) => (
+                                    <option key={t.idTasa} value={t.tasa}>
+                                        {t.nombreTasa} ({t.tasa.toFixed(2)} VES) — {t.fecha}
+                                    </option>
+                                ))}
+                            </select>
+
+                            {/* INPUT MANUAL PARA AJUSTE FINO */}
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flex: '1' }}>
+                                <span style={{ fontWeight: 'bold', color: '#64748b' }}>Valor:</span>
+                                <input 
+                                    type="number" 
+                                    step="0.01"
+                                    value={tasaCompra} 
+                                    onChange={(e) => setTasaCompra(parseFloat(e.target.value) || 0)}
+                                    style={{ 
+                                        width: '100%', 
+                                        padding: '10px', 
+                                        fontWeight: 'bold', 
+                                        color: '#2563eb',
+                                        border: '2px solid #0ea5e9',
+                                        borderRadius: '6px',
+                                        textAlign: 'center',
+                                        backgroundColor: '#fff'
+                                    }}
+                                />
+                            </div>
+                        </div>
+
+                        <div style={{ marginTop: '12px', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <small style={{ color: '#0369a1', fontStyle: 'italic' }}>
+                                * Tip: Puedes buscar una tasa vieja por su fecha o escribir una nueva directamente.
+                            </small>
+                            <span style={{ 
+                                fontSize: '0.85rem', 
+                                backgroundColor: '#e0f2fe', 
+                                padding: '4px 10px', 
+                                borderRadius: '15px', 
+                                color: '#0369a1',
+                                fontWeight: '600'
+                            }}>
+                                Cálculo: 1 USD = {tasaCompra.toFixed(2)} VES
+                            </span>
+                        </div>
+                    </div>
+
+                    {/* Datos Factura */}
+                    <div style={{ display: 'flex', gap: '20px', marginBottom: '20px' }}>
                         <div style={{ flex: 1 }}>
-                            <label style={{ fontWeight: 'bold' }}>Proveedor:</label>
+                            <label>Proveedor</label>
                             <select 
                                 value={compra.idProveedor} 
                                 onChange={(e) => setCompra({...compra, idProveedor: e.target.value})}
-                                style={{ width: '100%', padding: '8px' }}
+                                style={{ width: '100%', padding: '10px', marginTop: '5px' }}
                             >
                                 <option value="">Seleccione...</option>
                                 {proveedores.map(p => (
-                                    <option key={`p-${p.codigoProv || p.id}`} value={p.codigoProv || p.id}>
-                                        {p.razonsocial || p.nombre}
-                                    </option>
+                                    <option key={p.codigoProv} value={p.codigoProv}>{p.razonsocial}</option>
                                 ))}
                             </select>
                         </div>
                         <div style={{ flex: 1 }}>
-                            <label style={{ fontWeight: 'bold' }}>N° Factura:</label>
+                            <label>N° Factura</label>
                             <input 
                                 type="text" 
                                 value={compra.numeroFactura}
                                 onChange={(e) => setCompra({...compra, numeroFactura: e.target.value})}
-                                style={{ width: '100%', padding: '8px' }}
+                                style={{ width: '100%', padding: '10px', marginTop: '5px' }}
                             />
                         </div>
                     </div>
 
-                    <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+                    <table style={{ width: '100%', textAlign: 'left', marginBottom: '15px' }}>
                         <thead>
-                            <tr style={{ background: '#f1f5f9' }}>
-                                <th style={{ padding: '10px', textAlign: 'left' }}>Producto/Unidad</th>
+                            <tr style={{ background: '#f4f4f4' }}>
+                                <th style={{ padding: '10px' }}>Producto</th>
                                 <th>Cant.</th>
-                                <th>Costo ($)</th>
-                                <th></th>
+                                <th>Costo Unit. ($)</th>
+                                <th>Acción</th>
                             </tr>
                         </thead>
                         <tbody>
                             {compra.detalles.map((det, index) => (
-                                <tr key={`row-${index}`} style={{ borderBottom: '1px solid #eee' }}>
-                                    <td style={{ padding: '10px' }}>
+                                <tr key={index}>
+                                    <td style={{ padding: '5px' }}>
                                         <select 
-                                            style={{ width: '100%' }}
+                                            style={{ width: '100%', padding: '5px' }}
                                             value={det.idProductoUnidad}
-                                            onChange={(e) => {
-                                                const p = productosMaster.find(x => x.idProductoUnidad == e.target.value);
-                                                if (p) seleccionarProducto(index, p);
-                                            }}
+                                            onChange={(e) => manejarCambioDetalle(index, 'idProductoUnidad', e.target.value)}
                                         >
                                             <option value="">-- Seleccionar --</option>
                                             {productosMaster.map(p => (
-                                                <option key={`opt-${p.idProductoUnidad}`} value={p.idProductoUnidad}>
-                                                    {p.nombreMostrar}
-                                                </option>
+                                                <option key={p.idProductoUnidad} value={p.idProductoUnidad}>{p.nombreMostrar}</option>
                                             ))}
                                         </select>
                                     </td>
-                                    <td>
-                                        <input type="number" value={det.cantidad} onChange={(e) => manejarCambioDetalle(index, 'cantidad', e.target.value)} style={{ width: '50px' }} />
-                                    </td>
-                                    <td>
-                                        <input type="number" step="0.01" value={det.costoUnitarioMonedaBase} onChange={(e) => manejarCambioDetalle(index, 'costoUnitarioMonedaBase', e.target.value)} style={{ width: '80px' }} />
-                                    </td>
-                                    <td>
-                                        <button onClick={() => {
-                                            const d = [...compra.detalles]; d.splice(index, 1); setCompra({...compra, detalles: d});
-                                        }}>❌</button>
-                                    </td>
+                                    <td><input type="number" value={det.cantidad} onChange={(e) => manejarCambioDetalle(index, 'cantidad', e.target.value)} style={{ width: '60px' }} /></td>
+                                    <td><input type="number" step="0.01" value={det.costoUnitarioMonedaBase} onChange={(e) => manejarCambioDetalle(index, 'costoUnitarioMonedaBase', e.target.value)} style={{ width: '80px' }} /></td>
+                                    <td><button onClick={() => eliminarLinea(index)}>🗑️</button></td>
                                 </tr>
                             ))}
                         </tbody>
                     </table>
-
-                    <button onClick={agregarLinea} style={{ marginTop: '10px', padding: '10px', backgroundColor: '#10b981', color: 'white', border: 'none', borderRadius: '5px' }}>
-                        + Añadir Fila
-                    </button>
-
-                    <button onClick={procesarCompra} style={{ width: '100%', marginTop: '20px', padding: '15px', backgroundColor: '#2563eb', color: 'white', fontWeight: 'bold', border: 'none', borderRadius: '5px' }}>
-                        GUARDAR COMPRA
+                    
+                    <button onClick={agregarLinea} style={{ padding: '8px 15px', cursor: 'pointer' }}>+ Agregar Producto</button>
+                    
+                    <button onClick={procesarCompra} style={{ width: '100%', marginTop: '20px', padding: '15px', backgroundColor: '#2563eb', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold' }}>
+                        SIGUIENTE: REVISAR PRECIOS
                     </button>
                 </div>
             ) : (
-                <div className="confirmar-precios">
-                    <p style={{ color: 'orange', fontWeight: 'bold' }}>Variación de costos detectada. Ajuste precios de venta:</p>
+                <div className="confirmar-precios" style={{ backgroundColor: '#fff7ed', padding: '20px', borderRadius: '8px', border: '1px solid #ffedd5' }}>
+                    <p style={{ marginBottom: '15px' }}>Compare costos y ajuste márgenes de ganancia:</p>
+
                     {propuestas.map((p, i) => (
-                        <div key={`prop-${i}`} style={{ display: 'flex', gap: '10px', marginBottom: '10px', alignItems: 'center', borderBottom: '1px solid #eee', padding: '10px' }}>
-                           <span style={{ flex: 1 }}>Unidad ID: {p.idProductoUnidad}</span>
-                           <span style={{ flex: 1 }}>Costo Nuevo: <strong>${p.nuevoCostoBase.toFixed(2)}</strong></span>
-                           <div style={{ flex: 1 }}>
-                               <label>Precio Venta ($): </label>
-                               <input 
-                                    type="number" 
-                                    value={p.nuevoPrecioBase} 
-                                    onChange={(e) => {
-                                        const nuevas = [...propuestas];
-                                        nuevas[i].nuevoPrecioBase = parseFloat(e.target.value);
-                                        setPropuestas(nuevas);
-                                    }}
-                                    style={{ padding: '5px', border: '1px solid #2563eb' }}
-                               />
-                           </div>
+                        <div key={i} style={{ display: 'flex', flexDirection: 'column', gap: '10px', padding: '15px', borderBottom: '2px solid #fed7aa', marginBottom: '15px', backgroundColor: 'white', borderRadius: '8px' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #eee', paddingBottom: '10px' }}>
+                                <div>
+                                    <strong>{p.descripcion}</strong><br/>
+                                    <small>Costo Base: ${p.nuevoCostoBase.toFixed(2)}</small>
+                                </div>
+                                <div style={{ textAlign: 'right' }}>
+                                    <small style={{ color: '#64748b' }}>Costo Ant: ${p.costoAnterior.toFixed(2)}</small>
+                                    <div style={{ fontWeight: 'bold', color: p.nuevoCostoBase > p.costoAnterior ? 'red' : 'green' }}>
+                                        {p.nuevoCostoBase > p.costoAnterior ? '🔺 Subió' : '🔻 Bajó/Igual'}
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                                {/* Inputs de Precios */}
+                                {[
+                                    { label: 'Precio 1', key: 'nuevoPrecioBase', color: '#f59e0b', ant: p.precio1Anterior },
+                                    { label: 'Precio 2', key: 'nuevoPrecio2Base', color: '#3b82f6', ant: p.precio2Anterior },
+                                    { label: 'Precio 3', key: 'nuevoPrecio3Base', color: '#10b981', ant: p.precio3Anterior }
+                                ].map((input) => (
+                                    <div key={input.key} style={{ flex: '1 1 150px' }}>
+                                        <label style={{ fontSize: '0.75rem', fontWeight: 'bold', color: input.color }}>{input.label}</label>
+                                        <div style={{ fontSize: '0.7rem' }}>Actual: ${input.ant.toFixed(2)}</div>
+                                        <input 
+                                            type="number" 
+                                            value={p[input.key]} 
+                                            onChange={(e) => {
+                                                const nuevas = [...propuestas];
+                                                nuevas[i][input.key] = parseFloat(e.target.value) || 0;
+                                                setPropuestas(nuevas);
+                                            }}
+                                            style={{ width: '100%', padding: '5px', border: `1px solid ${input.color}` }}
+                                        />
+                                        <small style={{ color: 'green' }}>
+                                            Margen: {(((p[input.key] / p.nuevoCostoBase) - 1) * 100).toFixed(1)}%
+                                        </small>
+                                    </div>
+                                ))}
+                            </div>
                         </div>
                     ))}
-                    <button onClick={enviarNuevosPrecios} style={{ backgroundColor: '#f59e0b', color: 'white', padding: '15px', width: '100%', border: 'none', borderRadius: '5px', fontWeight: 'bold' }}>
-                        CONFIRMAR Y ACTUALIZAR INVENTARIO
-                    </button>
+
+                    <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
+                        <button onClick={() => setPaso(1)} style={{ flex: 1, padding: '12px' }}>Atrás</button>
+                        <button onClick={enviarNuevosPrecios} disabled={guardando} style={{ flex: 2, padding: '15px', backgroundColor: '#f59e0b', color: 'white', border: 'none', borderRadius: '5px', fontWeight: 'bold', cursor: 'pointer' }}>
+                            {guardando ? "PROCESANDO..." : "CONFIRMAR Y FINALIZAR"}
+                        </button>
+                    </div>
                 </div>
             )}
         </div>

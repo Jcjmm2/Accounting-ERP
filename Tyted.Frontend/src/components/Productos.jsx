@@ -6,6 +6,7 @@ const Productos = () => {
     const [productos, setProductos] = useState([]);
     const [loading, setLoading] = useState(true);
     const [busqueda, setBusqueda] = useState("");
+    const [stockMinimoEdit, setStockMinimoEdit] = useState(0);
 
     // Estado para el modal y edición
     const [productoDetalle, setProductoDetalle] = useState(null);
@@ -43,40 +44,55 @@ const Productos = () => {
     };
 
     const guardarCambios = async () => {
-        setGuardando(true);
-        try {
-            // Transformamos el objeto de cambios en una lista para el backend
-            const cambios = Object.keys(editandoPrecios).map(id => ({
-                idProductoUnidad: id,
-                precio1: editandoPrecios[id].precio1,
-                precio2: editandoPrecios[id].precio2,
-                precio3: editandoPrecios[id].precio3
-            }));
+    setGuardando(true);
+    try {
+        // A. Actualizar Precios Masivos
+        const cambios = Object.keys(editandoPrecios).map(id => ({
+            idProductoUnidad: id,
+            precio1: editandoPrecios[id].precio1,
+            precio2: editandoPrecios[id].precio2,
+            precio3: editandoPrecios[id].precio3
+        }));
 
-            // Nota: Debes asegurar que este endpoint exista en tu ProductosUnidadController
-            const res = await fetch(`${API_URL}/Productos/ActualizarPreciosMasivo`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(cambios)
-            });
+        const resPrecios = await fetch(`${API_URL}/Productos/ActualizarPreciosMasivo`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(cambios)
+        });
 
-            if (res.ok) {
-                alert("Precios actualizados correctamente");
-                setProductoDetalle(null);
-                setEditandoPrecios({});
-                cargarProductos();
-            }
-        } catch (error) {
-            alert("Error al guardar cambios");
-        } finally {
-            setGuardando(false);
+        // B. Actualizar el Stock Mínimo
+        const productoActualizado = { 
+            ...productoDetalle, 
+            stockMinimo: parseFloat(stockMinimoEdit) 
+        };
+
+        const resProducto = await fetch(`${API_URL}/Productos/${productoDetalle.codigoProd}`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(productoActualizado)
+        });
+
+        // VALIDACIÓN CORRECTA:
+        if (resPrecios.ok && resProducto.ok) {
+            alert("✅ Precios y Stock Mínimo actualizados correctamente");
+            setProductoDetalle(null);
+            setEditandoPrecios({});
+            cargarProductos(); // Refresca la lista principal
+        } else {
+            alert("❌ Error al sincronizar algunos datos.");
         }
-    };
+    } catch (error) {
+        console.error(error);
+        alert("Error de conexión al guardar");
+    } finally {
+        setGuardando(false);
+    }
+   };
 
     const productosFiltrados = productos.filter(p =>
-        p.descripcion.toLowerCase().includes(busqueda.toLowerCase()) ||
-        p.codigoProd.includes(busqueda)
-    );
+         p.descripcion.toLowerCase().includes(busqueda.toLowerCase()) ||
+         p.codigoProd.includes(busqueda)
+     );
 
     return (
         <div className="modulo-container">
@@ -119,6 +135,7 @@ const Productos = () => {
                                     <button 
                                         onClick={() => {
                                             setProductoDetalle(p);
+                                            setStockMinimoEdit(p.stockMinimo);
                                             // Inicializamos los valores de edición con los actuales
                                             const inicial = {};
                                             p.unidadesDeVenta.forEach(u => {
@@ -201,8 +218,35 @@ const Productos = () => {
                                         </td>
                                     </tr>
                                 ))}
-                            </tbody>
+                                </tbody>
                         </table>
+                        {/* Dentro del modal-overlay, después del párrafo de la tasa */}
+                                <div style={{ 
+                                    background: '#f8fafc', 
+                                    padding: '15px', 
+                                    borderRadius: '8px', 
+                                    marginBottom: '20px',
+                                    border: '1px solid #e2e8f0',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '20px'
+                                }}>
+                                    <div>
+                                        <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>
+                                            📦 Stock Mínimo de Alerta:
+                                        </label>
+                                        <input 
+                                            type="number" 
+                                            className="input-precio-editable" 
+                                            style={{ width: '120px', textAlign: 'center', fontSize: '1.1rem' }}
+                                            value={stockMinimoEdit}
+                                            onChange={(e) => setStockMinimoEdit(e.target.value)}
+                                        />
+                                    </div>
+                                    <div style={{ fontSize: '0.85rem', color: '#64748b' }}>
+                                        El sistema marcará este producto en <strong>rojo</strong> cuando la existencia sea igual o menor a este valor.
+                                    </div>
+                                </div>
 
                         <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
                             <button 

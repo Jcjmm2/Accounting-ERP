@@ -16,14 +16,11 @@ namespace Tyted.API.Models
         [Required]
         public DateTime FechaVigencia { get; set; }
 
-        //[Required]
-        //[MaxLength(3)]
-        //public int? MonedaOrigenId { get; set; } = 1;
-        
+        [MaxLength(50)]
+        public string NombreTasa { get; set; } // "BCV", "Paralelo", "Euro", etc.
 
-        //[Required]
-        //[MaxLength(3)]
-        //public int? MonedaDestinoId { get; set; } =2;
+        public string MonedaOrigen { get; set; } // "USD"
+        public string MonedaDestino { get; set; } // "VES"
 
         [Column(TypeName = "decimal(18, 6)")]
         public decimal? FactorSugerido { get; set; }
@@ -31,7 +28,5 @@ namespace Tyted.API.Models
         [MaxLength(100)]
         public string? UsuarioRegistro { get; set; }
 
-        public string MonedaOrigen { get; set; }
-        public string MonedaDestino { get; set; }
     }
 }

@@ -109,6 +109,12 @@ namespace Tyted.API.Services
         public string Metodo { get; set; } = string.Empty;
         public decimal MontoUSD { get; set; }
         public decimal MontoVES { get; set; }
+        public decimal MontoEfectivoUSD { get; set; }
+        public decimal MontoEfectivoVES { get; set; }
+        public decimal MontoPagoMovil { get; set; }
+        public decimal MontoBDV { get; set; }
+        public decimal MontoBancamiga { get; set; }
+        public decimal MontoMetal { get; set; }
     }
 
     public class HistoricoTasaDTO

@@ -49,10 +49,9 @@ namespace Tyted.API.Controllers
         public async Task<ActionResult<Compra>> PostCompra(Compra compra)
         {
             if (!ModelState.IsValid)
-                {
-                    // Esto te dirá exactamente qué campo está fallando
-                    return BadRequest(ModelState); 
-                }
+            {
+                return BadRequest(ModelState); 
+            }
             try
             {
                 var nuevaCompra = await _compraService.RegistrarCompraAsync(compra);
@@ -64,9 +63,6 @@ namespace Tyted.API.Controllers
             }            
         }
 
-        // ==========================================================
-        // AGREGADO: ENDPOINT DE ANULACIÓN
-        // ==========================================================
         [HttpPost("anular/{id}")]
         public async Task<IActionResult> AnularCompra(int id)
         {
@@ -77,13 +73,12 @@ namespace Tyted.API.Controllers
             }
             catch (Exception ex)
             {
-                // Aquí capturamos el error de "Stock Insuficiente" que programamos en el Service
                 return BadRequest(new { message = ex.Message });
             }
         }
 
         // ==========================================================
-        // MEJORA: CONFIRMAR PRECIOS (Ajustado para mayor seguridad)
+        // ACTUALIZADO: AHORA GUARDA PRECIO 1, 2 Y 3
         // ==========================================================
         [HttpPost("confirmar-precios")]
         public async Task<IActionResult> ConfirmarPrecios([FromBody] List<ConfirmarPrecioDto> propuestas)
@@ -98,9 +93,14 @@ namespace Tyted.API.Controllers
                     var unidad = await _context.ProductosUnidad.FirstOrDefaultAsync(u => u.IdProductoUnidad == item.IdProductoUnidad);
                     if (unidad != null)
                     {
+                        // 1. Actualizamos el costo base
                         unidad.CostoUnitarioMonedaBase = item.NuevoCostoBase;
-                        unidad.PrecioMonedaBase = item.NuevoPrecioBase;
-                        // En Venezuela, si el precio cambia, actualizamos la fecha para saber cuándo se remarcó
+                        
+                        // 2. Actualizamos los TRES niveles de precios
+                        unidad.PrecioMonedaBase = item.NuevoPrecioBase;   // Precio 1
+                        unidad.Precio2MonedaBase = item.NuevoPrecio2Base; // Precio 2
+                        unidad.Precio3MonedaBase = item.NuevoPrecio3Base; // Precio 3
+
                         _context.Entry(unidad).State = EntityState.Modified;
                     }
                 }
@@ -115,11 +115,15 @@ namespace Tyted.API.Controllers
         }
     }
 
-    // DTO necesario para que el endpoint de confirmar-precios funcione correctamente
+    // ==========================================================
+    // DTO ACTUALIZADO: INCLUYE LOS 3 PRECIOS
+    // ==========================================================
     public class ConfirmarPrecioDto
     {
         public int IdProductoUnidad { get; set; }
         public decimal NuevoCostoBase { get; set; }
-        public decimal NuevoPrecioBase { get; set; }
+        public decimal NuevoPrecioBase { get; set; }  // Mapea al Precio 1
+        public decimal NuevoPrecio2Base { get; set; } // Mapea al Precio 2
+        public decimal NuevoPrecio3Base { get; set; } // Mapea al Precio 3
     }
 }
