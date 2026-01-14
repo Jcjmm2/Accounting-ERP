@@ -88,18 +88,31 @@ namespace Tyted.API.Controllers
 
             try
             {
+                var tasaActual = await _context.TasaDeCambio
+                    .Where(t => t.MonedaOrigen == "USD" && t.MonedaDestino == "VES")
+                    .OrderByDescending(t => t.FechaVigencia)
+                    .Select(t => t.Tasa)
+                    .FirstOrDefaultAsync();
+
                 foreach (var item in propuestas)
                 {
                     var unidad = await _context.ProductosUnidad.FirstOrDefaultAsync(u => u.IdProductoUnidad == item.IdProductoUnidad);
                     if (unidad != null)
                     {
-                        // 1. Actualizamos el costo base
+                        // Actualizar Valores Base (USD)
                         unidad.CostoUnitarioMonedaBase = item.NuevoCostoBase;
-                        
-                        // 2. Actualizamos los TRES niveles de precios
-                        unidad.PrecioMonedaBase = item.NuevoPrecioBase;   // Precio 1
-                        unidad.Precio2MonedaBase = item.NuevoPrecio2Base; // Precio 2
-                        unidad.Precio3MonedaBase = item.NuevoPrecio3Base; // Precio 3
+                        unidad.PrecioMonedaBase = item.NuevoPrecioBase;
+                        unidad.Precio2MonedaBase = item.NuevoPrecio2Base;
+                        unidad.Precio3MonedaBase = item.NuevoPrecio3Base;
+
+                        // ACTUALIZACIÓN DE TASAS: Sincronizar con la moneda extranjera (VES)
+                        if (tasaActual > 0)
+                        {
+                            unidad.CostoUnitarioMonedaExt = item.NuevoCostoBase * tasaActual;
+                            unidad.PrecioMonedaExt = item.NuevoPrecioBase * tasaActual;
+                            unidad.Precio2MonedaExt = (item.NuevoPrecio2Base) * tasaActual;
+                            unidad.Precio3MonedaExt = (item.NuevoPrecio3Base) * tasaActual;
+                        }
 
                         _context.Entry(unidad).State = EntityState.Modified;
                     }
