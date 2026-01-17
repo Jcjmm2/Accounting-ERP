@@ -65,32 +65,30 @@ namespace Tyted.API.Controllers
         [HttpPut("{id}")]
         public async Task<IActionResult> PutProducto(string id, Producto producto)
         {
-            if ( id != producto.CodigoProd) return BadRequest();
+            if (id != producto.CodigoProd) return BadRequest();
+
+            // 1. Limpiamos navegaciones para evitar Error 500
+            producto.Categoria = null;
+            producto.TasaIVA = null;
+            producto.Proveedor = null;
+
+            // 2. IMPORTANTE: Ignoramos la colección de UnidadesDeVenta aquí
+            // para que este método solo actualice StockMinimo, IVA y Descripción.
+            // Los precios los maneja el otro método.
+            producto.UnidadesDeVenta = null; 
 
             _context.Entry(producto).State = EntityState.Modified;
-
-            // También debemos manejar la actualización de las unidades de venta si vienen en el objeto
-            if (producto.UnidadesDeVenta != null)
-            {
-                foreach (var unidad in producto.UnidadesDeVenta)
-                {
-                    _context.Entry(unidad).State = unidad.IdProductoUnidad == 0 
-                        ? EntityState.Added 
-                        : EntityState.Modified;
-                }
-            }
 
             try
             {
                 await _context.SaveChangesAsync();
+                return Ok(new { message = "Datos maestros actualizados" });
             }
             catch (DbUpdateConcurrencyException)
             {
                 if (!ProductoExists(id)) return NotFound();
                 else throw;
             }
-
-            return NoContent();
         }
 
         private bool ProductoExists(string id)
@@ -132,19 +130,22 @@ namespace Tyted.API.Controllers
                     u.NombreUnidad,
                     u.CantidadEquivalente,
                     PrecioUSD = u.PrecioMonedaBase ?? 0m,
-PrecioVES = Math.Round((u.PrecioMonedaBase ?? 0m) * tasaDelDia, 2)
+                    PrecioVES = Math.Round((u.PrecioMonedaBase ?? 0m) * tasaDelDia, 2)
                 })
             };
 
             return Ok(respuesta);
         }
         [HttpPut("ActualizarPreciosMasivo")]
-        public async Task<IActionResult> ActualizarPreciosMasivo([FromBody] List<ActualizarPrecioDTO> listaPrecios)
+        public async Task<IActionResult> ActualizarPreciosMasivo([FromBody] List<ActualizarPrecioDTO> preciosDto)
         {
-            if (listaPrecios == null || !listaPrecios.Any())
-                return BadRequest("No se enviaron datos.");
+            // 1. Validación de entrada
+            if (preciosDto == null || !preciosDto.Any())
+            {
+                return BadRequest(new { message = "El servidor recibió una lista vacía o nula." });
+            }
 
-            // 1. Obtenemos la tasa de cambio actual para actualizar también los precios en VES
+            // 2. Obtener tasa para sincronizar Bolívares (VES)
             var tasaObj = await _context.TasaDeCambio
                 .Where(t => t.MonedaOrigen == "USD" && t.MonedaDestino == "VES")
                 .OrderByDescending(t => t.FechaVigencia)
@@ -155,26 +156,24 @@ PrecioVES = Math.Round((u.PrecioMonedaBase ?? 0m) * tasaDelDia, 2)
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
-                foreach (var item in listaPrecios)
+                foreach (var item in preciosDto)
                 {
-                    int idBuscado = Convert.ToInt32(item.IdProductoUnidad);
-
-                    var unidad = await _context.ProductosUnidad
-                        .FirstOrDefaultAsync(u => u.IdProductoUnidad == idBuscado);
+                    var unidad = await _context.ProductosUnidad.FindAsync(item.IdProductoUnidad);
 
                     if (unidad != null)
                     {
-                        // Actualización de Precios en Dólares (Moneda Base)
+                        // A. Actualización de Precios en Dólares (Moneda Base)
+                        // Quitamos la validación de "item.Precio1 == 0" para permitir el primer llenado desde la web
                         unidad.PrecioMonedaBase = item.Precio1;
                         unidad.Precio2MonedaBase = item.Precio2;
                         unidad.Precio3MonedaBase = item.Precio3;
 
-                        // Sincronización automática con Bolívares (Moneda Extranjera)
+                        // B. Sincronización con Bolívares (Moneda Extranjera @ 2 decimales)
                         unidad.PrecioMonedaExt = Math.Round(item.Precio1 * valorTasa, 2);
                         unidad.Precio2MonedaExt = Math.Round(item.Precio2 * valorTasa, 2);
                         unidad.Precio3MonedaExt = Math.Round(item.Precio3 * valorTasa, 2);
 
-                        // Actualizar Costos si el producto maestro cambió
+                        // C. Sincronizar con el Costo del Producto Maestro (Importante para reportes de utilidad)
                         var maestro = await _context.Productos.FindAsync(unidad.CodigoProd);
                         if (maestro != null)
                         {
@@ -182,6 +181,7 @@ PrecioVES = Math.Round((u.PrecioMonedaBase ?? 0m) * tasaDelDia, 2)
                             unidad.CostoUnitarioMonedaExt = Math.Round(maestro.CostoUnitarioBase * valorTasa, 4);
                         }
 
+                        // Notificar a Entity Framework el cambio
                         _context.Entry(unidad).State = EntityState.Modified;
                     }
                 }
@@ -189,21 +189,17 @@ PrecioVES = Math.Round((u.PrecioMonedaBase ?? 0m) * tasaDelDia, 2)
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
 
-                return Ok(new { message = $"Se actualizaron {listaPrecios.Count} presentaciones exitosamente." });
+                return Ok(new { message = $"Se actualizaron {preciosDto.Count} presentaciones exitosamente." });
             }
             catch (Exception ex)
             {
                 await transaction.RollbackAsync();
-                return StatusCode(500, $"Error interno: {ex.Message}");
+                // Mantenemos el detalle del error por si falla algo en la base de datos (como un Trigger o un Constraint)
+                string detalleError = ex.Message + (ex.InnerException != null ? " -> " + ex.InnerException.Message : "");
+                return StatusCode(500, new { message = "Error al guardar precios", detail = detalleError });
             }
         }
-        public class ActualizarPrecioDTO
-    {
-        public string IdProductoUnidad { get; set; }
-        public decimal Precio1 { get; set; } // NuevoPrecioUSD (Precio Principal)
-        public decimal Precio2 { get; set; } // Precio Mayor / Especial
-        public decimal Precio3 { get; set; } // Precio Distribuidor / Otro
-    }
+        
         // GET: api/Productos/stock-critico
         [HttpGet("stock-critico")]
         public async Task<ActionResult> GetStockCritico()
@@ -225,47 +221,142 @@ PrecioVES = Math.Round((u.PrecioMonedaBase ?? 0m) * tasaDelDia, 2)
 
             return Ok(productosCriticos);
         }
+        [HttpGet("TasasIVA")] // La URL será /api/Productos/TasasIVA
+        public async Task<ActionResult> GetTasasIVA()
+        {
+            var tasas = await _context.TasasIVA.ToListAsync();
+            return Ok(tasas);
+        }
+        
         [HttpGet("buscar")]
         public async Task<IActionResult> Buscar([FromQuery] string termino, [FromQuery] decimal tasaDelDia)
         {
-            if (string.IsNullOrWhiteSpace(termino)) return BadRequest("Termo de busca vazio.");
+            if (string.IsNullOrWhiteSpace(termino)) return BadRequest("El término de búsqueda está vacío.");
 
-            // Buscamos em ProductosUnidad incluindo a tabela maestra Productos
-            // para filtrar tanto pelo nome do produto como pelo nome da unidade ou código
-            var resultados = await _context.ProductosUnidad
-                .Include(u => u.Producto)
-                .Where(u => u.Producto.Descripcion.Contains(termino) || 
-                            u.NombreUnidad.Contains(termino) || 
-                            u.CodigoBarras == termino ||
-                            u.CodigoProd.Contains(termino))
-                .Take(15)
-                .ToListAsync();
-
-            if (!resultados.Any())
-                return NotFound(new { message = "Nenhum produto encontrado." });
-
-            var respuesta = resultados.Select(u => new
+            try
             {
-                IdProductoUnidad = u.IdProductoUnidad,
-                CodigoProd = u.CodigoProd,
-                // Exemplo: "HARINA PAN BLANCA 1KG (Bulto 20 unidades)"
-                Descripcion = $"{u.Producto.Descripcion} ({u.NombreUnidad})",
-                Unidad = u.NombreUnidad,
-                PrecioUSD = u.PrecioMonedaBase ?? 0m,
-                // Calculamos o preço em BS com base na taxa enviada pelo frontend
-                PrecioVES = Math.Round((u.PrecioMonedaBase ?? 0m) * tasaDelDia, 2),
-                StockActual = u.Producto.StockActual,
-                CodigoBarras = u.CodigoBarras ?? "S/C",
-                EsPeso = u.IdUnidad == 3 || u.IdUnidad == 4 // Kilo ou Gramo (Baseado nos seus IDs 3 e 4)
-            });
+                // Unificamos la lógica: traemos la unidad, el producto maestro y la tasa de IVA
+                var resultados = await _context.ProductosUnidad
+                    .Include(u => u.Producto)
+                        .ThenInclude(p => p.TasaIVA)
+                    .Where(u => u.Producto.Descripcion.Contains(termino) || 
+                                u.NombreUnidad.Contains(termino) || 
+                                u.CodigoBarras == termino ||
+                                u.CodigoProd.Contains(termino))
+                    .Take(20)
+                    .ToListAsync();
 
-            return Ok(respuesta);
+                if (!resultados.Any())
+                    return NotFound(new { message = "No se encontraron productos." });
+
+                var respuesta = resultados.Select(u => new
+                {
+                    idProductoUnidad = u.IdProductoUnidad,
+                    codigoProd = u.CodigoProd,
+                    // Descripción amigable: "Arroz 1kg (Bulto)"
+                    descripcion = $"{u.Producto.Descripcion} ({u.NombreUnidad})",
+                    unidad = u.NombreUnidad,
+                    precioMonedaBase = u.PrecioMonedaBase ?? 0m,
+                    // Calculamos precio en Bolívares al vuelo usando la tasa enviada desde el frontend
+                    precioVES = Math.Round((u.PrecioMonedaBase ?? 0m) * tasaDelDia, 2),
+                    stockActual = u.Producto.StockActual,
+                    // Datos de IVA cruciales para el carrito
+                    porcentajeIva = u.Producto.TasaIVA != null ? u.Producto.TasaIVA.Porcentaje : 0,
+                    esExento = u.Producto.TasaIVA != null && u.Producto.TasaIVA.Porcentaje == 0,
+                    codigoBarras = u.CodigoBarras ?? "S/C",
+                    // Identificamos si es un producto pesado (Kilos=3, Gramos=4 según lógica previa)
+                    esPeso = u.IdUnidad == 3 || u.IdUnidad == 4 
+                });
+
+                return Ok(respuesta);
+            }
+            catch (Exception ex)
+            {
+                return StatusCode(500, new { message = "Error en la búsqueda", detail = ex.Message });
+            }
         }
+
+        [HttpPut("ActualizarProductoCompleto")]
+        public async Task<IActionResult> ActualizarProductoCompleto([FromBody] ActualizarProductoCompletoDto dto)
+        {
+            try
+            {
+                // 1. Buscar el producto base
+                var producto = await _context.Productos
+                    .Include(p => p.UnidadesDeVenta)
+                    .FirstOrDefaultAsync(p => p.CodigoProd == dto.CodigoProd);
+
+                if (producto == null) return NotFound("Producto no encontrado");
+
+                // 2. Actualizar datos generales
+                producto.TipoArt = dto.TipoArt;
+                producto.IdTasaIVA = dto.IdTasaIVA;
+                producto.StockMinimo = dto.StockMinimo;
+
+                // 3. Obtener la tasa actual para recalcular precios en Bolívares (VES)
+                var tasaActual = await _context.TasaDeCambio
+                    .Where(t => t.MonedaOrigen == "USD" && t.MonedaDestino == "VES")
+                    .OrderByDescending(t => t.FechaVigencia)
+                    .Select(t => t.Tasa)
+                    .FirstOrDefaultAsync();
+
+                // 4. Actualizar cada unidad de venta
+                foreach (var uDto in dto.Unidades)
+                {
+                    var unidad = producto.UnidadesDeVenta
+                        .FirstOrDefault(u => u.IdProductoUnidad == uDto.IdProductoUnidad);
+
+                    if (unidad != null)
+                    {
+                        // Actualizar Precios en Dólares (Moneda Base)
+                        unidad.PrecioMonedaBase = uDto.Precio1;
+                        unidad.Precio2MonedaBase = uDto.Precio2;
+                        unidad.Precio3MonedaBase = uDto.Precio3;
+
+                        // Recalcular Precios en Bolívares (Moneda Extranjera)
+                        if (tasaActual > 0)
+                        {
+                            unidad.PrecioMonedaExt = uDto.Precio1 * tasaActual;
+                            unidad.Precio2MonedaExt = uDto.Precio2 * tasaActual;
+                            unidad.Precio3MonedaExt = uDto.Precio3 * tasaActual;
+                        }
+                    }
+                }
+
+                await _context.SaveChangesAsync();
+                return Ok(new { message = "Producto actualizado íntegramente." });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }        
+
+        // DTO necesario para recibir los datos
+        public class ActualizarProductoCompletoDto
+        {
+            public string CodigoProd { get; set; }
+            public string TipoArt { get; set; }
+            public int IdTasaIVA { get; set; }
+            public decimal StockMinimo { get; set; }
+            public List<UnidadPrecioDto> Unidades { get; set; }
+        }
+
+        public class UnidadPrecioDto
+        {
+            public int IdProductoUnidad { get; set; }
+            public decimal Precio1 { get; set; }
+            public decimal Precio2 { get; set; }
+            public decimal Precio3 { get; set; }
+        }
+        
         
     }
     public class ActualizarPrecioDTO
     {
-    public string IdProductoUnidad { get; set; } // El ID específico de la presentación (Caja, Detal, etc.)
-    public decimal NuevoPrecioUSD { get; set; } // El nuevo precio 1 que aceptó el usuario
+        public int IdProductoUnidad { get; set; } // DEBE ser int
+        public decimal Precio1 { get; set; }      // DEBE ser decimal
+        public decimal Precio2 { get; set; }      // DEBE ser decimal
+        public decimal Precio3 { get; set; }      // DEBE ser decimal
     }
 }

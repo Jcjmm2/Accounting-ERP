@@ -25,4 +25,5 @@ public class TasasIVAController : ControllerBase
         var list = await _context.TasasIVA.AsNoTracking().ToListAsync();
         return Ok(list);
     }
+    
 }

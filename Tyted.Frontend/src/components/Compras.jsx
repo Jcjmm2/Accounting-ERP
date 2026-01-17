@@ -16,6 +16,8 @@ const Compras = () => {
     const [monedaFactura, setMonedaFactura] = useState('USD');
     const [guardando, setGuardando] = useState(false);
 
+    
+
     // Estado para el producto que se está escribiendo actualmente (Entrada Rápida)
     const [productoEdicion, setProductoEdicion] = useState({
         idProductoUnidad: '',
@@ -75,6 +77,12 @@ const Compras = () => {
             if (res.ok) {
                 const data = await res.json();
                 setTasasReferencia(data);
+            
+                // Opcional: Si existe una tasa llamada "BCV", ponerla por defecto al cargar
+                const bcv = data.find(t => t.nombreTasa === "BCV");
+                if (bcv && tasaCompra === 0) {
+                    setTasaCompra(bcv.tasa);
+                }
             }
         } catch (e) { console.error("Error tasas:", e); }
     };
@@ -212,26 +220,26 @@ const Compras = () => {
     // Cálculo de totales en tiempo real para el resumen
     const totalesFactura = compra.detalles.reduce((acc, det) => {
         const infoProd = productosMaster.find(p => p.idProductoUnidad == det.idProductoUnidad);
-        const subtotalLinea = det.cantidad * det.costoUnitario;
-    
-        // Si el producto no tiene IVA (es 0 o exento), suma a exento, si no, a base imponible
+        const costoLimpio = parseFloat(det.costoUnitario || 0);
+        const cantidad = parseFloat(det.cantidad || 0);
+        const subtotalLinea = cantidad * costoLimpio;
+
+        // Obtenemos la tasa desde el producto (por defecto 0 si no existe)
         const tasaIvaProd = infoProd?.porcentajeIva || 0;
-    
+
         if (tasaIvaProd === 0) {
             acc.exento += subtotalLinea;
         } else {
+            const montoIvaLinea = subtotalLinea * (tasaIvaProd / 100);
             acc.baseImponible += subtotalLinea;
-            acc.iva += (subtotalLinea * (tasaIvaProd / 100));
+            acc.iva += montoIvaLinea;
         }
-    
-        acc.totalGeneral += (subtotalLinea + (subtotalLinea * (tasaIvaProd / 100)));
-    
-        return acc;
-    }, { exento: 0, baseImponible: 0, iva: 0, totalGeneral: 0 });
 
-    // Si quieres calcular un IVA del 16% sobre la base:
-    totalesFactura.iva = totalesFactura.baseImponible * 0.16;
-    totalesFactura.total = totalesFactura.baseImponible + totalesFactura.iva;
+        return acc;
+    }, { exento: 0, baseImponible: 0, iva: 0 });
+
+    // Calculamos el Total General sumando los tres pilares
+    const totalGeneralCalculado = totalesFactura.exento + totalesFactura.baseImponible + totalesFactura.iva;
 
     return (
         <div className="modulo-container" style={{ padding: '20px', maxWidth: '1200px', margin: '0 auto', fontFamily: 'sans-serif' }}>
@@ -332,32 +340,56 @@ const Compras = () => {
                             <option value="BS">Bolívares (Bs)</option>
                         </select>
 
-                        <label style={{ fontSize: '0.8rem', fontWeight: 'bold' }}>Tasa (Ref: {tasa})</label>
+                        {/* COLUMNA DERECHA: SECCIÓN DE TASA DINÁMICA */}
+                        <label style={{ fontSize: '0.8rem', fontWeight: 'bold' }}>Seleccionar Tasa de Referencia</label>
+                        <select 
+                            onChange={(e) => {
+                                const tasaSeleccionada = tasasReferencia.find(t => t.nombreTasa === e.target.value);
+                                if (tasaSeleccionada) setTasaCompra(tasaSeleccionada.tasa);
+                            }}
+                            style={{ width: '100%', padding: '10px', marginBottom: '10px', borderRadius: '5px', border: '1px solid #cbd5e1' }}
+                        >
+                            <option value="">-- Usar tasa manual o elegir --</option>
+                            {tasasReferencia.map((t, index) => (
+                                <option key={index} value={t.nombreTasa}>
+                                    {t.nombreTasa} ({t.tasa.toFixed(2)} Bs.)
+                                </option>
+                            ))}
+                        </select>
+
+                        <label style={{ fontSize: '0.75rem', color: '#64748b' }}>Valor de Tasa Aplicada</label>
                         <input 
                             type="number" 
                             value={tasaCompra} 
-                            onChange={(e) => setTasaCompra(parseFloat(e.target.value))} 
-                            style={{ width: '100%', padding: '10px', marginBottom: '20px', fontWeight: 'bold', border: '1px solid #cbd5e1' }} 
+                            onChange={(e) => setTasaCompra(parseFloat(e.target.value) || 0)} 
+                            style={{ 
+                                width: '100%', 
+                                padding: '10px', 
+                                marginBottom: '20px', 
+                                fontWeight: 'bold', 
+                                border: '2px solid #2563eb', // Resaltado para indicar que es el valor activo
+                                borderRadius: '5px',
+                                backgroundColor: '#eff6ff'
+                            }} 
                         />
 
-                        <div style={{ background: 'white', padding: '15px', borderRadius: '8px', border: '1px solid #cbd5e1' }}>
-                            <h5 style={{ margin: '0 0 10px 0', color: '#64748b', fontSize: '0.75rem' }}>RESUMEN FISCO</h5>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
-                                <span>Exento:</span> <span>{totalesFactura.exento.toFixed(2)} {monedaFactura}</span>
-                            </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
-                                <span>Base Imponible:</span> <span>{totalesFactura.baseImponible.toFixed(2)} {monedaFactura}</span>
-                            </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
-                                <span>IVA:</span> <span>{totalesFactura.iva.toFixed(2)} {monedaFactura}</span>
-                            </div>
-                            <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', borderTop: '1px solid #eee', paddingTop: '10px' }}>
-                                <span>TOTAL:</span> <span>{totalesFactura.totalGeneral.toFixed(2)} {monedaFactura}</span>
-                            </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
+                            <span>Exento:</span> 
+                            <span>{totalesFactura.exento.toFixed(2)} {monedaFactura}</span>
                         </div>
-                        <p style={{ fontSize: '0.7rem', color: '#94a3b8', marginTop: '15px', fontStyle: 'italic' }}>
-                            * Verifique que el TOTAL coincida con su factura física antes de procesar.
-                        </p>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
+                            <span>Base Imponible:</span> 
+                            <span>{totalesFactura.baseImponible.toFixed(2)} {monedaFactura}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
+                            <span>IVA:</span> 
+                            <span>{totalesFactura.iva.toFixed(2)} {monedaFactura}</span>
+                        </div>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: 'bold', borderTop: '2px solid #eee', paddingTop: '10px', marginTop: '10px', color: '#1e293b' }}>
+                            <span>TOTAL FACTURA:</span> 
+                            <span>{totalGeneralCalculado.toFixed(2)} {monedaFactura}</span>
+                        </div>
+                        
                     </div>
 
                 </div>
@@ -382,22 +414,61 @@ const Compras = () => {
                                     { label: 'Precio 1', key: 'nuevoPrecioBase', color: '#f59e0b' },
                                     { label: 'Precio 2', key: 'nuevoPrecio2Base', color: '#3b82f6' },
                                     { label: 'Precio 3', key: 'nuevoPrecio3Base', color: '#10b981' }
-                                ].map((input) => (
-                                    <div key={input.key} style={{ flex: 1 }}>
-                                        <label style={{ fontSize: '0.7rem', color: input.color, fontWeight: 'bold' }}>{input.label}</label>
-                                        <input 
-                                            type="number" 
-                                            value={p[input.key]} 
-                                            onChange={(e) => {
-                                                const nuevas = [...propuestas];
-                                                nuevas[i][input.key] = parseFloat(e.target.value) || 0;
-                                                setPropuestas(nuevas);
-                                            }}
-                                            style={{ width: '100%', padding: '5px' }}
-                                        />
-                                        <small style={{ color: 'green' }}>Ganancia: {(((p[input.key] / p.nuevoCostoBase) - 1) * 100).toFixed(1)}%</small>
-                                    </div>
-                                ))}
+                                ].map((input) => {
+                                    // 1. Buscamos la tasa USDT en las referencias cargadas
+                                    const tasaReferenciaUSDT = tasasReferencia.find(t => t.nombreTasa === "USDT")?.tasa || tasaCompra;
+
+                                    // 2. Cálculo de Ganancia sobre Moneda Base
+                                    const gananciaPorcentaje = p.nuevoCostoBase > 0 
+                                        ? (((p[input.key] / p.nuevoCostoBase) - 1) * 100).toFixed(1) 
+                                        : 0;
+
+                                    return (
+                                        <div key={input.key} style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
+                                            <label style={{ fontSize: '0.7rem', color: input.color, fontWeight: 'bold' }}>
+                                                {input.label} (USDT)
+                                            </label>
+                
+                                            <input 
+                                                type="number" 
+                                                step="0.01"
+                                                value={p[input.key]} 
+                                                onChange={(e) => {
+                                                    const nuevas = [...propuestas];
+                                                    nuevas[i][input.key] = parseFloat(e.target.value) || 0;
+                                                    setPropuestas(nuevas);
+                                                }}
+                                                style={{ 
+                                                    width: '100%', 
+                                                    padding: '5px', 
+                                                    border: '1px solid #2563eb', 
+                                                    borderRadius: '4px',
+                                                    fontWeight: 'bold' 
+                                                }}
+                                            />
+
+                                            <small style={{ color: 'green', fontWeight: '600', marginTop: '2px' }}>
+                                                Margen: {gananciaPorcentaje}%
+                                            </small>
+                
+                                            {/* 🔵 Equivalente en VES según Tasa BASE USDT */}
+                                            <div style={{ 
+                                                marginTop: '4px',
+                                                padding: '4px', 
+                                                backgroundColor: '#fff7ed', // Color naranja muy claro para indicar "Referencia de Valor"
+                                                border: '1px dashed #f97316',
+                                                borderRadius: '4px' 
+                                            }}>
+                                                <span style={{ fontSize: '0.6rem', color: '#7c2d12', display: 'block', lineHeight: '1', fontWeight: 'bold' }}>
+                                                    PVP REF (VES @ USDT):
+                                                </span>
+                                                <strong style={{ color: '#c2410c', fontSize: '0.8rem' }}>
+                                                    {(p[input.key] * tasaReferenciaUSDT).toLocaleString('es-VE', { minimumFractionDigits: 2 })}
+                                                </strong>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
                             </div>
                         </div>
                     ))}

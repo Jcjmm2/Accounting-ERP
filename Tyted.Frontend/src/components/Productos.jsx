@@ -15,6 +15,7 @@ const Productos = () => {
 
     useEffect(() => {
         cargarProductos();
+        cargarTasasIva();
     }, []);
 
     const cargarProductos = async () => {
@@ -31,68 +32,83 @@ const Productos = () => {
             setLoading(false);
         }
     };
-
-    // Maneja el cambio de inputs en la tabla
-    const handlePrecioChange = (idUnidad, nivel, valor) => {
+        
+    // Corregido: Ahora acepta exactamente los parámetros que envías desde el onChange
+    const handlePrecioChange = (idUnidad, campo, valor) => {
         setEditandoPrecios(prev => ({
             ...prev,
             [idUnidad]: {
-                ...prev[idUnidad],
-                [nivel]: parseFloat(valor) || 0
+                ...(prev[idUnidad] || {}),
+                // Usamos el nombre del campo ('precio1', 'precio2', etc.) como llave dinámica
+                [campo]: valor 
             }
         }));
     };
 
     const guardarCambios = async () => {
-    setGuardando(true);
-    try {
-        // A. Actualizar Precios Masivos
-        const cambios = Object.keys(editandoPrecios).map(id => ({
-            idProductoUnidad: id,
-            precio1: editandoPrecios[id].precio1,
-            precio2: editandoPrecios[id].precio2,
-            precio3: editandoPrecios[id].precio3
-        }));
+        try {
+            setGuardando(true);
 
-        const resPrecios = await fetch(`${API_URL}/Productos/ActualizarPreciosMasivo`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(cambios)
-        });
+            // 1. Preparamos el objeto con los datos generales y las unidades
+            const payload = {
+                codigoProd: productoDetalle.codigoProd,
+                tipoArt: productoDetalle.tipoArt,
+                idTasaIVA: productoDetalle.idTasaIVA,
+                stockMinimo: parseFloat(stockMinimoEdit),
+                // Mapeamos las unidades con sus nuevos precios
+                unidades: productoDetalle.unidadesDeVenta.map(u => {
+                    const edicion = editandoPrecios[u.idProductoUnidad] || {};
+                    return {
+                        idProductoUnidad: parseInt(u.idProductoUnidad),
+                        precio1: parseFloat(edicion.precio1 ?? u.precioMonedaBase ?? 0),
+                        precio2: parseFloat(edicion.precio2 ?? u.precio2MonedaBase ?? 0),
+                        precio3: parseFloat(edicion.precio3 ?? u.precio3MonedaBase ?? 0)
+                    };
+                })
+            };
 
-        // B. Actualizar el Stock Mínimo
-        const productoActualizado = { 
-            ...productoDetalle, 
-            stockMinimo: parseFloat(stockMinimoEdit) 
-        };
+            // 2. Cambiamos el endpoint a uno que reciba el objeto completo (si lo tienes)
+            // O asegúrate de que tu backend procese estos campos adicionales.
+            const res = await fetch(`${API_URL}/Productos/ActualizarProductoCompleto`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
 
-        const resProducto = await fetch(`${API_URL}/Productos/${productoDetalle.codigoProd}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(productoActualizado)
-        });
-
-        // VALIDACIÓN CORRECTA:
-        if (resPrecios.ok && resProducto.ok) {
-            alert("✅ Precios y Stock Mínimo actualizados correctamente");
-            setProductoDetalle(null);
-            setEditandoPrecios({});
-            cargarProductos(); // Refresca la lista principal
-        } else {
-            alert("❌ Error al sincronizar algunos datos.");
+            if (res.ok) {
+                alert("✅ Cambios guardados correctamente");
+                setProductoDetalle(null);
+                await cargarProductos();
+            } else {
+                const errorData = await res.json();
+                alert("❌ Error: " + errorData.message);
+            }
+        } catch (error) {
+            console.error("Error al guardar:", error);
+        } finally {
+            setGuardando(false);
         }
-    } catch (error) {
-        console.error(error);
-        alert("Error de conexión al guardar");
-    } finally {
-        setGuardando(false);
-    }
-   };
+    };
 
     const productosFiltrados = productos.filter(p =>
          p.descripcion.toLowerCase().includes(busqueda.toLowerCase()) ||
          p.codigoProd.includes(busqueda)
      );
+    
+    const [tasasIva, setTasasIva] = useState([]); // Nuevo estado
+
+    // En cargarDatosIniciales o un useEffect nuevo:
+    const cargarTasasIva = async () => {
+        try {
+                const res = await fetch(`${API_URL}/Productos/TasasIVA`);
+                if (res.ok) {
+                    const data = await res.json();
+                    setTasasIva(data);
+                }
+            } catch (error) {
+                console.error("Error al cargar tasas de IVA:", error);
+            }
+        };
 
     return (
         <div className="modulo-container">
@@ -128,15 +144,17 @@ const Productos = () => {
                                 <td><strong>{p.codigoProd}</strong></td>
                                 <td>{p.descripcion}</td>
                                 <td><span className="badge-categoria">{p.categoria?.nombre || 'S/C'}</span></td>
-                                <td style={{ fontWeight: 'bold', color: p.stockActual <= p.stockMinimo ? '#ef4444' : '#1e293b' }}>
-                                    {p.stockActual}
+                                <td style={{ 
+                                    fontWeight: 'bold', 
+                                    color: p.tipoArt === 'Servicio' ? '#64748b' : (p.stockActual <= p.stockMinimo ? '#ef4444' : '#1e293b') 
+                                }}>
+                                    {p.tipoArt === 'Servicio' ? 'N/A' : p.stockActual}
                                 </td>
-                                <td>
+                            <td>    
                                     <button 
                                         onClick={() => {
                                             setProductoDetalle(p);
                                             setStockMinimoEdit(p.stockMinimo);
-                                            // Inicializamos los valores de edición con los actuales
                                             const inicial = {};
                                             p.unidadesDeVenta.forEach(u => {
                                                 inicial[u.idProductoUnidad] = {
@@ -150,7 +168,7 @@ const Productos = () => {
                                         className="btn-primary"
                                         style={{ padding: '5px 10px', fontSize: '0.8rem' }}
                                     >
-                                        ✏️ Editar Precios
+                                        ✏️ Gestionar
                                     </button>
                                 </td>
                             </tr>
@@ -159,22 +177,58 @@ const Productos = () => {
                 </table>
             )}
 
-            {/* Modal de Edición de Niveles de Precios */}
+            {/* MODAL DE EDICIÓN */}
             {productoDetalle && (
                 <div className="modal-overlay">
-                    <div className="modulo-container" style={{ width: '850px', maxHeight: '90vh', overflowY: 'auto' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between' }}>
-                            <h3>Gestión de Precios: {productoDetalle.descripcion}</h3>
+                    <div className="modulo-container" style={{ width: '850px', maxHeight: '90vh', overflowY: 'auto', position: 'relative' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
+                            <h3>Gestión de Producto: {productoDetalle.descripcion}</h3>
                             <button onClick={() => setProductoDetalle(null)} className="btn-close">✕</button>
                         </div>
-                        
-                        <p style={{ color: '#64748b', marginBottom: '15px' }}>
-                            Valores en <strong>USD</strong>. Se calculan automáticamente a <strong>{tasa} Bs</strong>.
+                    
+                        {/* 1. SECCIÓN DE CONFIGURACIÓN FISCAL Y TIPO (CORREGIDA) */}
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px', padding: '15px', backgroundColor: '#f1f5f9', borderRadius: '8px', marginBottom: '20px', border: '1px solid #cbd5e1' }}>
+                            <div>
+                                <label style={{ fontSize: '0.8rem', fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>Tipo de Artículo</label>
+                                <select 
+                                    value={productoDetalle.tipoArt || "Bien"} 
+                                    onChange={(e) => setProductoDetalle({...productoDetalle, tipoArt: e.target.value})}
+                                    style={{ width: '100%', padding: '8px', borderRadius: '4px', border: '1px solid #94a3b8' }}
+                                >
+                                    <option value="Bien">Bien (Maneja Inventario)</option>
+                                    <option value="Servicio">Servicio (Sin Inventario)</option>
+                                </select>
+                            </div>
+
+                            <div>
+                                <label style={{ fontSize: '0.8rem', fontWeight: 'bold', display: 'block', marginBottom: '5px' }}>Alícuota de IVA</label>
+                                <select 
+                                    className="form-input"
+                                    // Forzamos que si es null/undefined sea una cadena vacía o el ID por defecto
+                                    value={productoDetalle?.idTasaIVA || ""} 
+                                    onChange={(e) => setProductoDetalle({
+                                        ...productoDetalle, 
+                                        idTasaIVA: parseInt(e.target.value) || 0
+                                    })}
+                                >
+                                    <option value="">Seleccione IVA...</option>
+                                    {tasasIva.map(t => (
+                                        <option key={t.idTasaIVA} value={t.idTasaIVA}>
+                                            {t.nombre} ({t.porcentaje}%)
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+
+                        {/* 2. TABLA DE NIVELES DE PRECIOS */}
+                        <p style={{ color: '#64748b', marginBottom: '10px', fontSize: '0.9rem' }}>
+                            Precios en <strong>Dólares (Moneda Base)</strong>. Referencia actual: <strong>{tasa} VES</strong>.
                         </p>
 
-                        <table className="tabla-edicion-precios">
+                        <table className="tabla-edicion-precios" style={{ marginBottom: '20px' }}>
                             <thead>
-                                <tr style={{ background: '#f1f5f9' }}>
+                                <tr style={{ background: '#f8fafc' }}>
                                     <th>Unidad</th>
                                     <th>Precio 1 ($)</th>
                                     <th>Precio 2 ($)</th>
@@ -190,70 +244,56 @@ const Productos = () => {
                                             <input 
                                                 type="number"
                                                 className="input-precio-editable"
-                                                value={editandoPrecios[u.idProductoUnidad]?.precio1}
+                                                value={editandoPrecios[u.idProductoUnidad]?.precio1 || 0}
                                                 onChange={(e) => handlePrecioChange(u.idProductoUnidad, 'precio1', e.target.value)}
-                                                onFocus={(e) => e.target.select()}
                                             />
                                         </td>
                                         <td>
                                             <input 
                                                 type="number"
                                                 className="input-precio-editable"
-                                                value={editandoPrecios[u.idProductoUnidad]?.precio2}
+                                                value={editandoPrecios[u.idProductoUnidad]?.precio2 || 0}
                                                 onChange={(e) => handlePrecioChange(u.idProductoUnidad, 'precio2', e.target.value)}
-                                                onFocus={(e) => e.target.select()}
                                             />
                                         </td>
                                         <td>
                                             <input 
                                                 type="number"
                                                 className="input-precio-editable"
-                                                value={editandoPrecios[u.idProductoUnidad]?.precio3}
+                                                value={editandoPrecios[u.idProductoUnidad]?.precio3 || 0}
                                                 onChange={(e) => handlePrecioChange(u.idProductoUnidad, 'precio3', e.target.value)}
-                                                onFocus={(e) => e.target.select()}
                                             />
                                         </td>
-                                        <td style={{ color: '#2563eb', fontSize: '0.85rem' }}>
-                                            {((editandoPrecios[u.idProductoUnidad]?.precio1 || 0) * tasa).toFixed(2)} Bs
+                                        <td style={{ color: '#2563eb', fontSize: '0.85rem', fontWeight: 'bold' }}>
+                                            {((editandoPrecios[u.idProductoUnidad]?.precio1 || 0) * tasa).toLocaleString('es-VE', {minimumFractionDigits: 2})} Bs
                                         </td>
                                     </tr>
                                 ))}
-                                </tbody>
+                            </tbody>
                         </table>
-                        {/* Dentro del modal-overlay, después del párrafo de la tasa */}
-                                <div style={{ 
-                                    background: '#f8fafc', 
-                                    padding: '15px', 
-                                    borderRadius: '8px', 
-                                    marginBottom: '20px',
-                                    border: '1px solid #e2e8f0',
-                                    display: 'flex',
-                                    alignItems: 'center',
-                                    gap: '20px'
-                                }}>
-                                    <div>
-                                        <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px' }}>
-                                            📦 Stock Mínimo de Alerta:
-                                        </label>
-                                        <input 
-                                            type="number" 
-                                            className="input-precio-editable" 
-                                            style={{ width: '120px', textAlign: 'center', fontSize: '1.1rem' }}
-                                            value={stockMinimoEdit}
-                                            onChange={(e) => setStockMinimoEdit(e.target.value)}
-                                        />
-                                    </div>
-                                    <div style={{ fontSize: '0.85rem', color: '#64748b' }}>
-                                        El sistema marcará este producto en <strong>rojo</strong> cuando la existencia sea igual o menor a este valor.
-                                    </div>
-                                </div>
 
-                        <div style={{ display: 'flex', gap: '10px', marginTop: '20px' }}>
-                            <button 
-                                onClick={() => setProductoDetalle(null)} 
-                                className="btn-secondary"
-                                style={{ flex: 1 }}
-                            >
+                        {/* 3. STOCK MÍNIMO (Solo visible para Bienes) */}
+                        {productoDetalle.tipoArt !== 'Servicio' && (
+                            <div style={{ background: '#fff1f2', padding: '15px', borderRadius: '8px', marginBottom: '20px', border: '1px solid #fecaca', display: 'flex', alignItems: 'center', gap: '20px' }}>
+                                <div>
+                                    <label style={{ display: 'block', fontWeight: 'bold', marginBottom: '5px', color: '#991b1b' }}>📦 Stock Mínimo:</label>
+                                    <input 
+                                        type="number" 
+                                        className="input-precio-editable" 
+                                        style={{ width: '120px', textAlign: 'center' }}
+                                        value={stockMinimoEdit}
+                                        onChange={(e) => setStockMinimoEdit(e.target.value)}
+                                    />
+                                </div>
+                                <p style={{ fontSize: '0.8rem', color: '#991b1b', margin: 0 }}>
+                                    El sistema alertará en rojo cuando la existencia baje de este nivel.
+                                </p>
+                            </div>
+                        )}
+
+                        {/* BOTONES DE ACCIÓN */}
+                        <div style={{ display: 'flex', gap: '10px' }}>
+                            <button onClick={() => setProductoDetalle(null)} className="btn-secondary" style={{ flex: 1 }}>
                                 Cancelar
                             </button>
                             <button 
@@ -262,7 +302,7 @@ const Productos = () => {
                                 disabled={guardando}
                                 style={{ flex: 2, background: '#10b981' }}
                             >
-                                {guardando ? "Guardando..." : "💾 Guardar Todos los Precios"}
+                                {guardando ? "⏳ Guardando..." : "💾 Guardar Cambios"}
                             </button>
                         </div>
                     </div>

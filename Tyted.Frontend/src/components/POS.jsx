@@ -176,69 +176,73 @@ const POS = () => {
     }
   };
 
-  // --- DENTRO DE POS.jsx ---
-
   const agregarAlCarrito = (prod) => {
-      // 1. Detección de pesaje (usando los datos reales del objeto que vimos en consola)
-      const esPesable = prod.unidad?.toUpperCase() === "KILO" || 
+    // 1. Detección de pesaje (Kilo/Gramo)
+    const esPesable = prod.unidad?.toUpperCase() === "KILO" || 
                       prod.unidad?.toUpperCase() === "GRAMO" || 
-                        prod.idUnidad === 3 || prod.idUnidad === 4;
+                      prod.idUnidad === 3 || prod.idUnidad === 4;
 
-      if (esPesable) {
-          setProductoEnPesaje(prod);
-          setCantidadPeso(""); 
-          setTimeout(() => {
-              const el = document.getElementById("input-peso-balanza");
-              if (el) el.focus();
-          }, 150);
-          return; 
-      }
+    if (esPesable) {
+        setProductoEnPesaje(prod);
+        setCantidadPeso(""); 
+        setTimeout(() => {
+            const el = document.getElementById("input-peso-balanza");
+            if (el) el.focus();
+        }, 150);
+        return; 
+    }
 
-      // 2. Lógica para unidades fijas usando la versión funcional de setCarrito
-      // Esto garantiza que siempre trabajamos con la lista de productos más reciente
-      setCarrito(carritoActual => {
-          // Buscamos si ya existe (usando == para evitar problemas de tipo string/number)
-          const existe = carritoActual.find(item => item.idProductoUnidad == prod.idProductoUnidad);
+    // 2. Lógica para unidades fijas
+    setCarrito(carritoActual => {
+        const existe = carritoActual.find(item => item.idProductoUnidad == prod.idProductoUnidad);
 
-          if (existe) {
-              return carritoActual.map(item =>
-                  item.idProductoUnidad == prod.idProductoUnidad 
-                  ? { ...item, cantidad: item.cantidad + 1 } 
+        if (existe) {
+            return carritoActual.map(item =>
+                item.idProductoUnidad == prod.idProductoUnidad 
+                ? { 
+                    ...item, 
+                    cantidad: item.cantidad + 1,
+                    subtotal: (item.cantidad + 1) * item.precio // Recalcular subtotal base
+                  } 
                 : item
-              );
-          } else {
+            );
+      } else {
               return [...carritoActual, {
-                  idProductoUnidad: prod.idProductoUnidad,
-                  codigoProd: prod.codigoProd,
-                  descripcion: prod.descripcion,
-                  precio: prod.precioUSD || prod.precioMonedaBase, // El log mostró precioUSD
-                  precioVES: (prod.precioUSD || prod.precioMonedaBase) * (tasa || 1),
-                  tasaIVA: prod.tasaIVA || 0,
-                  cantidad: 1,
-                  unidad: prod.unidad 
+                idProductoUnidad: prod.idProductoUnidad,
+                codigoProd: prod.codigoProd,
+                descripcion: prod.descripcion,
+                precio: prod.precioUSD || prod.precioMonedaBase,
+                porcentajeIva: prod.porcentajeIva || 0,
+                precioVES: (prod.precioUSD || prod.precioMonedaBase) * (tasa || 1),
+                // --- NUEVOS CAMPOS FISCALES ---
+                esExento: prod.esExento || false,
+                cantidad: 1,
+                unidad: prod.unidad,
               }];
-          }
-      });
+        }
+    });
 
-      // 3. Limpieza de interfaz
-      setBusqueda("");
-      setResultadosBusqueda([]);
-      setTimeout(() => {
-              inputBusquedaRef.current?.focus();
-          }, 100);
+    // 3. Limpieza
+    setBusqueda("");
+    setResultadosBusqueda([]);
+    setTimeout(() => { inputBusquedaRef.current?.focus(); }, 100);
   };
 
-   // --- Cálculos Centralizados ---
-  const subtotalUSD = carrito.reduce((acc, item) => {const linea = Number(item.precio) * item.cantidad;return acc + Math.round(linea * 100) / 100;}, 0);
-  const totalIVAUSD = carrito.reduce((acc, item) => {
-    const precio = Number(item.precio) || 0;
-    const tasaIva = Number(item.tasaIVA) || 0;
-    return acc + (precio * (tasaIva / 100) * item.cantidad);
-  }, 0);
+const subtotalUSD = carrito.reduce((acc, item) => {
+    const linea = Number(item.precio) * item.cantidad;
+    return acc + Math.round(linea * 100) / 100;
+}, 0);
 
-  const totalUSD = subtotalUSD + totalIVAUSD;
-  const totalVES = totalUSD * (tasa || 0);
-  // --- Funciones de Lógica ---
+// 2. Luego calculamos el IVA (Depende de los items, no de subtotalUSD)
+const totalIVAUSD = carrito.reduce((acc, item) => {
+    const precio = Number(item.precio) || 0;
+    const porcentaje = Number(item.porcentajeIva) || 0; 
+    return acc + (precio * (porcentaje / 100) * item.cantidad);
+}, 0);
+
+// 3. FINALMENTE el Total (Porque depende de que las dos anteriores ya existan)
+const totalUSD = subtotalUSD + totalIVAUSD;
+const totalVES = totalUSD * (tasa || 0);
 
 
   // Resetear índice al buscar
@@ -283,7 +287,8 @@ useEffect(() => {
         codigoProd: productoEnPesaje.codigoProd,
         descripcion: productoEnPesaje.descripcion,
         precio: productoEnPesaje.precioUSD || productoEnPesaje.precioMonedaBase,
-        tasaIVA: productoEnPesaje.tasaIVA || 0,
+        porcentajeIva: productoEnPesaje.porcentajeIva || 0,
+        esExento: productoEnPesaje.esExento || false,
         cantidad: valor,
         unidad: productoEnPesaje.unidad
     };
@@ -341,68 +346,63 @@ const cambiarCantidadManual = (item) => {
 };
 
 const finalizarVenta = async () => {
-  // 1. Verificaciones iniciales
   if (carrito.length === 0) return;
 
-  // Calculamos el total pagado sumando todos los campos (convertidos a USD)
+  // 1. Cálculo del total pagado (Corregido 'Metal' con Mayúscula)
   const totalPagadoUSD = 
-    (Number(pagos.efectivoUSD)) + 
-    (Number(pagos.metal)) + 
-    (Number(pagos.efectivoVES) / tasa) + 
-    (Number(pagos.pagoMovil) / tasa) + 
-    (Number(pagos.puntoBDV) / tasa) + 
-    (Number(pagos.puntoBancamiga) / tasa);
+    (Number(pagos.efectivoUSD || 0)) + 
+    (Number(pagos.Metal || 0)) + // Corregido a Mayúscula
+    (Number(pagos.efectivoVES || 0) / tasa) + 
+    (Number(pagos.pagoMovil || 0) / tasa) + 
+    (Number(pagos.puntoBDV || 0) / tasa) + 
+    (Number(pagos.puntoBancamiga || 0) / tasa);
 
-  // 2. Validación de pago suficiente
   if (totalPagadoUSD < (totalUSD - 0.01)) {
     const falta = totalUSD - totalPagadoUSD;
-    alert(`⚠️ PAGO INSUFICIENTE:\nFaltan: $${falta.toFixed(2)} (${(falta * tasa).toFixed(2)} Bs.)`);
+    alert(`⚠️ PAGO INSUFICIENTE:\nFaltan: $${falta.toFixed(2)}`);
     return;
   }
 
-  // 3. Construcción del Array de Pagos para la base de datos (Tabla VentasPagos)
+  // 2. Construcción de lista de pagos (Corregido 'Metal')
   const listaPagos = [
     { metodoPago: 'EFECTIVO_USD', montoMonedaBase: Number(pagos.efectivoUSD), montoMonedaExt: Number(pagos.efectivoUSD), tasaDeCambio: 1 },
     { metodoPago: 'EFECTIVO_VES', montoMonedaBase: Number(pagos.efectivoVES) / tasa, montoMonedaExt: Number(pagos.efectivoVES), tasaDeCambio: tasa },
     { metodoPago: 'PAGO_MOVIL', montoMonedaBase: Number(pagos.pagoMovil) / tasa, montoMonedaExt: Number(pagos.pagoMovil), tasaDeCambio: tasa },
     { metodoPago: 'PUNTO_BDV', montoMonedaBase: Number(pagos.puntoBDV) / tasa, montoMonedaExt: Number(pagos.puntoBDV), tasaDeCambio: tasa },
     { metodoPago: 'PUNTO_BANCAMIGA', montoMonedaBase: Number(pagos.puntoBancamiga) / tasa, montoMonedaExt: Number(pagos.puntoBancamiga), tasaDeCambio: tasa },
-    { metodoPago: 'METAL', montoMonedaBase: Number(pagos.metal), montoMonedaExt: Number(pagos.metal), tasaDeCambio: 1 }
-  ].filter(p => p.montoMonedaBase > 0); // Solo enviamos los que tengan monto
+    { metodoPago: 'METAL', montoMonedaBase: Number(pagos.Metal), montoMonedaExt: Number(pagos.Metal), tasaDeCambio: 1 }
+  ].filter(p => p.montoMonedaBase > 0);
 
-  // 4. Preparación del objeto de venta final
+  // 3. Objeto de venta (Corregido mapeo de IVA)
   const ventaData = {
     clienteId: cliente.id || 1,
     fechaVenta: new Date().toISOString(),
     tipoMoneda: "USD",
-    tasaDia: tasa, // Importante para el VentaService
+    tasaDia: tasa,
     tasaDeCambio: tasa,
     metodoPago: listaPagos.length > 1 ? "MIXTO" : (listaPagos[0]?.metodoPago || "EFECTIVO_USD"),
     isAnulada: false,
-    
-    // Totales
-    totalUSD: totalUSD,
-    totalVES: totalUSD * tasa,
     totalMonedaBase: totalUSD,
     totalMonedaExt: totalUSD * tasa,
     subtotalMonedaBase: subtotalUSD,
     ivaMonedaBase: totalIVAUSD,
-
-    // Array de pagos para la relación uno-a-muchos en C#
     pagos: listaPagos, 
 
-    // Detalle de productos con codigoProd para validación de stock/IVA
     detalles: carrito.map(item => ({
-      codigoProd: item.codigoProd, // <-- Crítico para evitar "Producto no existe"
-      idProductoUnidad: item.idProductoUnidad || item.id,
+      codigoProd: item.codigoProd,
+      idProductoUnidad: item.idProductoUnidad,
       nombreUnidad: item.unidad,
       cantidad: parseFloat(item.cantidad),
       precioUnitarioMonedaBase: parseFloat(item.precio),
       subtotalLineaMonedaBase: item.precio * item.cantidad,
-      tasaIVA: item.tasaIVA || 0,
-      totalLineaMonedaBase: (item.precio * item.cantidad) * (1 + (item.tasaIVA / 100))
+      // CORRECCIÓN AQUÍ: Usamos porcentajeIva que es el nombre real en el estado del carrito
+      tasaIVA: item.porcentajeIva || 0, 
+      totalLineaMonedaBase: (item.precio * item.cantidad) * (1 + ((item.porcentajeIva || 0) / 100))
     }))
   };
+
+  // Depuración: Ver el JSON exacto en la consola antes de enviar
+  console.log("Objeto enviado a la API:", JSON.stringify(ventaData, null, 2));
 
   try {
     const response = await fetch(`${API_URL}/Ventas`, {
@@ -412,28 +412,19 @@ const finalizarVenta = async () => {
     });
 
     if (!response.ok) {
-      // Intentamos leer el mensaje de error del backend
-      let msgError = "Error al procesar la venta";
-      try {
-        const errorData = await response.json();
-        msgError = errorData.message || msgError;
-      } catch {
-        msgError = await response.text() || msgError;
-      }
-      throw new Error(msgError);
+      const errorText = await response.text();
+      throw new Error(errorText || "Error en el servidor");
     }
 
     const resultado = await response.json();
     
-    // 5. Éxito: Impresión y Limpieza de estados
-    if (typeof imprimirTicket === 'function') {
-        imprimirTicket(resultado);
-    }
+    // 5. Éxito: Limpieza
+    if (typeof imprimirTicket === 'function') imprimirTicket(resultado);
 
     setCarrito([]);
     setPagos({ 
       efectivoUSD: 0, efectivoVES: 0, pagoMovil: 0, 
-      puntoBDV: 0, puntoBancamiga: 0, metal: 0 
+      puntoBDV: 0, puntoBancamiga: 0, Metal: 0 
     });
     setCliente(CLIENTE_DEFECTO);
     setBusqueda("");
@@ -446,35 +437,51 @@ const finalizarVenta = async () => {
     console.error("Error en la operación:", err);
     alert(`⚠️ ATENCIÓN:\n${err.message}`);
   }
-  };
+};
 
     const imprimirTicket = (venta) => {
     const ventana = window.open('', 'PRINT', 'height=600,width=400');
 
-    // Verificamos si la ventana realmente se abrió
     if (!ventana) {
         alert("El navegador bloqueó la impresión. Por favor, permite los popups para este sitio.");
         return;
     }
 
+    // 1. Clasificación y suma de montos por separado
+    // El subtotalLineaMonedaBase ya viene calculado del backend/carrito
+    const montoExento = venta.detalles.reduce((acc, item) => 
+        acc + (item.tasaIVA === 0 ? (item.subtotalLineaMonedaBase || 0) : 0), 0);
+    
+    const baseImponible = venta.detalles.reduce((acc, item) => 
+        acc + (item.tasaIVA > 0 ? (item.subtotalLineaMonedaBase || 0) : 0), 0);
+
+    // Calculamos el IVA asegurando que sea un número (para evitar el NaN)
+    const impuestoTotal = venta.detalles.reduce((acc, item) => {
+        const total = Number(item.totalLineaMonedaBase || 0);
+        const subtotal = Number(item.subtotalLineaMonedaBase || 0);
+        return acc + (total - subtotal);
+    }, 0);
+
     ventana.document.write(`
         <html>
             <head>
                 <style>
-                    body { font-family: 'Courier New', monospace; width: 260px; font-size: 12px; padding: 10px; }
+                    body { font-family: 'Courier New', monospace; width: 260px; font-size: 12px; padding: 10px; margin: 0; }
                     .text-center { text-align: center; }
                     .text-right { text-align: right; }
                     .linea { border-top: 1px dashed black; margin: 5px 0; }
                     .total { font-size: 14px; font-weight: bold; }
+                    table { width: 100%; border-collapse: collapse; }
                 </style>
             </head>
             <body onload="window.print(); window.close();">
                 <div class="text-center"><b>${venta.negocio || 'TU NEGOCIO C.A.'}</b></div>
                 <div class="text-center">RIF: J-12345678-9</div>
                 <div class="linea"></div>
-                <div>DOC: ${venta.numeroFactura || '000008'}</div>
-                <div>FECHA: ${new Date().toLocaleString()}</div>
+                <div>DOC: ${venta.numeroFactura || '000048'}</div>
+                <div>FECHA: ${new Date(venta.fechaVenta).toLocaleString()}</div>
                 <div class="linea"></div>
+                
                 <table>
                     <tbody>
                         ${venta.detalles.map(item => `
@@ -483,21 +490,31 @@ const finalizarVenta = async () => {
                             </tr>
                             <tr>
                                 <td>${Number(item.cantidad).toFixed(3)}</td>
-                                <td>x ${item.precioUnitarioMonedaBase.toFixed(2)}</td>
-                                <td class="text-right">$${(item.cantidad * item.precioUnitarioMonedaBase).toFixed(2)}</td>
+                                <td>x ${Number(item.precioUnitarioMonedaBase).toFixed(2)}</td>
+                                <td class="text-right">$${Number(item.subtotalLineaMonedaBase).toFixed(2)} ${item.tasaIVA > 0 ? '(G)' : '(E)'}</td>
                             </tr>
                         `).join('')}
                     </tbody>
                 </table>
+                
                 <div class="linea"></div>
+                
+                <div class="text-right">MONTO EXENTO:     $${montoExento.toFixed(2)}</div>
+                <div class="text-right">BASE IMPONIBLE:   $${baseImponible.toFixed(2)}</div>
+                <div class="text-right">IVA (16%):        $${impuestoTotal.toFixed(2)}</div>
+                
+                <div class="linea"></div>
+                
                 <div class="text-right total">TOTAL USD: $${venta.totalMonedaBase.toFixed(2)}</div>
                 <div class="text-right total">TOTAL BS: ${venta.totalMonedaExt.toLocaleString('es-VE', {minimumFractionDigits: 2})}</div>
+                
+                <div class="linea"></div>
                 <div class="text-center" style="margin-top:10px;">¡Gracias por su compra!</div>
             </body>
         </html>
     `);
     ventana.document.close();
- };
+};
 
    useEffect(() => {
       verificarEstadoCaja();
@@ -525,6 +542,8 @@ const finalizarVenta = async () => {
           // Opcional: setCajaAbierta(false) para bloquear si el servidor está caído
       }
   };
+
+
   
 return (
     <>
@@ -701,21 +720,34 @@ return (
 
             {/* 2. Pantalla de Totales (Negra) */}
             <div className="bg-gray-900 p-5 rounded-3xl text-white shadow-xl space-y-2">
+  
+              {/* Fila de Subtotal */}
               <div className="flex justify-between text-gray-400 text-[10px] uppercase font-bold">
-                <span>Subtotal:</span><b className="font-mono text-white">${subtotalUSD.toFixed(2)}</b>
+                <span>Subtotal:</span>
+                <b className="font-mono text-white">${subtotalUSD.toFixed(2)}</b>
               </div>
+
+              {/* Fila de IVA */}
               <div className="flex justify-between text-gray-400 text-[10px] uppercase font-bold">
-                <span>IVA:</span><b className="font-mono text-white">${totalIVAUSD.toFixed(2)}</b>
+                <span>IVA:</span>
+                <b className="font-mono text-white">${totalIVAUSD.toFixed(2)}</b>
               </div>
+
+              {/* Línea divisoria y Total */}
               <div className="pt-2 border-t border-gray-700 mt-2">
                 <div className="text-right">
-                  <div className="text-4xl font-black text-green-400 font-mono">${totalUSD.toFixed(2)}</div>
+                  {/* Total en Dólares (Moneda Base) */}
+                  <div className="text-4xl font-black text-green-400 font-mono">
+                    ${totalUSD.toFixed(2)}
+                  </div>
+      
+                  {/* Total en Bolívares (Moneda Extranjera) */}
                   <div className="text-[11px] font-bold text-gray-400 italic">
                     ≈ {totalVES.toLocaleString('es-VE', { minimumFractionDigits: 2 })} Bs.
                   </div>
                 </div>
               </div>
-    
+
               <div className="grid grid-cols-2 gap-2 mt-4">
                 <button 
                   onClick={() => setMostrarArqueo(true)} 

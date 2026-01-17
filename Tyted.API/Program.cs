@@ -44,7 +44,7 @@ builder.Services.AddAuthentication(options =>
 });
 
 // =========================================================================
-// 3. REGISTRO DE SERVICIOS (Agregado TasaService)
+// 3. REGISTRO DE SERVICIOS
 // =========================================================================
 builder.Services.AddScoped<CompraService>();
 builder.Services.AddScoped<VentaService>();
@@ -57,19 +57,18 @@ builder.Services.AddScoped<IReportService, ReportService>();
 builder.Services.AddScoped<EstadisticasService>();
 
 // =========================================================================
-// 4. CONFIGURACIÓN CORS, CONTROLADORES Y OPENAPI (Antes del Build)
+// 4. CONFIGURACIÓN CORS (Actualizada)
 // =========================================================================
-var MyAllowSpecificOrigins = "_myAllowSpecificOrigins";
 QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
+
 builder.Services.AddCors(options =>
 {
-    options.AddPolicy(name: MyAllowSpecificOrigins,
-        policy =>
-        {
-            policy.WithOrigins("http://localhost:5173")
-                  .AllowAnyHeader()
-                  .AllowAnyMethod();
-        });
+    options.AddPolicy("PermitirReact", policy =>
+    {
+        policy.WithOrigins("http://localhost:5173")
+              .AllowAnyHeader()
+              .AllowAnyMethod();
+    });
 });
 
 builder.Services.AddControllers()
@@ -84,8 +83,6 @@ builder.Services.AddControllers()
     });
 
 builder.Services.AddEndpointsApiExplorer();
-
-// MOVIDO AQUÍ: Toda la configuración de OpenAPI debe estar ANTES de builder.Build()
 builder.Services.AddOpenApi(options =>
 {
     options.AddDocumentTransformer((document, context, cancellationToken) =>
@@ -101,7 +98,7 @@ builder.Services.AddOpenApi(options =>
 // =========================================================================
 var app = builder.Build(); 
 
-
+// Inicialización de DB
 using (var scope = app.Services.CreateScope())
 {
     var services = scope.ServiceProvider;
@@ -117,10 +114,11 @@ using (var scope = app.Services.CreateScope())
     }
 }
 
+// =========================================================================
+// 6. MIDDLEWARES (Orden de ejecución crítico)
+// =========================================================================
 
-// =========================================================================
-// 6. MIDDLEWARES (Configuración del Pipeline)
-// =========================================================================
+// Localización
 var defaultCulture = new CultureInfo("en-US");
 var localizationOptions = new RequestLocalizationOptions
 {
@@ -141,12 +139,14 @@ if (app.Environment.IsDevelopment())
     });
 }
 
-//app.UseHttpsRedirection();
-app.UseCors(MyAllowSpecificOrigins);
+// 1. CORS debe ir antes que cualquier ruta o autorización
+app.UseCors("PermitirReact");
 
-//app.UseAuthentication();
-//app.UseAuthorization();
+// 2. Autenticación y Autorización (Descoméntalos si vas a usar seguridad JWT)
+// app.UseAuthentication();
+app.UseAuthorization();
 
+// 3. Mapeo de Controladores
 app.MapControllers();
 
 app.Run();
