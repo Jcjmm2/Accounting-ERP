@@ -22,6 +22,10 @@ namespace Tyted.API.Services
                 if (compra.Detalles == null || !compra.Detalles.Any())
                     throw new Exception("La compra no tiene productos detallados.");
 
+                // 1. Vincular la compra al contexto
+                // Esto permite que EF genere el ID de la compra antes de insertar los movimientos
+                _context.Compras.Add(compra);
+
                 foreach (var detalle in compra.Detalles)
                 {
                     var producto = await _context.Productos
@@ -30,51 +34,58 @@ namespace Tyted.API.Services
                     if (producto == null) 
                         throw new Exception($"Producto con código {detalle.CodigoProd} no existe.");
 
-                    // 1. BUSCAR LA PRESENTACIÓN Y EQUIVALENCIA
-                    // Usamos IdProductoUnidad que confirmamos existe en tu CompraDetalle.cs
                     var unidadProducto = await _context.ProductosUnidad
                         .FirstOrDefaultAsync(u => u.IdProductoUnidad == detalle.IdProductoUnidad);
 
                     if (unidadProducto == null)
-                        throw new Exception($"No se encontró la configuración de unidad para el producto {detalle.CodigoProd}.");
+                        throw new Exception($"Error de configuración de unidad para {detalle.CodigoProd}.");
 
                     decimal factor = unidadProducto.CantidadEquivalente;
 
-                    // 2. NORMALIZACIÓN DE COSTO (Dólar como base ante la inflación)
-                    if (compra.TipoMoneda == "VES")
+                    // 2. Normalización a Moneda Base (Dólar)
+                    // Aseguramos que siempre trabajemos con USD para el valor del inventario
+                    if (compra.TipoMoneda == "VES" || compra.TipoMoneda == "BS")
                     {
-                        detalle.CostoUnitarioMonedaExt = Math.Round(detalle.CostoUnitarioMonedaBase / compra.TasaDeCambio, 4);
+                        if (detalle.CostoUnitarioMonedaBase == 0 && compra.TasaDeCambio > 0)
+                        {
+                            detalle.CostoUnitarioMonedaBase = Math.Round(detalle.CostoUnitarioMonedaExt / compra.TasaDeCambio, 4);
+                        }
                     }
-                    else // Si ya viene en USD
+                    else 
                     {
-                        detalle.CostoUnitarioMonedaBase = Math.Round(detalle.CostoUnitarioMonedaExt * compra.TasaDeCambio, 4);
+                        detalle.CostoUnitarioMonedaExt = detalle.CostoUnitarioMonedaBase;
                     }
 
-                    // 3. ESTRATEGIA ÚLTIMO COSTO
-                    // Actualizamos el costo en el maestro de productos
-                    producto.CostoUnitarioBase = detalle.CostoUnitarioMonedaExt; 
-                    // También actualizamos el costo en la presentación específica
-                    unidadProducto.CostoUnitarioMonedaBase = detalle.CostoUnitarioMonedaExt;
+                    // 3. Desglose de Costo Unitario Real (Clave para las estadísticas)
+                    // Si el factor es 20 (bulto) y el costo es $24, el costo unitario real es $1.20
+                    decimal costoUnitarioRealUSD = detalle.CostoUnitarioMonedaBase / (factor > 0 ? factor : 1);
 
-                    // 4. AUMENTO DE STOCK REAL (Cantidad * Equivalencia)
-                    // Si compras 1 Bulto de 20kg, suben 20 unidades al inventario
+                    // Actualizamos maestro de productos y la presentación específica
+                    producto.CostoUnitarioBase = costoUnitarioRealUSD; 
+                    unidadProducto.CostoUnitarioMonedaBase = detalle.CostoUnitarioMonedaBase;
+
+                    // 4. Aumento de Stock Real
+                    // Convertimos bultos/empaques a unidades mínimas (StockActual siempre en unidades)
                     decimal cantidadRealEntrada = detalle.Cantidad * factor;
                     producto.StockActual += cantidadRealEntrada;
 
-                    // 5. REGISTRO EN KARDEX
+                    // 5. Registro en Kardex (Vinculado a la compra)
                     var movimiento = new InventarioMovimiento
                     {
                         CodigoProd = producto.CodigoProd,
                         Tipo = "ENTRADA",
                         Concepto = $"Compra #{compra.NumeroFactura} - {unidadProducto.NombreUnidad}",
                         Cantidad = cantidadRealEntrada,
-                        CostoUnitarioUSD = detalle.CostoUnitarioMonedaExt,
+                        CostoUnitarioUSD = costoUnitarioRealUSD, 
                         Fecha = DateHelper.GetVenezuelaTime(),
+                
+                        // Usamos la propiedad de navegación para evitar errores de Foreign Key (FK)
+                        Compra = compra 
                     };
                     _context.InventarioMovimientos.Add(movimiento);
                 }
 
-                _context.Compras.Add(compra);
+                // 6. Persistencia de datos en una sola operación atómica
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
 
@@ -83,7 +94,8 @@ namespace Tyted.API.Services
             catch (Exception ex)
             {
                 await transaction.RollbackAsync();
-                throw new Exception($"Error al registrar compra: {ex.Message}");
+                var inner = ex.InnerException != null ? $" -> {ex.InnerException.Message}" : "";
+                throw new Exception($"Error al registrar compra: {ex.Message}{inner}");
             }
         }
 
@@ -106,30 +118,28 @@ namespace Tyted.API.Services
 
                     if (producto != null)
                     {
-                        // --- CORRECCIÓN AQUÍ: Buscar el factor para revertir la cantidad real ---
                         var unidadProducto = await _context.ProductosUnidad
                             .FirstOrDefaultAsync(u => u.IdProductoUnidad == detalle.IdProductoUnidad);
 
                         decimal factor = unidadProducto?.CantidadEquivalente ?? 1;
                         decimal cantidadRealARestar = detalle.Cantidad * factor;
 
-                        // --- VALIDACIÓN DE STOCK CON CANTIDAD REAL ---
                         if (producto.StockActual < cantidadRealARestar)
                         {
                             throw new Exception($"Imposible anular: El producto {producto.Descripcion} " +
                                 $"tiene stock insuficiente ({producto.StockActual}) para revertir la entrada de {cantidadRealARestar} unidades.");
                         }
 
-                        // 1. DESCUENTO DE INVENTARIO (NORMALIZADO)
+                        // 1. DESCUENTO DE INVENTARIO
                         producto.StockActual -= cantidadRealARestar;
 
-                        // 2. KARDEX (REGISTRO DE SALIDA POR ANULACIÓN)
+                        // 2. KARDEX (SALIDA POR ANULACIÓN)
                         var movimiento = new InventarioMovimiento
                         {
                             CodigoProd = detalle.CodigoProd ?? "0",
                             Tipo = "SALIDA",
                             Concepto = $"Anulación Compra #{compra.Id} - Fact {compra.NumeroFactura}",
-                            Cantidad = cantidadRealARestar, // Registrar la cantidad real que sale
+                            Cantidad = cantidadRealARestar,
                             CostoUnitarioUSD = producto.CostoUnitarioBase,
                             Fecha = DateHelper.GetVenezuelaTime()
                         };
@@ -137,8 +147,7 @@ namespace Tyted.API.Services
                     }
                 }
 
-                // 3. ANULAR CUENTA POR PAGAR (CxP)
-                // Evitamos que el sistema crea que aún le debemos al proveedor
+                // 3. ANULAR CUENTA POR PAGAR
                 var cxp = await _context.CuentasPorPagar.FirstOrDefaultAsync(c => c.CompraId == id);
                 if (cxp != null)
                 {
@@ -153,7 +162,6 @@ namespace Tyted.API.Services
             catch (Exception ex)
             {
                 await transaction.RollbackAsync();
-                // Propagamos el mensaje específico para que el usuario sepa por qué falló (ej. stock insuficiente)
                 throw new Exception(ex.Message);
             }
         }

@@ -62,6 +62,7 @@ namespace Tyted.API.Models
         // Dentro de Venta.cs
         public bool EsCredito { get; set; } = false;
         public DateTime? FechaVencimiento { get; set; } // Solo si es crédito
+        public int? PedidoId { get; set; } // Para vincular la venta con un pedido previo
     }
 
 }

@@ -15,76 +15,99 @@ namespace Tyted.API.Services
 
         public async Task<DashboardGerencialDTO> GetDashboardAsync()
         {
-            var hoy = DateTime.Today; // Esto es 2025-12-24 00:00:00
+            // 1. Configuración de tiempo (Inicio del día actual)
+            var hoy = DateTime.Today;
 
-            // 1. Valor del Inventario (Stock * Costo Base en USD)
+            // 2. Valor del Inventario
+            // Filtramos costos negativos o absurdamente altos (corrupción de datos)
             var valorInventario = await _context.Productos
-                .Where(p => p.StockActual > 0)
-                .SumAsync(p => p.StockActual * p.CostoUnitarioBase);
+                .Where(p => p.StockActual > 0 && p.CostoUnitarioBase > 0 && p.CostoUnitarioBase < 100000)
+                .SumAsync(p => (decimal)p.StockActual * p.CostoUnitarioBase);
 
-            // 2. Ventas del día (Incluimos Producto para sacar el costo y la descripción)
+            // 3. Ventas del día (Carga optimizada)
             var ventasHoy = await _context.Ventas
                 .Include(v => v.Detalles)
-                    .ThenInclude(d => d.Producto) 
+                    .ThenInclude(d => d.Producto)
                 .Where(v => v.FechaVenta >= hoy && !v.IsAnulada)
+                .AsNoTracking()
                 .ToListAsync();
 
-            // 3. Cambios de Tasa del día
-            var tasasDia = await _context.TasaDeCambio
-                .Where(t => t.FechaVigencia.Date == hoy)
+            // 4. Histórico de tasas del día
+            var tasasDetalle = await _context.TasaDeCambio
+                .Where(t => t.FechaVigencia >= hoy)
                 .OrderBy(t => t.FechaVigencia)
-                .Select(t => new HistoricoTasaDTO 
-                { 
-                    Hora = t.FechaVigencia, 
-                    Valor = t.Tasa 
+                .Select(t => new HistoricoTasaDTO
+                {
+                    Hora = t.FechaVigencia,
+                    Valor = t.Tasa
                 })
                 .ToListAsync();
 
-            // 4. Utilidad Bruta Real
+            // 5. Cálculo de Utilidad Bruta (Lógica de negocio en memoria)
             decimal utilidadBruta = 0;
             foreach (var v in ventasHoy)
             {
                 foreach (var d in v.Detalles)
                 {
                     decimal costoUSD = d.Producto?.CostoUnitarioBase ?? 0;
-                    utilidadBruta += (d.PrecioUnitarioMonedaBase - costoUSD) * d.Cantidad;
+                    // Validación de seguridad para el costo
+                    if (costoUSD < 100000)
+                    {
+                        utilidadBruta += (d.PrecioUnitarioMonedaBase - costoUSD) * d.Cantidad;
+                    }
                 }
             }
 
-            // 5. Cálculo de los 5 más vendidos (por cantidad)
+            // 6. Top 5 Productos más vendidos
             var topProductos = ventasHoy
                 .SelectMany(v => v.Detalles)
                 .GroupBy(d => d.CodigoProd)
                 .Select(g => new TopProductoDTO
                 {
                     Codigo = g.Key,
-                    Descripcion = g.First().Producto?.Descripcion ?? "N/A",
+                    Descripcion = g.FirstOrDefault()?.Producto?.Descripcion ?? "Desconocido",
                     CantidadTotal = g.Sum(d => d.Cantidad),
-                    TotalVendidoUSD = g.Sum(d => d.TotalLineaMonedaBase)
+                    TotalVendidoUSD = Math.Round(g.Sum(d => d.TotalLineaMonedaBase), 2)
                 })
                 .OrderByDescending(x => x.CantidadTotal)
                 .Take(5)
                 .ToList();
 
+            // 7. Alertas de Stock Crítico
+            var inventarioBajo = await _context.Productos
+                .Where(p => p.StockActual <= p.StockMinimo && p.StockMinimo > 0)
+                .OrderBy(p => p.StockActual)
+                .Take(10)
+                .Select(p => new ProductoBajoStockDTO
+                {
+                    Descripcion = p.Descripcion,
+                    StockActual = p.StockActual,
+                    StockMinimo = p.StockMinimo
+                })
+                .ToListAsync();
+
+            // 8. Construcción del Resultado Final
             return new DashboardGerencialDTO
             {
-                ValorInventarioCostoUSD = valorInventario,
-                UtilidadBrutaDiaUSD = utilidadBruta,
+                ValorInventarioCostoUSD = Math.Round(valorInventario, 2),
+                UtilidadBrutaDiaUSD = Math.Round(utilidadBruta, 2),
                 VentasPorMetodo = ventasHoy
                     .GroupBy(v => v.MetodoPago ?? "OTROS")
-                    .Select(g => new VentasMetodoPagoDTO {
+                    .Select(g => new VentasMetodoPagoDTO
+                    {
                         Metodo = g.Key,
-                        MontoUSD = g.Sum(v => v.TotalMonedaBase),
-                        MontoVES = g.Sum(v => v.TotalMonedaExt)
+                        MontoUSD = Math.Round(g.Sum(v => v.TotalMonedaBase), 2),
+                        MontoVES = Math.Round(g.Sum(v => v.TotalMonedaExt), 2)
                     }).ToList(),
-                CambiosDeTasaDelDia = tasasDia.Count,
-                DetalleTasasDia = tasasDia,
-                TopMasVendidos = topProductos // <-- Integrado
+                CambiosDeTasaDelDia = tasasDetalle.Count,
+                DetalleTasasDia = tasasDetalle,
+                InventarioBajo = inventarioBajo,
+                TopMasVendidos = topProductos
             };
         }
     }
 
-    // --- OBJETOS DE TRANSFERENCIA DE DATOS (DTOs) ---
+    // --- DTOs (Data Transfer Objects) ---
 
     public class DashboardGerencialDTO
     {
@@ -94,6 +117,14 @@ namespace Tyted.API.Services
         public int CambiosDeTasaDelDia { get; set; }
         public List<HistoricoTasaDTO> DetalleTasasDia { get; set; } = new();
         public List<TopProductoDTO> TopMasVendidos { get; set; } = new();
+        public List<ProductoBajoStockDTO> InventarioBajo { get; set; } = new();
+    }
+
+    public class ProductoBajoStockDTO
+    {
+        public string Descripcion { get; set; } = string.Empty;
+        public decimal StockActual { get; set; }
+        public decimal StockMinimo { get; set; }
     }
 
     public class TopProductoDTO
@@ -109,12 +140,6 @@ namespace Tyted.API.Services
         public string Metodo { get; set; } = string.Empty;
         public decimal MontoUSD { get; set; }
         public decimal MontoVES { get; set; }
-        public decimal MontoEfectivoUSD { get; set; }
-        public decimal MontoEfectivoVES { get; set; }
-        public decimal MontoPagoMovil { get; set; }
-        public decimal MontoBDV { get; set; }
-        public decimal MontoBancamiga { get; set; }
-        public decimal MontoMetal { get; set; }
     }
 
     public class HistoricoTasaDTO

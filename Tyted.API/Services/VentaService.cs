@@ -26,7 +26,7 @@ namespace Tyted.API.Services
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
-                if (venta.ClienteId == 0 || venta.ClienteId == null)
+                if (venta.ClienteId == 0 || venta.ClienteId == null) 
                 {
                 venta.ClienteId = 1; // ID del cliente "CLIENTE EVENTUAL";
                 }
@@ -103,7 +103,22 @@ namespace Tyted.API.Services
                 venta.TasaDia = venta.TasaDeCambio;
                 
                 _context.Ventas.Add(venta);
-                await _context.SaveChangesAsync(); 
+                await _context.SaveChangesAsync();
+                // ============================================================
+                // NUEVA MEJORA: VINCULACIÓN Y CIERRE DE PEDIDO
+                // ============================================================
+                if (venta.PedidoId.HasValue && venta.PedidoId > 0)
+                {
+                    var pedido = await _context.Pedidos.FindAsync(venta.PedidoId.Value);
+                    if (pedido != null)
+                    {
+                        pedido.Estado = "Facturado"; // Cambiamos el estado para que desaparezca del POS
+                        _context.Pedidos.Update(pedido);
+                        // No hace falta llamar a SaveChanges aquí, se hará con el CXC o al final
+                        await _context.SaveChangesAsync(); 
+                        Console.WriteLine($"---> Pedido #{pedido.Id} actualizado a Facturado con éxito.");
+                    }
+                } 
 
                 // 5. LÓGICA DE CUENTAS POR COBRAR (CXC)
                 if (venta.EsCredito)
@@ -117,7 +132,7 @@ namespace Tyted.API.Services
                             {
                                 VentaId = venta.VentaId,
                                 MontoTotalUSD = venta.TotalMonedaBase,
-                                SaldoPendienteUSD = venta.TotalMonedaBase,
+                                SaldoPendienteUSD = venta.TotalMonedaBase - (venta.Pagos?.Sum(p => p.MontoMonedaBase) ?? 0),
                                 FechaVencimiento = venta.FechaVencimiento ?? DateHelper.GetVenezuelaTime().AddDays(15),
                                 Estado = "Pendiente"
                             };

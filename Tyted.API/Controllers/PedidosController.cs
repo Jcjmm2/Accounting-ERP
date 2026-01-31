@@ -18,29 +18,61 @@ namespace Tyted.API.Controllers
         }
 
         [HttpPost]
-        public async Task<ActionResult<Pedido>> PostPedido(Pedido pedido)
+        public async Task<ActionResult<Pedido>> PostPedido([FromBody] Pedido pedido)
         {
-            var nuevoPedido = await _pedidoService.CrearPedidoAsync(pedido);
-            return CreatedAtAction(nameof(GetPedidoById), new { id = nuevoPedido.Id }, nuevoPedido);
+            if (pedido == null || pedido.Detalles == null || !pedido.Detalles.Any())
+            {
+                return BadRequest("El pedido debe contener al menos un producto.");
+            }
+
+            try
+            {
+                // Aseguramos que el estado inicial sea siempre PENDIENTE
+                pedido.Estado = "Pendiente";
+                pedido.Fecha = DateTime.Now;
+
+                var nuevoPedido = await _pedidoService.CrearPedidoAsync(pedido);
+                return CreatedAtAction(nameof(GetPedidoById), new { id = nuevoPedido.Id }, nuevoPedido);
+            }
+            catch (Exception ex)
+            {
+                return BadRequest($"Error al crear el pedido: {ex.Message}");
+            }
         }
 
         [HttpGet("{id}")]
         public async Task<ActionResult<Pedido>> GetPedidoById(int id)
         {
-            // Nota: Aquí podrías agregar un método en el service para buscar por ID
-            // Por ahora, asumimos la búsqueda directa para la prueba.
-            return Ok(); 
+            var pedido = await _pedidoService.ObtenerPedidoPorIdAsync(id);
+            if (pedido == null) return NotFound("Pedido no encontrado");
+            return Ok(pedido);
+        }
+        
+        [HttpGet]
+        public async Task<ActionResult<IEnumerable<Pedido>>> GetPedidosPendientes()
+        {
+            try
+            {
+                // Deberías implementar este método en tu Service para filtrar por Estado == "Pendiente"
+                var pedidos = await _pedidoService.ObtenerPedidosPendientesAsync();
+                return Ok(pedidos);
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(ex.Message);
+            }
         }
 
         [HttpPost("{id}/facturar")]
         public async Task<IActionResult> FacturarPedido(
             int id, 
             [FromQuery] string metodoPago = "Efectivo", 
-            [FromQuery] bool esCredito = false) // Agregamos el parámetro aquí
+            [FromQuery] bool esCredito = false)
         {
             try
             {
-                // CAMBIO: Ahora pasamos los 3 argumentos requeridos
+                // Este método en el service debe: 
+                // 1. Crear la Venta, 2. Descontar Inventario, 3. Marcar Pedido como "Facturado"
                 var venta = await _pedidoService.ConvertirPedidoAVentaAsync(id, metodoPago, esCredito);
         
                 return Ok(new { 
@@ -67,7 +99,7 @@ namespace Tyted.API.Controllers
         {
             try
             {
-                await _pedidoService.AnularPedidoAsync(id); //
+                await _pedidoService.AnularPedidoAsync(id);
                 return Ok(new { mensaje = "Pedido anulado correctamente." });
             }
             catch (Exception ex)
@@ -75,6 +107,8 @@ namespace Tyted.API.Controllers
                 return BadRequest(ex.Message);
             }
         }
+    
+
 
         // Nota: Para "Actualizar", lo más seguro es anular y crear uno nuevo si hay cambios grandes,
         // o implementar un método Update en PedidoService que valide que el estado sea "Pendiente".}

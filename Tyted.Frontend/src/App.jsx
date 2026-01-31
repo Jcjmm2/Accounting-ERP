@@ -17,6 +17,8 @@ import Reportes from './Components/Reportes';             // ReportesController
 import CuentasPorCobrar from './Components/CuentasPorCobrar'; // PagosController (CxC)
 import Usuarios from './Components/Usuarios';             // UsuariosController
 import ConfiguracionEmpresa from './Components/ConfiguracionEmpresa'; // EmpresaController
+import Clientes from './Components/Clientes'; // ClientesController
+import Pedidos from './Components/Pedidos'; // PedidosController
 
 function App() {
   const [vista, setVista] = useState('pos');
@@ -27,7 +29,7 @@ function App() {
     switch (vista) {
       case 'dashboard': return <Dashboard />;
       case 'pos':       return <POS />;
-      case 'pedidos':   return <p>Módulo de Pedidos en desarrollo...</p>; // PedidosController
+      case 'pedidos':   return <Pedidos />;
       case 'productos': return <Productos />;
       case 'categorias': return <Categorias />;
       case 'inventario': return <Inventario />;
@@ -38,6 +40,8 @@ function App() {
       case 'tasa':      return <TasaDeCambio />;
       case 'usuarios':  return <Usuarios />;
       case 'config':    return <ConfiguracionEmpresa />;
+      case 'clientes':    return <Clientes />;
+      case 'pedidos':    return <Pedidos />;
       default:          return <POS />;
     }
   };
@@ -46,13 +50,15 @@ function App() {
     <div className="app-container">
       {/* Barra Lateral de Navegación */}
       <aside className="sidebar">
-        <h1 style={{ fontSize: '1.2rem', marginBottom: '1.5rem', color: '#60a5fa' }}>Tyted POS Pro</h1>
+        <h1 style={{ fontSize: '1.2rem', marginBottom: '1.5rem', color: '#60a5fa' }}>TY Management Software</h1>
         
         <nav className="nav-menu">
           <small className="nav-label">VENTAS</small>
           <button className={`nav-button ${vista === 'dashboard' ? 'active' : ''}`} onClick={() => setVista('dashboard')}>📊 Dashboard</button>
           <button className={`nav-button ${vista === 'pos' ? 'active' : ''}`} onClick={() => setVista('pos')}>🛒 Punto de Venta</button>
           <button className={`nav-button ${vista === 'cxc' ? 'active' : ''}`} onClick={() => setVista('cxc')}>  📋 Cuentas por Cobrar </button>
+          <button className={`nav-button ${vista === 'clientes' ? 'active' : ''}`} onClick={() => setVista('clientes')}>  👩‍💼 Clientes </button>
+          <button className={`nav-button ${vista === 'pedidos' ? 'active' : ''}`} onClick={() => setVista('pedidos')}>  🥫 Pedidos </button>
 
           <small className="nav-label">ALMACÉN</small>
           <button className={`nav-button ${vista === 'productos' ? 'active' : ''}`} onClick={() => setVista('productos')}>🍎 Productos</button>

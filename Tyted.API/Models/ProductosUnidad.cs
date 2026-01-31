@@ -66,8 +66,9 @@ namespace Tyted.API.Models
         public decimal? Precio3MonedaExt { get; set; }
 
         [ForeignKey("CodigoProd")]
-        [JsonIgnore]
+        //[JsonIgnore]
         [ValidateNever] 
         public virtual Producto? Producto { get; set; }
+        
     }
 }

@@ -18,14 +18,71 @@ namespace Tyted.API.Services
             _tasaService = tasaService;
         }
 
+        // ==========================================
+        // 1. MÉTODOS DE CONSULTA (LECTURA)
+        // ==========================================
+
+        public async Task<IEnumerable<Pedido>> ObtenerPedidosPendientesAsync()
+        {
+            return await _context.Pedidos
+                .Include(p => p.Cliente)
+                .Where(p => p.Estado == "Pendiente")
+                .OrderByDescending(p => p.Fecha)
+                .ToListAsync();
+        }
+
+        public async Task<Pedido?> ObtenerPedidoPorIdAsync(int id)
+        {
+            return await _context.Pedidos
+                .Include(p => p.Cliente)
+                .Include(p => p.Detalles)
+                    // Esto le dice a EF que traiga los datos del producto de cada detalle
+                    .ThenInclude(d => d.ProductoUnidadNavigation)
+                        .ThenInclude(pu => pu.Producto)
+                .FirstOrDefaultAsync(p => p.Id == id);
+        }
+        public async Task<Pedido> GetPedido(int id)
+        {
+            return await _context.Pedidos
+                .Include(p => p.Detalles)
+                    .ThenInclude(d => d.Producto) // <--- CRUCIAL: Traer el producto asociado
+                .FirstOrDefaultAsync(p => p.Id == id);
+        }
+
+        // ==========================================
+        // 2. MÉTODOS DE GESTIÓN (ESCRITURA)
+        // ==========================================
+
         public async Task<Pedido> CrearPedidoAsync(Pedido pedido)
         {
+            if (pedido.Detalles == null || !pedido.Detalles.Any())
+                throw new Exception("El pedido no puede estar vacío.");
+
+            // Configuración inicial del pedido
             pedido.Fecha = DateHelper.GetVenezuelaTime();
             pedido.Estado = "Pendiente";
+            
+            // Seguridad: Recalcular totales en servidor para evitar manipulaciones del cliente
+            pedido.MontoTotalUSD = pedido.Detalles.Sum(d => (d.PrecioUnitarioUSD ?? 0) * (d.Cantidad ?? 0));
+
             _context.Pedidos.Add(pedido);
             await _context.SaveChangesAsync();
             return pedido;
         }
+
+        public async Task AnularPedidoAsync(int id)
+        {
+            var pedido = await _context.Pedidos.FindAsync(id);
+            if (pedido == null) throw new Exception("Pedido no encontrado");
+            if (pedido.Estado != "Pendiente") throw new Exception("Solo se pueden anular pedidos pendientes");
+
+            pedido.Estado = "Anulado";
+            await _context.SaveChangesAsync();
+        }
+
+        // ==========================================
+        // 3. PROCESAMIENTO (CONVERSIÓN A VENTA)
+        // ==========================================
 
         public async Task<Venta> ConvertirPedidoAVentaAsync(int pedidoId, string metodoPago, bool esCredito)
         {
@@ -39,10 +96,10 @@ namespace Tyted.API.Services
                 if (pedido == null) throw new Exception("Pedido no encontrado.");
                 if (pedido.Estado != "Pendiente") throw new Exception("El pedido ya no está pendiente.");
 
-                // Obtenemos la tasa actual para llenar los campos de moneda extranjera (VES)
+                // Obtenemos la tasa actual para la facturación
                 decimal tasaActual = await _tasaService.GetTasaActualAsync();
 
-                // 2. MAPEADO EXACTO A TU MODELO VENTA.CS Y VENTADETALLE.CS
+                // MAPEADO A MODELO VENTA (Cumpliendo con Venta.cs y VentaDetalle.cs)
                 var nuevaVenta = new Venta
                 {
                     ClienteId = pedido.ClienteId,
@@ -64,28 +121,27 @@ namespace Tyted.API.Services
                     Detalles = pedido.Detalles.Select(d => new VentaDetalle
                     {
                         CodigoProd = d.CodigoProd,
-                        Cantidad = d.Cantidad?? 0,
+                        Cantidad = d.Cantidad ?? 0,
                         
                         // Campos Moneda Base (USD)
-                        PrecioUnitarioMonedaBase = d.PrecioUnitarioUSD?? 0,
-                        SubtotalLineaMonedaBase = d.SubtotalUSD?? 0,
-                        TotalLineaMonedaBase = d.SubtotalUSD?? 0,
+                        PrecioUnitarioMonedaBase = d.PrecioUnitarioUSD ?? 0,
+                        SubtotalLineaMonedaBase = d.SubtotalUSD ?? 0,
+                        TotalLineaMonedaBase = d.SubtotalUSD ?? 0,
 
                         // Campos Moneda Extranjera (VES)
-                        PrecioUnitarioMonedaExt = Math.Round(d.PrecioUnitarioUSD??0 * tasaActual, 2),
-                        SubtotalLineaMonedaExt = Math.Round(d.SubtotalUSD??0 * tasaActual, 2),
-                        TotalLineaMonedaExt = Math.Round(d.SubtotalUSD??0 * tasaActual, 2),
+                        PrecioUnitarioMonedaExt = Math.Round((d.PrecioUnitarioUSD ?? 0) * tasaActual, 2),
+                        SubtotalLineaMonedaExt = Math.Round((d.SubtotalUSD ?? 0) * tasaActual, 2),
+                        TotalLineaMonedaExt = Math.Round((d.SubtotalUSD ?? 0) * tasaActual, 2),
 
-                        // Campos técnicos requeridos por tu VentaDetalle.cs
-                        TasaIVA = 16.00m, // Ajustar según tu lógica de impuestos
-                        IdProductoUnidad = 1 // Reemplazar por la lógica de búsqueda de ID de unidad si es necesario
+                        TasaIVA = 16.00m, 
+                        IdProductoUnidad = d.IdProductoUnidad > 0 ? d.IdProductoUnidad : 1 
                     }).ToList()
                 };
 
-                // 3. Procesamos mediante el service para afectar stock y CxC
+                // Registrar venta (Afecta Stock, Caja y CxC mediante VentaService)
                 var ventaProcesada = await _ventaService.RegistrarVentaAsync(nuevaVenta);
 
-                // 4. Actualizamos el estado del pedido original
+                // Marcar pedido como finalizado
                 pedido.Estado = "Facturado";
                 _context.Pedidos.Update(pedido);
                 
@@ -100,15 +156,5 @@ namespace Tyted.API.Services
                 throw new Exception($"Error en conversión: {ex.Message}");
             }
         }
-        public async Task AnularPedidoAsync(int id)
-        {
-            var pedido = await _context.Pedidos.FindAsync(id);
-            if (pedido == null) throw new Exception("Pedido no encontrado");
-            if (pedido.Estado != "Pendiente") throw new Exception("Solo se pueden anular pedidos pendientes");
-
-            pedido.Estado = "Anulado";
-            await _context.SaveChangesAsync();
-        }
     }
 }
-        

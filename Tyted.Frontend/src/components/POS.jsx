@@ -18,6 +18,8 @@ const POS = () => {
   const [productoEnPesaje, setProductoEnPesaje] = useState(null);
   const [cajaAbierta, setCajaAbierta] = useState(true);
   const [mostrarArqueo, setMostrarArqueo] = useState(false);
+  const [esCredito, setEsCredito] = useState(false);
+  const [errorBusqueda, setErrorBusqueda] = useState(null);
   const [pagos, setPagos] = useState({
     efectivoUSD: 0,
     efectivoVES: 0,
@@ -26,6 +28,66 @@ const POS = () => {
     puntoBancamiga: 0,
     Metal: 0
     });
+
+  // --- NUEVO ESTADO PARA PEDIDOS PENDIENTES ---
+const [mostrarModalPedidos, setMostrarModalPedidos] = useState(false);
+
+const [pedidoIdOrigen, setPedidoIdOrigen] = useState(null);
+
+// --- FUNCIÓN PARA CARGAR EL PEDIDO AL CARRITO ---
+const cargarPedidoAlCarrito = (pedido) => {
+    if (!pedido || !pedido.detalles) return;
+
+    const nuevosProductos = pedido.detalles.map(det => {
+        const infoRaiz = det.productoUnidadNavigation?.producto;
+        
+        // 1. Lógica de IVA estandarizada (basada en tu ID de Tasa)
+        const idTasa = infoRaiz?.idTasaIVA || det.idTasaIVA;
+        let porcentaje = 0;
+        if (idTasa === 2 || idTasa === 4) porcentaje = 16;
+        else if (idTasa === 3) porcentaje = 8;
+
+        const precioUSD = Number(det.precioUnitarioUSD) || 0;
+        const cant = Number(det.cantidad) || 0;
+
+        // 2. Retornamos el objeto EXACTAMENTE con la misma estructura que agregarAlCarrito
+        return {
+            idProductoUnidad: det.idProductoUnidad,
+            codigoProd: det.codigoProd || infoRaiz?.codigoProd || 'S/C',
+            descripcion: infoRaiz?.descripcion || det.descripcion || 'PRODUCTO', 
+            precio: precioUSD, // Usamos 'precio' a secas como tu función
+            porcentajeIva: porcentaje,
+            precioVES: precioUSD * (tasa || 1),
+            esExento: porcentaje === 0,
+            cantidad: cant,
+            unidad: det.nombreUnidad || det.unidad || 'UND',
+            // Agregamos subtotal e impuesto para los cálculos del POS
+            subtotal: precioUSD * cant,
+            impuesto: precioUSD * (porcentaje / 100)
+        };
+    });
+
+    // 3. Cargamos los productos al estado
+    setCarrito(nuevosProductos);
+
+    // 4. Sincronizamos el cliente
+    if (pedido.cliente) {
+        setCliente({
+            id: pedido.cliente.id,
+            nombre: pedido.cliente.nombre,
+            rif: pedido.cliente.rif
+        });
+    } else {
+        setCliente(CLIENTE_DEFECTO);
+    }
+
+    // 5. Control de interfaz
+    if (typeof setMostrarModalPedidos === 'function') setMostrarModalPedidos(false);
+    if (typeof setPedidoIdOrigen === 'function') setPedidoIdOrigen(pedido.id);
+    
+    setVista('nuevo'); 
+    console.log(`✅ Pedido #${pedido.id} cargado con éxito`, nuevosProductos);
+};
 
   // Referencia para devolver el foco al buscador automáticamente
   const inputBusquedaRef = useRef(null);
@@ -104,6 +166,7 @@ const POS = () => {
     const manejarBusqueda = async (valor) => {
     setBusqueda(valor);
     setIndexSeleccionado(-1);
+    setErrorBusqueda(null);
     if (valor.length < 2) {
         setResultadosBusqueda([]);
         return;
@@ -111,10 +174,18 @@ const POS = () => {
 
     try {
         const res = await fetch(`${API_URL}/Productos/buscar?termino=${valor}&tasaDelDia=${tasa}`);
-        if (res.ok) {
+        if (res.status === 404) {
+            throw new Error("PRODUCTO_NO_ENCONTRADO");
+        }
+
+        if (!res.ok) {
+            throw new Error("ERROR_SERVIDOR");
+        }
+        if (res.ok){
             const data = await res.json();
 
-            const esCodigoBarrasFisico = valor.length >= 8 && /^\d+$/.test(valor); 
+            const esCodigoBarrasFisico = valor.length >= 8 && /^\d+$/.test(valor);
+             
 
             if (data.length === 1 && (data[0].codigoBarras === valor || esCodigoBarrasFisico)) {
                 agregarAlCarrito(data[0]);
@@ -134,13 +205,117 @@ const POS = () => {
                 });
 
                 setResultadosBusqueda(unicos);
+                if (unicos.length === 0) {
+                        setErrorBusqueda("🔍 Producto no encontrado");
+                      }
             }
         }
     } catch (error) {
-        console.error("Error buscando:", error);
+        // --- AQUÍ ESTÁ EL TRUCO PARA EL USUARIO ---
+        console.warn("Manejando error de búsqueda:", error.message);
+
+        if (error.message === "PRODUCTO_NO_ENCONTRADO") {
+            setErrorBusqueda("🔍 Producto no encontrado");
+        } else {
+            // Solo si no es un 404, mostramos el error de conexión
+            setErrorBusqueda("⚠️ Error de conexión con el servidor");
+        }
+        
+        setResultadosBusqueda([]);
     }
   };
-    
+  const [procesando, setProcesando] = useState(false);
+
+  useEffect(() => {
+    // Si el cliente es eventual, forzar a que no sea crédito
+    if (cliente.id === 1) {
+        setEsCredito(false);
+    }
+}, [cliente]);
+
+const guardarPedido = async () => {
+    if (carrito.length === 0) return alert("El carrito está vacío");
+
+    // Validación de integridad (tomada de tu archivo Pedidos.jsx)
+    const itemsInvalidos = carrito.filter(i => !i.idProductoUnidad);
+    if (itemsInvalidos.length > 0) {
+        alert("⚠️ Error: Hay productos sin ID de unidad. Intente agregarlos de nuevo.");
+        return;
+    }
+
+    // Estructura de datos idéntica a la que espera tu API
+    const pedidoData = {
+        clienteId: Number(cliente.id),
+        nombreCliente: cliente.nombre,
+        rifCliente: cliente.rif,
+        montoTotalUSD: Number(totalUSD.toFixed(2)),
+        detalles: carrito.map(item => {
+            const precio = Number(item.precio);
+            const cant = Number(item.cantidad);
+            const pctIva = Number(item.porcentajeIva || 0);
+            const subtotalLinea = precio * cant;
+            const montoIvaLinea = subtotalLinea * (pctIva / 100);
+            return {
+                codigoProd: item.codigoProd || "GENERICO",
+                descripcion: item.descripcion,
+                cantidad: cant,
+                precioUnitarioUSD: precio,
+                tasaIVA: pctIva,
+                porcentajeIva: pctIva,
+                montoIvaUSD: Number(montoIvaLinea.toFixed(2)),
+                subtotalUSD: Number(subtotalLinea.toFixed(2)),
+                totalLineaUSD: Number((subtotalLinea + montoIvaLinea).toFixed(2)),
+                idProductoUnidad: Number(item.idProductoUnidad)
+            };
+        })
+    };
+
+    try {
+        setProcesando(true);
+        const res = await fetch(`${API_URL}/Pedidos`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(pedidoData)
+        });
+
+        if (res.ok) {
+            const data = await res.json();
+            alert(`✅ Pedido #${data.id} guardado. Puede recuperarlo cuando el cliente regrese.`);
+            
+            // Limpiar el POS para el siguiente cliente
+            setCarrito([]);
+            setCliente(CLIENTE_DEFECTO);
+            setPagos({ efectivoUSD: 0, efectivoVES: 0, pagoMovil: 0, puntoBDV: 0, puntoBancamiga: 0, Metal: 0 });
+            
+            // Refrescar la lista de pedidos pendientes en el POS (si tienes la función)
+            if (typeof obtenerPedidosPendientes === 'function') obtenerPedidosPendientes();
+        } else {
+            const errorText = await res.text();
+            alert("Error al guardar pedido: " + errorText);
+        }
+    } catch (error) {
+        console.error("Error:", error);
+        alert("Error de conexión al intentar guardar el pedido");
+    } finally {
+        setProcesando(false);
+        setTimeout(() => inputBusquedaRef.current?.focus(), 150);
+    }
+};
+
+const obtenerPedidosPendientes = async () => {
+    try {
+        const response = await fetch(`${API_URL}/Pedidos`);
+        if (response.ok) {
+            const data = await response.json();
+            // Si tienes un estado para los pedidos en el POS, lo actualizas aquí
+            // setPedidos(data); 
+            console.log("Lista de pedidos actualizada");
+        }
+    } catch (error) {
+        console.error("Error al refrescar pedidos:", error);
+    }
+};
+
   // Gestión de Foco Automático
   useEffect(() => {
       // 1. Si el modal de arqueo está abierto, SALIMOS. 
@@ -210,7 +385,7 @@ const POS = () => {
               return [...carritoActual, {
                 idProductoUnidad: prod.idProductoUnidad,
                 codigoProd: prod.codigoProd,
-                descripcion: prod.descripcion,
+                descripcion: prod.descripcion || prod.Descripcion,
                 precio: prod.precioUSD || prod.precioMonedaBase,
                 porcentajeIva: prod.porcentajeIva || 0,
                 precioVES: (prod.precioUSD || prod.precioMonedaBase) * (tasa || 1),
@@ -244,6 +419,163 @@ const totalIVAUSD = carrito.reduce((acc, item) => {
 const totalUSD = subtotalUSD + totalIVAUSD;
 const totalVES = totalUSD * (tasa || 0);
 
+const finalizarVenta = async (tipoVenta = null) => {
+  if (carrito.length === 0) return;
+
+  const creditoFinal = tipoVenta !== null ? tipoVenta : esCredito;
+
+  // 1. Cálculo del total pagado para validación (asegurando números)
+  const totalPagadoUSD = 
+    (Number(pagos.efectivoUSD || 0)) + 
+    (Number(pagos.Metal || 0)) + 
+    (Number(pagos.efectivoVES || 0) / tasa) + 
+    (Number(pagos.pagoMovil || 0) / tasa) + 
+    (Number(pagos.puntoBDV || 0) / tasa) + 
+    (Number(pagos.puntoBancamiga || 0) / tasa);
+
+  if (creditoFinal) {
+        if (cliente.id === 1) {
+            alert("⚠️ No se puede otorgar crédito al CLIENTE EVENTUAL.");
+            return;
+        }
+        if (!cliente.permitirCredito) {
+            alert("⚠️ Este cliente no tiene autorizado el uso de crédito en su ficha.");
+            return;
+        }
+    } else {
+        // Validación para venta de contado
+        if (totalPagadoUSD < (totalUSD - 0.01)) {
+            alert(`⚠️ Pago insuficiente. Total: $${totalUSD.toFixed(2)} - Pagado: $${totalPagadoUSD.toFixed(2)}`);
+            return;
+        }
+    }
+  
+  // 2. Preparación de los pagos para la API
+  const listaPagos = Object.entries(pagos)
+    .filter(([_, monto]) => Number(monto) > 0)
+    .map(([metodo, monto]) => {
+      const valor = Number(monto);
+      const esDolar = metodo === 'efectivoUSD' || metodo === 'Metal';
+      return {
+        metodoPago: metodo === 'Metal' ? 'METAL' : metodo.replace(/([A-Z])/g, '_$1').toUpperCase(), // Convierte puntoBDV a PUNTO_B_D_V o similar, pero más seguro:
+        // Ajuste manual para coincidir con tu Backend:
+        metodoPago: {
+          efectivoUSD: 'EFECTIVO_USD',
+          efectivoVES: 'EFECTIVO_VES',
+          pagoMovil: 'PAGO_MOVIL',
+          puntoBDV: 'PUNTO_BDV',
+          puntoBancamiga: 'PUNTO_BANCAMIGA',
+          Metal: 'METAL'
+        }[metodo] || metodo.toUpperCase(),
+        montoMonedaBase: esDolar ? valor : valor / tasa,
+        montoMonedaExt: esDolar ? valor * tasa : valor,
+        tasaDeCambio: esDolar ? 1 : tasa
+      };
+    });
+
+  // 3. Construcción del objeto Venta
+  const ventaData = {
+    clienteId: cliente.id || 1,
+    esCredito: creditoFinal,
+    fechaVenta: new Date().toISOString(),
+    fechaVencimiento: creditoFinal ? new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString() : null,
+    tipoMoneda: "USD",
+    pedidoId: pedidoIdOrigen,
+    tasaDia: tasa,
+    tasaDeCambio: tasa,
+    metodoPago: creditoFinal ? "CREDITO" : (listaPagos.length > 1 ? "MIXTO" : (listaPagos[0]?.metodoPago || "EFECTIVO_USD")),
+    isAnulada: false,
+    totalMonedaBase: totalUSD,
+    totalMonedaExt: totalUSD * tasa,
+    subtotalMonedaBase: subtotalUSD,
+    ivaMonedaBase: totalIVAUSD,
+    pagos: creditoFinal ? [] : [
+            { metodoPago: "EFECTIVO_USD", monto: pagos.efectivoUSD, t: 1 },
+            { metodoPago: "EFECTIVO_VES", monto: pagos.efectivoVES, t: tasa },
+            { metodoPago: "PAGO_MOVIL", monto: pagos.pagoMovil, t: tasa },
+            { metodoPago: "PUNTO_BDV", monto: pagos.puntoBDV, t: tasa },
+            { metodoPago: "PUNTO_BANCAMIGA", monto: pagos.puntoBancamiga, t: tasa },
+            { metodoPago: "METAL", monto: pagos.Metal, t: 1 }
+
+        ].filter(p => p.monto > 0).map(p => ({
+            metodoPago: p.metodoPago,
+            montoMonedaBase: p.t === 1 ? Number(p.monto) : Number(p.monto) / tasa,
+            montoMonedaExt: p.t === 1 ? Number(p.monto) * tasa : Number(p.monto),
+            tasaDeCambio: p.t
+        })),
+
+    detalles: carrito.map(item => ({
+      codigoProd: item.codigoProd,
+      // Enviamos la descripción aunque el server la ignore, para depuración
+      descripcion: item.nombre || item.descripcion || "PRODUCTO",
+      idProductoUnidad: item.idProductoUnidad,
+      nombreUnidad: item.unidad,
+      cantidad: parseFloat(item.cantidad),
+      precioUnitarioMonedaBase: parseFloat(item.precio),
+      subtotalLineaMonedaBase: item.precio * item.cantidad,
+      tasaIVA: item.porcentajeIva || 0,
+      totalLineaMonedaBase: (item.precio * item.cantidad) * (1 + ((item.porcentajeIva || 0) / 100))
+    }))
+  };
+
+  console.log("Objeto enviado a la API:", JSON.stringify(ventaData, null, 2));
+
+  try {
+    const response = await fetch(`${API_URL}/Ventas`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(ventaData)
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(errorText || "Error en el servidor");
+    }
+
+    const ventaGuardada = await response.json();
+
+    // 4. RECUPERACIÓN DE DESCRIPCIONES PARA EL TICKET
+    // Cruzamos los datos de la respuesta con el carrito local que aún existe en memoria
+    const ventaParaTicket = {
+      ...ventaGuardada,
+      clienteNombre: cliente.nombre,
+      clienteRif: cliente.rif,
+      condicion: creditoFinal ? "CRÉDITO" : "CONTADO",
+      detalles: ventaGuardada.detalles.map((detalle) => {
+        const itemLocal = carrito.find(c => c.codigoProd === detalle.codigoProd);
+        return {
+          ...detalle,
+          descripcion: itemLocal ? itemLocal.descripcion : "PRODUCTO"
+        };
+      })
+    };    
+
+    // 5. Impresión y limpieza de estados
+    if (typeof imprimirTicket === 'function') {
+      imprimirTicket(ventaParaTicket);
+    }
+
+    setCarrito([]);
+    setPagos({ 
+      efectivoUSD: 0, efectivoVES: 0, pagoMovil: 0, 
+      puntoBDV: 0, puntoBancamiga: 0, Metal: 0 
+    });
+    setCliente(CLIENTE_DEFECTO);
+    setPedidoIdOrigen(null);
+    setEsCredito(false);
+    setBusqueda("");
+    setResultadosBusqueda([]);
+    obtenerPedidosPendientes();
+    
+    alert(esCredito ? "✅ Venta a CRÉDITO registrada" : "✅ Venta registrada con éxito");
+    setTimeout(() => inputBusquedaRef.current?.focus(), 150);
+    
+
+  } catch (err) {
+    console.error("Error en la operación:", err);
+    alert(`⚠️ ATENCIÓN:\n${err.message}`);
+  }
+};
 
   // Resetear índice al buscar
   useEffect(() => {
@@ -302,7 +634,6 @@ useEffect(() => {
     setTimeout(() => inputBusquedaRef.current?.focus(), 150);
   };
 
-  // Agregamos todos los métodos solicitados
 
   // Agrega esta función antes de tus cálculos de totales
   const manejarCambioPago = (e) => {
@@ -322,7 +653,7 @@ const totalPagadoUSD =
     (parseFloat(pagos.pagoMovil || 0) / tasa) + 
     (parseFloat(pagos.puntoBDV || 0) / tasa) + 
     (parseFloat(pagos.puntoBancamiga || 0) / tasa) + 
-    (parseFloat(pagos.metal || 0) );
+    (parseFloat(pagos.Metal || 0) );
 
 const vueltoUSD = totalPagadoUSD > totalUSD ? totalPagadoUSD - totalUSD : 0;
 const faltaPorPagar = totalUSD > totalPagadoUSD ? totalUSD - totalPagadoUSD : 0;
@@ -345,176 +676,96 @@ const cambiarCantidadManual = (item) => {
   setTimeout(() => inputBusquedaRef.current?.focus(), 150);
 };
 
-const finalizarVenta = async () => {
-  if (carrito.length === 0) return;
+const puedeFinalizar = carrito.length > 0 && (esCredito || totalPagadoUSD >= (totalUSD - 0.01));
+const diferencia = totalUSD - totalPagadoUSD;
 
-  // 1. Cálculo del total pagado (Corregido 'Metal' con Mayúscula)
-  const totalPagadoUSD = 
-    (Number(pagos.efectivoUSD || 0)) + 
-    (Number(pagos.Metal || 0)) + // Corregido a Mayúscula
-    (Number(pagos.efectivoVES || 0) / tasa) + 
-    (Number(pagos.pagoMovil || 0) / tasa) + 
-    (Number(pagos.puntoBDV || 0) / tasa) + 
-    (Number(pagos.puntoBancamiga || 0) / tasa);
 
-  if (totalPagadoUSD < (totalUSD - 0.01)) {
-    const falta = totalUSD - totalPagadoUSD;
-    alert(`⚠️ PAGO INSUFICIENTE:\nFaltan: $${falta.toFixed(2)}`);
-    return;
-  }
-
-  // 2. Construcción de lista de pagos (Corregido 'Metal')
-  const listaPagos = [
-    { metodoPago: 'EFECTIVO_USD', montoMonedaBase: Number(pagos.efectivoUSD), montoMonedaExt: Number(pagos.efectivoUSD), tasaDeCambio: 1 },
-    { metodoPago: 'EFECTIVO_VES', montoMonedaBase: Number(pagos.efectivoVES) / tasa, montoMonedaExt: Number(pagos.efectivoVES), tasaDeCambio: tasa },
-    { metodoPago: 'PAGO_MOVIL', montoMonedaBase: Number(pagos.pagoMovil) / tasa, montoMonedaExt: Number(pagos.pagoMovil), tasaDeCambio: tasa },
-    { metodoPago: 'PUNTO_BDV', montoMonedaBase: Number(pagos.puntoBDV) / tasa, montoMonedaExt: Number(pagos.puntoBDV), tasaDeCambio: tasa },
-    { metodoPago: 'PUNTO_BANCAMIGA', montoMonedaBase: Number(pagos.puntoBancamiga) / tasa, montoMonedaExt: Number(pagos.puntoBancamiga), tasaDeCambio: tasa },
-    { metodoPago: 'METAL', montoMonedaBase: Number(pagos.Metal), montoMonedaExt: Number(pagos.Metal), tasaDeCambio: 1 }
-  ].filter(p => p.montoMonedaBase > 0);
-
-  // 3. Objeto de venta (Corregido mapeo de IVA)
-  const ventaData = {
-    clienteId: cliente.id || 1,
-    fechaVenta: new Date().toISOString(),
-    tipoMoneda: "USD",
-    tasaDia: tasa,
-    tasaDeCambio: tasa,
-    metodoPago: listaPagos.length > 1 ? "MIXTO" : (listaPagos[0]?.metodoPago || "EFECTIVO_USD"),
-    isAnulada: false,
-    totalMonedaBase: totalUSD,
-    totalMonedaExt: totalUSD * tasa,
-    subtotalMonedaBase: subtotalUSD,
-    ivaMonedaBase: totalIVAUSD,
-    pagos: listaPagos, 
-
-    detalles: carrito.map(item => ({
-      codigoProd: item.codigoProd,
-      idProductoUnidad: item.idProductoUnidad,
-      nombreUnidad: item.unidad,
-      cantidad: parseFloat(item.cantidad),
-      precioUnitarioMonedaBase: parseFloat(item.precio),
-      subtotalLineaMonedaBase: item.precio * item.cantidad,
-      // CORRECCIÓN AQUÍ: Usamos porcentajeIva que es el nombre real en el estado del carrito
-      tasaIVA: item.porcentajeIva || 0, 
-      totalLineaMonedaBase: (item.precio * item.cantidad) * (1 + ((item.porcentajeIva || 0) / 100))
-    }))
-  };
-
-  // Depuración: Ver el JSON exacto en la consola antes de enviar
-  console.log("Objeto enviado a la API:", JSON.stringify(ventaData, null, 2));
-
-  try {
-    const response = await fetch(`${API_URL}/Ventas`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(ventaData)
-    });
-
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(errorText || "Error en el servidor");
-    }
-
-    const resultado = await response.json();
-    
-    // 5. Éxito: Limpieza
-    if (typeof imprimirTicket === 'function') imprimirTicket(resultado);
-
-    setCarrito([]);
-    setPagos({ 
-      efectivoUSD: 0, efectivoVES: 0, pagoMovil: 0, 
-      puntoBDV: 0, puntoBancamiga: 0, Metal: 0 
-    });
-    setCliente(CLIENTE_DEFECTO);
-    setBusqueda("");
-    setResultadosBusqueda([]);
-
-    alert("✅ Venta registrada con éxito");
-    setTimeout(() => inputBusquedaRef.current?.focus(), 150);
-    
-  } catch (err) {
-    console.error("Error en la operación:", err);
-    alert(`⚠️ ATENCIÓN:\n${err.message}`);
-  }
-};
 
     const imprimirTicket = (venta) => {
     const ventana = window.open('', 'PRINT', 'height=600,width=400');
 
     if (!ventana) {
-        alert("El navegador bloqueó la impresión. Por favor, permite los popups para este sitio.");
-        return;
+      alert("El navegador bloqueó la impresión. Por favor, permite los popups para este sitio.");
+      return;
     }
 
-    // 1. Clasificación y suma de montos por separado
-    // El subtotalLineaMonedaBase ya viene calculado del backend/carrito
-    const montoExento = venta.detalles.reduce((acc, item) => 
-        acc + (item.tasaIVA === 0 ? (item.subtotalLineaMonedaBase || 0) : 0), 0);
+    // 1. Cálculos de totales en Bs (Moneda Extranjera)
+    // Intentamos usar el valor del backend, si no, calculamos: Base * Tasa
+    const montoExentoBs = venta.detalles.reduce((acc, item) => 
+      acc + (item.tasaIVA === 0 ? (Number(item.subtotalLineaMonedaExt) || (Number(item.subtotalLineaMonedaBase) * venta.tasaDeCambio) || 0) : 0), 0);
     
-    const baseImponible = venta.detalles.reduce((acc, item) => 
-        acc + (item.tasaIVA > 0 ? (item.subtotalLineaMonedaBase || 0) : 0), 0);
+    const baseImponibleBs = venta.detalles.reduce((acc, item) => 
+      acc + (item.tasaIVA > 0 ? (Number(item.subtotalLineaMonedaExt) || (Number(item.subtotalLineaMonedaBase) * venta.tasaDeCambio) || 0) : 0), 0);
 
-    // Calculamos el IVA asegurando que sea un número (para evitar el NaN)
-    const impuestoTotal = venta.detalles.reduce((acc, item) => {
-        const total = Number(item.totalLineaMonedaBase || 0);
-        const subtotal = Number(item.subtotalLineaMonedaBase || 0);
-        return acc + (total - subtotal);
-    }, 0);
+    const impuestoTotalBs = venta.detalles.reduce((acc, item) => 
+      acc + (Number(item.ivaLineaMonedaExt) || (Number(item.totalLineaMonedaBase - item.subtotalLineaMonedaBase) * venta.tasaDeCambio) || 0), 0);
 
     ventana.document.write(`
-        <html>
-            <head>
-                <style>
-                    body { font-family: 'Courier New', monospace; width: 260px; font-size: 12px; padding: 10px; margin: 0; }
-                    .text-center { text-align: center; }
-                    .text-right { text-align: right; }
-                    .linea { border-top: 1px dashed black; margin: 5px 0; }
-                    .total { font-size: 14px; font-weight: bold; }
-                    table { width: 100%; border-collapse: collapse; }
-                </style>
-            </head>
-            <body onload="window.print(); window.close();">
-                <div class="text-center"><b>${venta.negocio || 'TU NEGOCIO C.A.'}</b></div>
-                <div class="text-center">RIF: J-12345678-9</div>
-                <div class="linea"></div>
-                <div>DOC: ${venta.numeroFactura || '000048'}</div>
-                <div>FECHA: ${new Date(venta.fechaVenta).toLocaleString()}</div>
-                <div class="linea"></div>
-                
-                <table>
-                    <tbody>
-                        ${venta.detalles.map(item => `
-                            <tr>
-                                <td colspan="3">${item.codigoProd} - ${item.nombreUnidad}</td>
-                            </tr>
-                            <tr>
-                                <td>${Number(item.cantidad).toFixed(3)}</td>
-                                <td>x ${Number(item.precioUnitarioMonedaBase).toFixed(2)}</td>
-                                <td class="text-right">$${Number(item.subtotalLineaMonedaBase).toFixed(2)} ${item.tasaIVA > 0 ? '(G)' : '(E)'}</td>
-                            </tr>
-                        `).join('')}
-                    </tbody>
-                </table>
-                
-                <div class="linea"></div>
-                
-                <div class="text-right">MONTO EXENTO:     $${montoExento.toFixed(2)}</div>
-                <div class="text-right">BASE IMPONIBLE:   $${baseImponible.toFixed(2)}</div>
-                <div class="text-right">IVA (16%):        $${impuestoTotal.toFixed(2)}</div>
-                
-                <div class="linea"></div>
-                
-                <div class="text-right total">TOTAL USD: $${venta.totalMonedaBase.toFixed(2)}</div>
-                <div class="text-right total">TOTAL BS: ${venta.totalMonedaExt.toLocaleString('es-VE', {minimumFractionDigits: 2})}</div>
-                
-                <div class="linea"></div>
-                <div class="text-center" style="margin-top:10px;">¡Gracias por su compra!</div>
-            </body>
-        </html>
-    `);
-    ventana.document.close();
+    <html>
+      <head>
+        <style>
+          body { font-family: 'Courier New', monospace; width: 260px; font-size: 12px; padding: 10px; margin: 0; }
+          .text-center { text-align: center; }
+          .text-right { text-align: right; }
+          .linea { border-top: 1px dashed black; margin: 5px 0; }
+          .total { font-size: 13px; font-weight: bold; }
+          table { width: 100%; border-collapse: collapse; }
+          .seccion-cliente { margin: 8px 0; font-size: 11px; }
+        </style>
+      </head>
+      <body onload="window.print(); window.close();">
+        <div class="text-center"><b>${venta.negocio || 'TU NEGOCIO C.A.'}</b></div>
+        <div class="text-center">RIF: J-12345678-9</div>
+        <div class="linea"></div>
+        
+        <div class="seccion-cliente">
+          <div><b>CLIENTE:</b> ${venta.clienteNombre || 'CLIENTE EVENTUAL'}</div>
+          <div><b>CI/RIF:</b> ${venta.clienteRif || 'V00000000'}</div>
+          <div><b>CONDICIÓN:</b> ${venta.esCredito ? 'CRÉDITO' : 'CONTADO'}</div>
+        </div>
+
+        <div class="linea"></div>
+        <div>DOC: ${venta.numeroFactura || '000000'}</div>
+        <div>FECHA: ${new Date(venta.fechaVenta).toLocaleString()}</div>
+        <div class="linea"></div>
+        
+        <table>
+          <tbody>
+            ${venta.detalles.map(item => `
+              <tr><td colspan="3"><b>${item.descripcion}</b></td></tr>
+              <tr>
+                <td>${Number(item.cantidad).toFixed(3)}</td>
+                <td>x ${(Number(item.precioUnitarioMonedaExt) || item.precioUnitarioMonedaBase * venta.tasaDeCambio).toFixed(2)}</td>
+                <td class="text-right">${(Number(item.subtotalLineaMonedaExt) || item.subtotalLineaMonedaBase * venta.tasaDeCambio).toFixed(2)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+        
+        <div class="linea"></div>
+        <div class="text-right">EXENTO: ${montoExentoBs.toLocaleString('es-VE')} Bs.</div>
+        <div class="text-right">BASE:   ${baseImponibleBs.toLocaleString('es-VE')} Bs.</div>
+        <div class="text-right">IVA:    ${impuestoTotalBs.toLocaleString('es-VE')} Bs.</div>
+        <div class="text-right total">TOTAL BS: ${venta.totalMonedaExt.toLocaleString('es-VE')}</div>
+        <div class="text-right" style="font-size: 10px;">REF USD: $${venta.totalMonedaBase.toFixed(2)}</div>
+        
+        <div class="linea"></div>
+        <div style="font-size: 10px;"><b>FORMAS DE PAGO:</b></div>
+        ${venta.pagos.map(pago => `
+          <div style="font-size: 10px; display: flex; justify-content: space-between;">
+            <span>${pago.metodoPago.replace('_', ' ')}:</span>
+            <span>${pago.montoMonedaExt.toLocaleString('es-VE', {minimumFractionDigits: 2})} ${pago.metodoPago.includes('USD') || pago.metodoPago === 'METAL' ? '$' : 'Bs.'}</span>
+          </div>
+        `).join('')}
+
+        <div class="linea"></div>
+        <div class="text-center" style="margin-top:10px;">¡Gracias por su compra!</div>
+      </body>
+    </html>
+  `);
+  ventana.document.close();
 };
+
 
    useEffect(() => {
       verificarEstadoCaja();
@@ -543,13 +794,12 @@ const finalizarVenta = async () => {
       }
   };
 
-
+console.log("Cliente Actual:", cliente.nombre, "Permitir Crédito:", cliente.permitirCredito);
   
 return (
     <>
       {/* 1. ENVOLTORIO PRINCIPAL: Controla el bloqueo visual y funcional */}
       <div className={`transition-all duration-700 ${!cajaAbierta ? "pointer-events-none opacity-30 grayscale blur-[2px]" : ""}`} style={{ zIndex: 1 }}>
-        
         <div className="flex h-screen bg-gray-100 font-sans">
           
           {/* SECCIÓN IZQUIERDA: CARRITO */}
@@ -643,10 +893,32 @@ return (
                 type="text"
                 value={busqueda}
                 onChange={(e) => manejarBusqueda(e.target.value)}
-                className="w-full p-4 border-2 border-blue-50 rounded-xl focus:border-blue-500 outline-none text-lg shadow-sm font-bold placeholder:font-normal"
+                className={`w-full p-4 border-2 rounded-xl outline-none text-lg shadow-sm font-bold transition-all ${
+                        errorBusqueda 
+                          ? 'border-red-500 bg-red-50 shadow-[0_0_15px_rgba(239,68,68,0.2)]' 
+                          : 'border-blue-50 focus:border-blue-500 bg-white'
+                      }`}
                 placeholder="Escanear o escribir..."
                 autoFocus
               />
+              {errorBusqueda && (
+                <div className="absolute right-[105%] top-1/2 -translate-y-1/2 bg-red-600 text-white px-4 py-3 rounded-xl shadow-2xl flex items-center gap-2 animate-in fade-in zoom-in duration-300 whitespace-nowrap">
+                  <span className="text-lg">🚫</span>
+                  <div className="flex flex-col">
+                    <span className="text-[10px] font-black opacity-80 leading-none">ERROR</span>
+                    <span className="text-xs font-bold uppercase">{errorBusqueda}</span>
+                  </div>
+                    <button 
+                      onClick={() => setErrorBusqueda(null)} 
+                      className="ml-2 bg-red-700 hover:bg-red-800 w-6 h-6 rounded-full flex items-center justify-center transition-colors"
+                      >
+                      ✕
+                      </button>
+                     {/* Flechita del indicador */}
+                  <div className="absolute -right-2 top-1/2 -translate-y-1/2 w-0 h-0 border-t-[8px] border-t-transparent border-l-[10px] border-l-red-600 border-b-[8px] border-b-transparent"></div>
+                </div>
+              )}
+              
 
               {/* Resultados de Búsqueda con soporte para navegación por teclado */}
               {resultadosBusqueda.length > 0 && (
@@ -777,7 +1049,8 @@ return (
                   <input 
                     type="number" 
                     value={pagos.efectivoUSD || ""} 
-                    onChange={(e) => setPagos({...pagos, efectivoUSD: e.target.value})} 
+                    onChange={(e) => setPagos({...pagos, efectivoUSD: e.target.value})}
+                    onWheel={(e) => e.target.blur()} 
                     className="w-full outline-none text-right font-mono font-bold text-green-600" 
                     placeholder="0.00" 
                   />
@@ -797,7 +1070,8 @@ return (
                       <input 
                         type="number" 
                         value={pagos[metodo.key] || ""} 
-                        onChange={(e) => setPagos({...pagos, [metodo.key]: e.target.value})} 
+                        onChange={(e) => setPagos({...pagos, [metodo.key]: e.target.value})}
+                        onWheel={(e) => e.target.blur()} 
                         className="w-full outline-none text-right text-xs font-mono font-bold" 
                         placeholder="0.00" 
                       />
@@ -809,8 +1083,9 @@ return (
                   <span className="text-[10px] font-black w-20 text-amber-700">METAL (USD)</span>
                   <input 
                     type="number" 
-                    value={pagos.metal || ""} 
-                    onChange={(e) => setPagos({...pagos, metal: e.target.value})} 
+                    value={pagos.Metal || ""} 
+                    onChange={(e) => setPagos({...pagos, Metal: e.target.value})}
+                    onWheel={(e) => e.target.blur()} 
                     className="w-full bg-transparent outline-none text-right font-mono font-bold text-amber-800" 
                     placeholder="0.00" 
                   />
@@ -836,23 +1111,107 @@ return (
                   </div>
                 )}
               </div>
+              
 
-              <button 
-                onClick={finalizarVenta}
-                disabled={totalPagadoUSD < (totalUSD - 0.01)}
-                className={`w-full py-4 rounded-2xl font-black text-base transition-all shadow-md ${
-                    totalPagadoUSD >= (totalUSD - 0.01) 
-                    ? "bg-green-500 hover:bg-green-600 text-white active:scale-95 cursor-pointer" 
-                    : "bg-gray-200 text-gray-400 cursor-not-allowed"
-                }`}
-              >
-                {totalPagadoUSD >= (totalUSD - 0.01) ? "🛒 REGISTRAR VENTA (F10)" : "ESPERANDO PAGO..."}
-              </button>
+              {/* Panel de Totales y Botón */}
+              <div className="p-6 border-t bg-white">
+                {esCredito && cliente.id === 1 && (
+                  <div className="bg-red-100 text-red-700 p-3 rounded-xl mb-4 text-center font-bold animate-pulse">
+                    ⚠️ SELECCIONE UN CLIENTE REGISTRADO PARA OTORGAR CRÉDITO
+                  </div>
+                )}
+  
+                <div className="flex flex-col gap-3">
+                  {/* BOTÓN 1: FINALIZAR VENTA (CONTADO) */}
+                  <button
+                    onClick={() => {
+                      setEsCredito(false);
+                      finalizarVenta();
+                    }}
+                    // Se deshabilita si el carrito está vacío O si no se ha pagado el total
+                    disabled={carrito.length === 0 || totalPagadoUSD < (totalUSD - 0.01)}
+                    className={`w-full py-4 rounded-2xl font-black text-xl shadow-lg transition-all ${
+                      carrito.length > 0 && totalPagadoUSD >= (totalUSD - 0.01)
+                        ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
+                        : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                    }`}
+                  >
+                    <div className="flex flex-col">
+                      <span>✅ FINALIZAR VENTA</span>
+                      <span className="text-xs font-normal opacity-80">Pago de Contado / Mixto</span>
+                    </div>
+                  </button>
+
+                  {/* BOTÓN 2: REGISTRAR CRÉDITO */}
+                  <button
+                    onClick={() => finalizarVenta(true)}
+                    // BLOQUEO TRIPLE: Carrito vacío OR Cliente Eventual OR Sin permiso de crédito
+                    disabled={
+                      carrito.length === 0 || 
+                      cliente.id === 1 || 
+                      cliente.permitirCredito === false // Validación estricta
+                    }
+                    className={`w-full py-4 rounded-2xl font-black text-xl shadow-lg transition-all ${
+                      carrito.length > 0 && cliente.id !== 1 && cliente.permitirCredito
+                        ? 'bg-orange-500 hover:bg-orange-600 text-white'
+                        : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                    }`}
+                  >
+                    <div className="flex flex-col">
+                      <span>📦 REGISTRAR CRÉDITO</span>
+                      <span className="text-xs font-normal opacity-80">
+                        {cliente.id === 1 
+                          ? 'No disponible para Cliente Eventual' 
+                          : !cliente.permitirCredito 
+                            ? `🚫 ${cliente.nombre} NO TIENE CRÉDITO AUTORIZADO` 
+                            : `Asignar a: ${cliente.nombre}`}
+                      </span>
+                    </div>
+                  </button>
+                  {/* NUEVO BOTÓN: IMPORTAR PEDIDO */}
+                      <button 
+                      
+                        onClick={() => setMostrarModalPedidos(true)}
+                        
+                        className="bg-orange-500 text-white p-2 rounded-lg hover:bg-orange-600 transition shadow-sm font-bold text-xs flex items-center gap-1"
+                      >
+                        <span>📋</span> PEDIDOS
+                      </button>
+                      <div className="flex flex-col gap-2 mt-4">
+                          {/* Botón para guardar y esperar al cliente */}
+                          <button
+                              onClick={guardarPedido}
+                              disabled={procesando || carrito.length === 0}
+                              className={`w-full py-3 rounded-xl font-black text-lg transition-all border-2 ${
+                                  procesando 
+                                  ? 'bg-gray-100 text-gray-400 border-gray-200' 
+                                  : 'bg-yellow-50 text-yellow-700 border-yellow-200 hover:bg-yellow-100'
+                              }`}
+                          >
+                              {procesando ? 'GUARDANDO...' : '⏸️ GUARDAR PEDIDO (ESPERAR)'}
+                          </button>
+
+                          {/* Tu botón actual de Finalizar Venta */}
+                          <button
+                              onClick={() => finalizarVenta()}
+                              disabled={!puedeFinalizar || procesando}
+                              className={`w-full py-4 rounded-xl font-black text-2xl shadow-lg transition-all ${
+                                  puedeFinalizar && !procesando
+                                  ? 'bg-green-600 text-white hover:bg-green-700' 
+                                  : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                              }`}
+                          >
+                              {esCredito ? 'REGISTRAR CRÉDITO' : 'FINALIZAR VENTA'}
+                          </button>
+                      </div>
+                </div>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
+      
       {/* 2. MODALES */}
       <ModalApertura 
           isOpen={!cajaAbierta} 
@@ -920,8 +1279,197 @@ return (
         onSelectCliente={(c) => setCliente(c)}
         API_URL={API_URL}
       />
+      {/* Al final de tu componente POS, junto a los otros modales */}
+      <ModalPedidosPendientes 
+        isOpen={mostrarModalPedidos}
+        onClose={() => setMostrarModalPedidos(false)}
+        onSeleccionar={cargarPedidoAlCarrito}
+        API_URL={API_URL}
+        setCarrito={setCarrito}
+        setCliente={setCliente}
+        setEsCredito={setEsCredito}
+        setMostrarModalPedidos={setMostrarModalPedidos}
+        setPedidoIdOrigen={setPedidoIdOrigen}
+      />
     </>
   );
+  
+  
+  
 };
+
+const ModalPedidosPendientes = ({ 
+    isOpen, 
+    onClose, 
+    API_URL, 
+    setCarrito, 
+    setCliente, 
+    setPedidoIdOrigen, 
+    setEsCredito, 
+    setMostrarModalPedidos,
+    tasa, // Asegúrate de pasar la tasa desde el POS
+    setVista, // Asegúrate de pasar setVista desde el POS
+    CLIENTE_DEFECTO 
+}) => {
+    const [pedidos, setPedidos] = useState([]);
+    const [busqueda, setBusqueda] = useState("");
+    const [procesando, setProcesando] = useState(false);
+
+    // Cargar la lista de pedidos al abrir
+    useEffect(() => {
+        if (isOpen) {
+            fetch(`${API_URL}/Pedidos`)
+                .then(res => res.json())
+                .then(data => setPedidos(data))
+                .catch(err => console.error("❌ Error cargando lista:", err));
+        }
+    }, [isOpen, API_URL]);
+
+    // Función de importación con la lógica de IVA corregida
+    const manejarSeleccion = async (id) => {
+        try {
+            setProcesando(true);
+            const response = await fetch(`${API_URL}/Pedidos/${id}`);
+            
+            if (response.ok) {
+                const pedido = await response.json();
+                
+                const itemsParaCarrito = pedido.detalles.map((d) => {
+                    const infoRaiz = d.productoUnidadNavigation?.producto;
+                    
+                    // --- LÓGICA DE IVA UNIFICADA (Evita el null de la DB) ---
+                    const idTasa = infoRaiz?.idTasaIVA || d.idTasaIVA;
+                    let porcentaje = 0;
+                    if (idTasa === 2 || idTasa === 4) porcentaje = 16;
+                    else if (idTasa === 3) porcentaje = 8;
+
+                    const precio = Number(d.precioUnitarioUSD) || 0;
+
+                    return {
+                        idProductoUnidad: d.idProductoUnidad,
+                        codigoProd: d.codigoProd || infoRaiz?.codigoProd || 'S/C',
+                        descripcion: infoRaiz?.descripcion || d.descripcion || "PRODUCTO",
+                        precio: precio,
+                        porcentajeIva: porcentaje,
+                        precioVES: precio * (tasa || 1),
+                        esExento: porcentaje === 0,
+                        cantidad: Number(d.cantidad) || 0,
+                        unidad: d.nombreUnidad || d.productoUnidadNavigation?.nombreUnidad || "UND",
+                        impuesto: precio * (porcentaje / 100),
+                        esPesado: infoRaiz?.tipoArt === 'Peso' || d.tipoArt === 'Peso'
+                    };
+                });
+
+                // 1. Actualizar Carrito
+                setCarrito(itemsParaCarrito);
+                
+                // 2. Actualizar Cliente y Crédito
+                if (pedido.cliente) {
+                    const tieneCredito = pedido.cliente.permitirCredito === true || pedido.cliente.permitirCredito === 1;
+                    setCliente({
+                        id: pedido.clienteId || pedido.cliente.id,
+                        nombre: pedido.cliente.nombre,
+                        rif: pedido.cliente.rif,
+                        permitirCredito: tieneCredito
+                    });
+                    if (typeof setEsCredito === 'function') setEsCredito(tieneCredito);
+                } else {
+                    setCliente(CLIENTE_DEFECTO);
+                }
+
+                // 3. Control de Estado del POS
+                if (typeof setPedidoIdOrigen === 'function') setPedidoIdOrigen(id);
+                if (typeof setVista === 'function') setVista('nuevo'); 
+                if (typeof setMostrarModalPedidos === 'function') setMostrarModalPedidos(false);
+                
+                alert("✅ Pedido importado con éxito");
+            }
+        } catch (error) {
+            console.error("❌ Error al importar:", error);
+            alert("Error crítico al cargar el pedido");
+        } finally {
+            setProcesando(false);
+        }
+    };
+
+    if (!isOpen) return null;
+
+    const pedidosFiltrados = Array.isArray(pedidos) 
+        ? pedidos.filter(p => 
+            p.id.toString().includes(busqueda) || 
+            p.cliente?.nombre?.toLowerCase().includes(busqueda.toLowerCase())
+          )
+        : [];
+
+    return (
+        <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-[100] flex items-center justify-center p-4">
+            <div className="bg-white w-full max-w-3xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+                {/* Cabecera */}
+                <div className="p-6 border-b flex justify-between items-center bg-gray-50">
+                    <div className="flex items-center gap-3">
+                        <span className="text-3xl">📋</span>
+                        <h2 className="text-2xl font-black text-gray-800 uppercase">Pedidos Pendientes</h2>
+                    </div>
+                    <button onClick={onClose} className="text-gray-400 hover:text-red-500 text-3xl font-bold">&times;</button>
+                </div>
+                
+                {/* Buscador */}
+                <div className="p-4 bg-white">
+                    <input 
+                        type="text"
+                        placeholder="🔍 Buscar por ID o Nombre de cliente..."
+                        className="w-full p-4 border-2 border-blue-100 rounded-2xl focus:border-blue-500 outline-none transition-all text-lg"
+                        value={busqueda}
+                        onChange={(e) => setBusqueda(e.target.value)}
+                        autoFocus
+                    />
+                </div>
+
+                {/* Tabla */}
+                <div className="flex-1 overflow-y-auto p-4">
+                    <table className="w-full text-left border-separate border-spacing-y-2">
+                        <thead>
+                            <tr className="text-gray-400 uppercase text-xs">
+                                <th className="px-4 py-2">ID</th>
+                                <th className="px-4 py-2">Cliente</th>
+                                <th className="px-4 py-2 text-right">Total</th>
+                                <th className="px-4 py-2 text-center">Acción</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {pedidosFiltrados.map(p => (
+                                <tr key={p.id} className="bg-gray-50 hover:bg-blue-50 transition-colors rounded-xl">
+                                    <td className="px-4 py-4 font-bold text-blue-600 rounded-l-xl">#{p.id}</td>
+                                    <td className="px-4 py-4">
+                                        <div className="font-bold text-gray-700 uppercase">{p.cliente?.nombre}</div>
+                                        <div className="text-xs text-gray-400">{p.cliente?.rif}</div>
+                                    </td>
+                                    <td className="px-4 py-4 text-right font-mono font-bold text-green-600">
+                                        ${p.montoTotalUSD?.toFixed(2)}
+                                    </td>
+                                    <td className="px-4 py-4 text-center rounded-r-xl">
+                                        <button 
+                                            disabled={procesando}
+                                            onClick={() => manejarSeleccion(p.id)}
+                                            className={`${
+                                                procesando ? 'bg-gray-300' : 'bg-blue-600 hover:bg-blue-700 shadow-md'
+                                            } text-white px-6 py-2 rounded-xl font-black text-sm transition-all uppercase`}
+                                        >
+                                            {procesando ? 'Procesando...' : 'Importar'}
+                                        </button>
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                    {pedidosFiltrados.length === 0 && (
+                        <div className="text-center py-10 text-gray-400 font-bold">No hay pedidos pendientes.</div>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+};
+
 
 export default POS;

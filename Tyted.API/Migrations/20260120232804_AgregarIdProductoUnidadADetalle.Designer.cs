@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Tyted.API.Data;
 
@@ -11,9 +12,11 @@ using Tyted.API.Data;
 namespace Tyted.API.Migrations
 {
     [DbContext(typeof(TytedContext))]
-    partial class TytedContextModelSnapshot : ModelSnapshot
+    [Migration("20260120232804_AgregarIdProductoUnidadADetalle")]
+    partial class AgregarIdProductoUnidadADetalle
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -597,8 +600,6 @@ namespace Tyted.API.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("IdProductoUnidad");
-
                     b.HasIndex("PedidoId");
 
                     b.ToTable("PedidosDetalle");
@@ -918,9 +919,6 @@ namespace Tyted.API.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)");
 
-                    b.Property<int?>("PedidoId")
-                        .HasColumnType("int");
-
                     b.Property<decimal>("SubtotalMonedaBase")
                         .HasColumnType("decimal(18, 4)");
 
@@ -1140,17 +1138,9 @@ namespace Tyted.API.Migrations
 
             modelBuilder.Entity("Tyted.API.Models.PedidoDetalle", b =>
                 {
-                    b.HasOne("Tyted.API.Models.ProductosUnidad", "ProductoUnidadNavigation")
-                        .WithMany()
-                        .HasForeignKey("IdProductoUnidad")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
-
                     b.HasOne("Tyted.API.Models.Pedido", null)
                         .WithMany("Detalles")
                         .HasForeignKey("PedidoId");
-
-                    b.Navigation("ProductoUnidadNavigation");
                 });
 
             modelBuilder.Entity("Tyted.API.Models.Producto", b =>

@@ -35,5 +35,32 @@ namespace Tyted.API.Controllers
             await _context.SaveChangesAsync();
             return Ok(cliente);
         }
+        [HttpPut("{id}")]
+        public async Task<IActionResult> Actualizar(int id, [FromBody] Cliente cliente)
+        {
+            if (id != cliente.Id) return BadRequest("El ID del cliente no coincide");
+
+            _context.Entry(cliente).State = EntityState.Modified;
+
+            try {
+                await _context.SaveChangesAsync();
+            }
+            catch (DbUpdateConcurrencyException) {
+                if (!_context.Clientes.Any(e => e.Id == id)) return NotFound();
+                else throw;
+            }
+
+            return NoContent();
+        }
+        [HttpGet]
+        public async Task<IActionResult> GetAll()
+        {
+            // Retorna los últimos 20 clientes registrados para que la tabla no esté vacía
+            var clientes = await _context.Clientes
+                .OrderByDescending(c => c.Id)
+                .Take(20)
+                .ToListAsync();
+            return Ok(clientes);
+        }
     }
 }

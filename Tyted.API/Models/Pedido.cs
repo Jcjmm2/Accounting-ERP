@@ -14,10 +14,11 @@ namespace Tyted.API.Models
     
         [ForeignKey("ClienteId")] 
         public Cliente? Cliente { get; set; }
-    
+        
         public decimal MontoTotalUSD { get; set; }
         public string Estado { get; set; } = "Pendiente";
         public List<PedidoDetalle>? Detalles { get; set; } = new();
+        
     }
 
     public class PedidoDetalle
@@ -25,8 +26,18 @@ namespace Tyted.API.Models
         public int? Id { get; set; }
         public int? PedidoId { get; set; }
         public string? CodigoProd { get; set; } = string.Empty;
+
+        [ForeignKey("IdProductoUnidad")] 
+        public virtual ProductosUnidad? ProductoUnidadNavigation { get; set; }
+        
+        [ForeignKey("CodigoProd")]
+        public virtual Producto? Producto { get; set; }
+
         public decimal? Cantidad { get; set; }
         public decimal? PrecioUnitarioUSD { get; set; }
         public decimal? SubtotalUSD { get; set; }
+        
+        [Required]
+        public int IdProductoUnidad { get; set; } // FK a la unidad específica comprada
     }
 }

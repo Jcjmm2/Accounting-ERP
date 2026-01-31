@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Tyted.API.Data;
 using Tyted.API.Models;
 
+
 namespace Tyted.API.Controllers
 {
     [Route("api/[controller]")]
@@ -16,6 +17,7 @@ namespace Tyted.API.Controllers
         public ProductosController(TytedContext context)
         {
             _context = context;
+                        
         }
 
         // GET: api/Productos
@@ -94,6 +96,49 @@ namespace Tyted.API.Controllers
         private bool ProductoExists(string id)
         {
             return _context.Productos.Any(e => e.CodigoProd == id);
+        }
+        [HttpDelete("{id}")]
+        public async Task<IActionResult> DeleteProducto(string id)
+        {
+            // 1. Buscar el producto con sus unidades
+            var producto = await _context.Productos
+                .Include(p => p.UnidadesDeVenta)
+                .FirstOrDefaultAsync(p => p.CodigoProd == id);
+
+            if (producto == null) return NotFound(new { message = "El producto no existe." });
+
+            try
+            {
+                // 2. VALIDACIÓN DE SEGURIDAD: 
+                // Verificamos si existen registros en Compras o Ventas (ajusta los nombres de tablas según tu contexto)
+                // Usamos AnyAsync para que sea ultra rápido
+                bool tieneVentas = await _context.VentasDetalle.AnyAsync(v => v.CodigoProd == id);
+                bool tieneCompras = await _context.ComprasDetalle.AnyAsync(c => c.CodigoProd == id);
+                // Si manejas una tabla de movimientos de inventario general (Kardex), revísala también:
+                // bool tieneKardex = await _context.Kardex.AnyAsync(k => k.CodigoProd == id);
+
+                if (tieneVentas || tieneCompras)
+                {
+                    return BadRequest(new { 
+                        message = "🚫 SEGURIDAD: Este producto no puede eliminarse porque ya tiene historial de movimientos (ventas/compras). Considere desactivarlo o editarlo." 
+                    });
+                }
+
+                // 3. Si pasó la validación, procedemos a borrar
+                if (producto.UnidadesDeVenta.Any())
+                {
+                    _context.ProductosUnidad.RemoveRange(producto.UnidadesDeVenta);
+                }
+
+                _context.Productos.Remove(producto);
+                await _context.SaveChangesAsync();
+
+                return Ok(new { message = "🗑️ Producto eliminado correctamente." });
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { message = "Error al intentar eliminar: " + ex.Message });
+            }
         }
 
         [HttpGet("buscar-pos/{codigoBarras}")]
@@ -275,79 +320,145 @@ namespace Tyted.API.Controllers
                 return StatusCode(500, new { message = "Error en la búsqueda", detail = ex.Message });
             }
         }
+        [HttpPost]
+        public async Task<ActionResult<UnidadMedida>> PostUnidad(UnidadMedida unidad)
+        {
+            _context.UnidadesMedida.Add(unidad);
+            await _context.SaveChangesAsync();
+            return Ok(unidad);
+        }
 
         [HttpPut("ActualizarProductoCompleto")]
         public async Task<IActionResult> ActualizarProductoCompleto([FromBody] ActualizarProductoCompletoDto dto)
         {
+            // 1. Evitar que el servidor explote si el DTO llega mal
+            if (dto == null) return BadRequest(new { message = "Los datos enviados son inválidos o están incompletos." });
+
             try
             {
-                // 1. Buscar el producto base
                 var producto = await _context.Productos
                     .Include(p => p.UnidadesDeVenta)
                     .FirstOrDefaultAsync(p => p.CodigoProd == dto.CodigoProd);
 
-                if (producto == null) return NotFound("Producto no encontrado");
+                if (producto == null) return NotFound(new { message = $"Producto {dto.CodigoProd} no encontrado." });
 
-                // 2. Actualizar datos generales
-                producto.TipoArt = dto.TipoArt;
+                // 2. Actualización de campos maestros
+                producto.Descripcion = dto.Descripcion ?? producto.Descripcion;
+                producto.IdCategoria = dto.IdCategoria;
                 producto.IdTasaIVA = dto.IdTasaIVA;
+                producto.TipoArt = dto.TipoArt ?? "Bien";
                 producto.StockMinimo = dto.StockMinimo;
+                producto.CodigoBarras = dto.CodigoBarras;
+                if (dto.ManejaImpuestoLicor.HasValue)
+                    producto.ManejaImpuestoLicor = dto.ManejaImpuestoLicor;
+                if (dto.ImpuestoLicorPorcentaje.HasValue)
+                    producto.ImpuestoLicorPorcentaje = dto.ImpuestoLicorPorcentaje;
+                producto.PermiteDesglose = dto.PermiteDesglose;
 
-                // 3. Obtener la tasa actual para recalcular precios en Bolívares (VES)
+                _context.Entry(producto).State = EntityState.Modified;
+
+                // 3. Tasa para precios
                 var tasaActual = await _context.TasaDeCambio
                     .Where(t => t.MonedaOrigen == "USD" && t.MonedaDestino == "VES")
                     .OrderByDescending(t => t.FechaVigencia)
-                    .Select(t => t.Tasa)
-                    .FirstOrDefaultAsync();
+                    .Select(t => (decimal?)t.Tasa)
+                    .FirstOrDefaultAsync() ?? 1.0m;
 
-                // 4. Actualizar cada unidad de venta
-                foreach (var uDto in dto.Unidades)
+                // 4. Unidades (Agregar, actualizar y eliminar)
+                if (dto.Unidades != null)
                 {
-                    var unidad = producto.UnidadesDeVenta
-                        .FirstOrDefault(u => u.IdProductoUnidad == uDto.IdProductoUnidad);
+                    // Obtener los Ids de las unidades recibidas
+                    var idsDto = dto.Unidades.Select(u => u.IdProductoUnidad).ToList();
+                    // Unidades actuales en BD
+                    var unidadesActuales = producto.UnidadesDeVenta.ToList();
 
-                    if (unidad != null)
+                    // Eliminar unidades que ya no están en el DTO
+                    var unidadesAEliminar = unidadesActuales.Where(u => !idsDto.Contains(u.IdProductoUnidad)).ToList();
+                    if (unidadesAEliminar.Any())
                     {
-                        // Actualizar Precios en Dólares (Moneda Base)
-                        unidad.PrecioMonedaBase = uDto.Precio1;
-                        unidad.Precio2MonedaBase = uDto.Precio2;
-                        unidad.Precio3MonedaBase = uDto.Precio3;
+                        _context.ProductosUnidad.RemoveRange(unidadesAEliminar);
+                    }
 
-                        // Recalcular Precios en Bolívares (Moneda Extranjera)
-                        if (tasaActual > 0)
+                    foreach (var uDto in dto.Unidades)
+                    {
+                        var unidad = producto.UnidadesDeVenta.FirstOrDefault(u => u.IdProductoUnidad == uDto.IdProductoUnidad);
+                        if (uDto.IdUnidad <= 0) 
                         {
-                            unidad.PrecioMonedaExt = uDto.Precio1 * tasaActual;
-                            unidad.Precio2MonedaExt = uDto.Precio2 * tasaActual;
-                            unidad.Precio3MonedaExt = uDto.Precio3 * tasaActual;
+                            // Si viene 0, intentamos recuperarlo por el nombre o lanzamos error
+                            return BadRequest(new { message = $"Error: La unidad '{uDto.NombreUnidad}' no tiene un tipo de unidad (IdUnidad) válido seleccionado." });
+                        }
+                        
+                        if (unidad != null)
+                        {
+                            // Actualizar existente
+                            unidad.PrecioMonedaBase = uDto.Precio1;
+                            unidad.Precio2MonedaBase = uDto.Precio2;
+                            unidad.Precio3MonedaBase = uDto.Precio3;
+                            unidad.PrecioMonedaExt = Math.Round(uDto.Precio1 * tasaActual, 2);
+                            unidad.Precio2MonedaExt = Math.Round((uDto.Precio2 ?? 0) * tasaActual, 2);
+                            unidad.Precio3MonedaExt = Math.Round((uDto.Precio3 ?? 0) * tasaActual, 2);
+                            unidad.IdUnidad = uDto.IdUnidad; 
+                            unidad.NombreUnidad = uDto.NombreUnidad;
+                            unidad.CantidadEquivalente = uDto.CantidadEquivalente;
+                            _context.Entry(unidad).State = EntityState.Modified;
+                        }
+                        else
+                        {
+                            // Agregar nueva unidad
+                            var nuevaUnidad = new ProductosUnidad
+                            {
+                                CodigoProd = producto.CodigoProd,
+                                // El frontend debe enviar idUnidad y nombreUnidad, si no, deberás ajustarlo
+                                IdUnidad = uDto.IdUnidad, // Ajusta si el frontend lo envía
+                                NombreUnidad = uDto.NombreUnidad,
+                                CantidadEquivalente = uDto.CantidadEquivalente,
+                                PrecioMonedaBase = uDto.Precio1,
+                                Precio2MonedaBase = uDto.Precio2,
+                                Precio3MonedaBase = uDto.Precio3,
+                                PrecioMonedaExt = Math.Round(uDto.Precio1 * tasaActual, 2),
+                                Precio2MonedaExt = Math.Round((uDto.Precio2 ?? 0) * tasaActual, 2),
+                                Precio3MonedaExt = Math.Round((uDto.Precio3 ?? 0) * tasaActual, 2)
+                            };
+                            _context.ProductosUnidad.Add(nuevaUnidad);
                         }
                     }
                 }
 
                 await _context.SaveChangesAsync();
-                return Ok(new { message = "Producto actualizado íntegramente." });
+                return Ok(new { message = "✅ Producto actualizado correctamente." });
             }
             catch (Exception ex)
             {
-                return BadRequest(new { message = ex.Message });
+                var detalle = ex.InnerException != null ? ex.InnerException.Message : ex.Message;
+                return BadRequest(new { message = "Error interno: " + detalle });
             }
-        }        
+        }
 
-        // DTO necesario para recibir los datos
+        // DTO Ampliado para coincidir con el frontend
         public class ActualizarProductoCompletoDto
         {
             public string CodigoProd { get; set; }
-            public string TipoArt { get; set; }
+            public string Descripcion { get; set; } // <--- FALTABA ESTO
+            public string TipoArt { get; set; }      // <--- FALTABA ESTO
+            public int IdCategoria { get; set; }    // <--- FALTABA ESTO
             public int IdTasaIVA { get; set; }
             public decimal StockMinimo { get; set; }
+            public string CodigoBarras { get; set; }
+            public bool? ManejaImpuestoLicor { get; set; }
+            public decimal? ImpuestoLicorPorcentaje { get; set; }
+            public bool PermiteDesglose { get; set; }
             public List<UnidadPrecioDto> Unidades { get; set; }
         }
 
         public class UnidadPrecioDto
         {
             public int IdProductoUnidad { get; set; }
+            public int IdUnidad { get; set; } 
+            public string NombreUnidad { get; set; }
+            public decimal CantidadEquivalente { get; set; }
             public decimal Precio1 { get; set; }
-            public decimal Precio2 { get; set; }
-            public decimal Precio3 { get; set; }
+            public decimal? Precio2 { get; set; }
+            public decimal? Precio3 { get; set; }
         }
         
         

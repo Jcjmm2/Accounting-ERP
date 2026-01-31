@@ -74,8 +74,14 @@ builder.Services.AddCors(options =>
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
-        options.JsonSerializerOptions.ReferenceHandler =
-            System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
+        // 1. Evita errores de ciclos infinitos en relaciones anidadas (Pedido -> Detalle -> Producto)
+        options.JsonSerializerOptions.ReferenceHandler = System.Text.Json.Serialization.ReferenceHandler.IgnoreCycles;
+        
+        // 2. Hace que no importe si el JSON viene como "descripcion" o "Descripcion"
+        options.JsonSerializerOptions.PropertyNameCaseInsensitive = true;
+        
+        // 3. (Opcional) Mantiene las mayúsculas/minúsculas tal cual están en C# 
+        // options.JsonSerializerOptions.PropertyNamingPolicy = null; 
     })
     .ConfigureApiBehaviorOptions(options =>
     {
