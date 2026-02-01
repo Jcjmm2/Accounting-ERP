@@ -399,6 +399,7 @@ namespace Tyted.API.Controllers
                             unidad.Precio3MonedaExt = Math.Round((uDto.Precio3 ?? 0) * tasaActual, 2);
                             unidad.IdUnidad = uDto.IdUnidad; 
                             unidad.NombreUnidad = uDto.NombreUnidad;
+                            unidad.CodigoBarras = uDto.CodigoBarras; // Ajusta si el frontend lo envía
                             unidad.CantidadEquivalente = uDto.CantidadEquivalente;
                             _context.Entry(unidad).State = EntityState.Modified;
                         }
@@ -412,6 +413,7 @@ namespace Tyted.API.Controllers
                                 IdUnidad = uDto.IdUnidad, // Ajusta si el frontend lo envía
                                 NombreUnidad = uDto.NombreUnidad,
                                 CantidadEquivalente = uDto.CantidadEquivalente,
+                                CodigoBarras = uDto.CodigoBarras, // Ajusta si el frontend lo envía
                                 PrecioMonedaBase = uDto.Precio1,
                                 Precio2MonedaBase = uDto.Precio2,
                                 Precio3MonedaBase = uDto.Precio3,
@@ -459,6 +461,7 @@ namespace Tyted.API.Controllers
             public decimal Precio1 { get; set; }
             public decimal? Precio2 { get; set; }
             public decimal? Precio3 { get; set; }
+            public string CodigoBarras { get; set; }
         }
         
         

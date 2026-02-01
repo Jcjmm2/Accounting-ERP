@@ -10,6 +10,9 @@ const Productos = () => {
     const [guardando, setGuardando] = useState(false);
     const [modalAbierto, setModalAbierto] = useState(false);
     const [categorias, setCategorias] = useState([]);
+    const [modalCategoriasOpen, setModalCategoriasOpen] = useState(false);
+    const [categoriaForm, setCategoriaForm] = useState({ idCategoria: 0, nombreCategoria: '' });
+    const [loadingCategoria, setLoadingCategoria] = useState(false);
     const [modalUnidadesOpen, setModalUnidadesOpen] = useState(false);
     const [unidadesMedida, setUnidadesMedida] = useState([]);
     const [unidadForm, setUnidadForm] = useState({ idUnidad: 0, nombreUnidad: '' });
@@ -170,6 +173,7 @@ const Productos = () => {
                 idProductoUnidad: u.idProductoUnidad,
                 idUnidad: u.idUnidad || u.IdUnidad,
                 nombreUnidad: u.nombreUnidad,
+                CodigoBarras: u.CodigoBarras || u.codigoBarras || '',
                 cantidadEquivalente: u.cantidadEquivalente,
                 precio1: u.precioMonedaBase || u.PrecioMonedaBase || 0,
                 precio2: u.precio2MonedaBase || u.Precio2MonedaBase || 0,
@@ -189,6 +193,7 @@ const Productos = () => {
                 {
                     idUnidad: unidadDefault.idUnidad,
                     nombreUnidad: unidadDefault.nombreUnidad,
+                    ProductoUnidadCodigoBarras: unidadDefault.CodigoBarras || '',
                     cantidadEquivalente: 1,
                     precio1: 0,
                     precio2: 0,
@@ -230,7 +235,7 @@ const Productos = () => {
                 idCategoria: parseInt(productoForm.idCategoria),
                 idTasaIVA: parseInt(productoForm.idTasaIVA),
                 stockMinimo: parseFloat(productoForm.stockMinimo || 0),
-                codigoBarras: productoForm.codigoBarras || "",
+                codigoBarras: productoForm.ProductoUnidadCodigoBarras || "",
                 manejaImpuestoLicor: !!productoForm.manejaImpuestoLicor,
                 impuestoLicorPorcentaje: parseFloat(productoForm.impuestoLicorPorcentaje || 0),
                 permiteDesglose: !!productoForm.permiteDesglose,
@@ -240,6 +245,7 @@ const Productos = () => {
                     idUnidad: parseInt(u.idUnidad), // <--- Vital para saber si es Caja, Bulto, etc.
                     nombreUnidad: u.nombreUnidad || u.NombreUnidad, // <--- Para actualizar el nombre
                     cantidadEquivalente: parseFloat(u.cantidadEquivalente || 1), // <--- Para cálculos 
+                    CodigoBarras: u.CodigoBarras || '',
                     precio1: parseFloat(u.precio1 || 0),
                     precio2: parseFloat(u.precio2 || 0),
                     precio3: parseFloat(u.precio3 || 0)
@@ -332,6 +338,59 @@ const Productos = () => {
             const nuevas = [...prev.unidades];
             nuevas[index] = { ...nuevas[index], [campo]: valor };
             return { ...prev, unidades: nuevas };
+        });
+    };
+    const guardarCategoriaCatalogo = async () => {
+        if (!categoriaForm.nombreCategoria.trim()) return alert("⚠️ Escriba un nombre para la categoría.");
+
+        try {
+            setLoadingCategoria(true);
+            const metodo = categoriaForm.idCategoria === 0 ? 'POST' : 'PUT';
+            const url = categoriaForm.idCategoria === 0 
+                ? `${API_URL}/Categorias` 
+                : `${API_URL}/Categorias/${categoriaForm.idCategoria}`;
+
+            const res = await fetch(url, {
+                method: metodo,
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    idCategoria: categoriaForm.idCategoria,
+                    nombre: categoriaForm.nombreCategoria.toUpperCase()
+                })
+            });
+
+            if (res.ok) {
+                await cargarCategorias(); // Recargar el dropdown principal
+                setCategoriaForm({ idCategoria: 0, nombreCategoria: '' }); // Limpiar form
+                alert("✅ Categoría guardada correctamente");
+            } else {
+                alert("❌ Error al guardar categoría");
+            }
+        } catch (error) {
+            console.error(error);
+            alert("Error de conexión");
+        } finally {
+            setLoadingCategoria(false);
+        }
+    };
+
+    const borrarCategoriaCatalogo = async (id) => {
+        if(!window.confirm("¿Seguro de eliminar esta categoría? Si tiene productos asociados, fallará.")) return;
+        try {
+            const res = await fetch(`${API_URL}/Categorias/${id}`, { method: 'DELETE' });
+            if(res.ok) {
+                cargarCategorias();
+                alert("🗑️ Categoría eliminada");
+            } else {
+                alert("⚠️ No se puede eliminar (probablemente esté en uso).");
+            }
+        } catch(e) { console.error(e); }
+    };
+
+    const editarCategoriaCatalogo = (cat) => {
+        setCategoriaForm({
+            idCategoria: cat.idCategoria,
+            nombreCategoria: cat.nombreCategoria || cat.nombre
         });
     };
 
@@ -475,8 +534,8 @@ const Productos = () => {
                             <div style={{ flex: 1 }}>
                                 <label style={{ fontSize: '0.8rem', fontWeight: 'bold' }}>Código de Barras</label>
                                 <input 
-                                    value={productoForm.codigoBarras} 
-                                    onChange={e => setProductoForm({...productoForm, codigoBarras: e.target.value})}
+                                    value={productoForm.CodigoBarras} 
+                                    onChange={e => setProductoForm({...productoForm, CodigoBarras: e.target.value})}
                                     className="form-input"
                                     placeholder="Escanee o escriba..."
                                 />
@@ -576,6 +635,41 @@ const Productos = () => {
                                     >
                                         ⚙️
                                     </button>
+                               </div>
+                               {/* CATEGORÍA CON BOTÓN DE GESTIÓN */}
+                               <div className="form-group">
+                                   <label style={{ fontSize: '0.75rem', fontWeight: 'bold' }}>Categoría</label>
+                                   <div style={{ display: 'flex', alignItems: 'center' }}>
+                                       <select 
+                                           value={productoForm.idCategoria} 
+                                           onChange={e => setProductoForm({...productoForm, idCategoria: e.target.value})} 
+                                           className="form-input"
+                                           style={{ flex: 1 }}
+                                       >
+                                           <option value="">Seleccione...</option>
+                                           {categorias.map(cat => (
+                                               <option key={cat.idCategoria} value={cat.idCategoria}>
+                                                   {cat.nombreCategoria || cat.nombre} 
+                                               </option>
+                                           ))}
+                                       </select>
+        
+                                       {/* BOTÓN ENGRANAJE PARA CATEGORÍAS */}
+                                       <button 
+                                           onClick={() => setModalCategoriasOpen(true)}
+                                           title="Gestionar lista de categorías"
+                                           style={{ 
+                                               marginLeft: '5px', 
+                                               cursor: 'pointer', 
+                                               border: '1px solid #ccc', 
+                                               background: '#f0f0f0', 
+                                               borderRadius: '4px', 
+                                               padding: '5px' 
+                                           }}
+                                       >
+                                           ⚙️
+                                       </button>
+                                   </div>
                                </div>
                             </div>
 
@@ -686,6 +780,7 @@ const Productos = () => {
                                 <tr>
                                     <th>Presentación</th>
                                     <th>Equivalencia</th>
+                                    <th>Codigo de Barras Unidad</th>
                                     <th>Precio 1 ($)</th>
                                     <th>Precio 2 ($)</th>
                                     <th>Precio 3 ($)</th>
@@ -737,6 +832,29 @@ const Productos = () => {
                                                        
                                                    />
                                                </td>
+                                        <td>
+                                            <div className="form-group">
+                                                {/* Corregí el label para que coincida con el dato real */}
+                                                <label style={{ fontSize: '0.75rem', fontWeight: 'bold' }}>Cód. Barras</label>
+        
+                                                <input 
+                                                    type="text" 
+                                                    value={u.CodigoBarras || ''} 
+                                                    onChange={(e) => {
+                                                        const val = e.target.value;
+                                                        setProductoForm(prev => {
+                                                            const nuevas = [...prev.unidades];
+                                                            nuevas[idx] = { ...nuevas[idx], CodigoBarras: val };
+                                                            return { ...prev, unidades: nuevas };
+                                                        });
+                                                    }}
+                                                    className="form-input"
+                                                    style={{ width: '100%' }}
+                                                    disabled={productoForm.tipoArt === 'Servicio'}
+                                                    placeholder="Escanear..."
+                                                />
+                                            </div>
+                                        </td>
 
                                         {/* Inputs de precios */}
                                         <td>
@@ -859,6 +977,79 @@ const Productos = () => {
                                 </tbody>
                             </table>
                         </div>
+                    </div>
+                </div>
+            )}
+            {/* MODAL DE GESTIÓN DE CATEGORÍAS */}
+            {modalCategoriasOpen && (
+                <div className="modal-overlay" style={{ zIndex: 1100 }}> {/* Z-index mayor para que quede encima */}
+                    <div className="modulo-container" style={{ width: '500px', maxHeight: '80vh', overflowY: 'auto' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '15px' }}>
+                            <h3>📂 Gestión de Categorías</h3>
+                            <button onClick={() => setModalCategoriasOpen(false)} style={{ border: 'none', background: 'none', cursor: 'pointer', fontSize: '1.2rem' }}>✕</button>
+                        </div>
+
+                        {/* FORMULARIO PEQUEÑO */}
+                        <div style={{ display: 'flex', gap: '10px', marginBottom: '20px', alignItems: 'flex-end' }}>
+                            <div style={{ flex: 1 }}>
+                                <label style={{ fontSize: '0.8rem' }}>Nombre Categoría</label>
+                                <input 
+                                    type="text" 
+                                    className="form-input"
+                                    value={categoriaForm.nombreCategoria}
+                                    onChange={e => setCategoriaForm({...categoriaForm, nombreCategoria: e.target.value})}
+                                    placeholder="Nueva categoría..."
+                                />
+                            </div>
+                            <button 
+                                onClick={guardarCategoriaCatalogo} 
+                                className="btn-primary" 
+                                disabled={loadingCategoria}
+                            >
+                                {loadingCategoria ? '...' : (categoriaForm.idCategoria === 0 ? '➕ Crear' : '💾 Actualizar')}
+                            </button>
+                            {categoriaForm.idCategoria !== 0 && (
+                                <button 
+                                    onClick={() => setCategoriaForm({ idCategoria: 0, nombreCategoria: '' })} 
+                                    className="btn-secondary"
+                                >
+                                    Cancelar
+                                </button>
+                            )}
+                        </div>
+
+                        {/* LISTA EXISTENTE */}
+                        <table className="tabla-general" style={{ fontSize: '0.85rem' }}>
+                            <thead>
+                                <tr>
+                                    <th>Nombre</th>
+                                    <th style={{ width: '80px', textAlign: 'center' }}>Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {categorias.map(cat => (
+                                    <tr key={cat.idCategoria}>
+                                        <td>{cat.nombreCategoria || cat.nombre}</td>
+                                        <td style={{ textAlign: 'center' }}>
+                                            <button 
+                                                onClick={() => editarCategoriaCatalogo(cat)}
+                                                style={{ border: 'none', background: 'none', cursor: 'pointer', marginRight: '5px' }}
+                                                title="Editar"
+                                            >
+                                                ✏️
+                                            </button>
+                                            <button 
+                                                onClick={() => borrarCategoriaCatalogo(cat.idCategoria)}
+                                                style={{ border: 'none', background: 'none', cursor: 'pointer', color: 'red' }}
+                                                title="Eliminar"
+                                            >
+                                                🗑️
+                                            </button>
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
                     </div>
                 </div>
             )}

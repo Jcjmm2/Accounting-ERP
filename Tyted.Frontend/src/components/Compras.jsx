@@ -345,6 +345,38 @@ const Compras = () => {
     // Calculamos el Total General sumando los tres pilares
     const totalGeneralCalculado = totalesFactura.exento + totalesFactura.baseImponible + totalesFactura.iva;
 
+    // Estados para el buscador de productos
+    const [busquedaTexto, setBusquedaTexto] = useState("");
+    const [sugerencias, setSugerencias] = useState([]);
+    const [mostrarLista, setMostrarLista] = useState(false);
+
+    // Función que detecta lo que escribes
+    const handleBusquedaChange = (texto) => {
+        setBusquedaTexto(texto);
+        
+        // Regla: Solo buscar si hay 3 o más letras
+        if (texto.length >= 3) {
+            const filtrados = productosMaster.filter(p => 
+                p.nombreMostrar.toLowerCase().includes(texto.toLowerCase())
+            );
+            setSugerencias(filtrados);
+            setMostrarLista(true);
+        } else {
+            setSugerencias([]);
+            setMostrarLista(false);
+        }
+    };
+
+    // Función al hacer clic en una sugerencia
+    const seleccionarProductoBusqueda = (prod) => {
+        setProductoEdicion({
+            ...productoEdicion, 
+            idProductoUnidad: prod.idProductoUnidad
+        });
+        setBusquedaTexto(prod.nombreMostrar); // Pone el nombre en el input
+        setMostrarLista(false); // Oculta la lista
+    };
+
     return (
         <div className="modulo-container" style={{ padding: '20px', maxWidth: '1200px', margin: '0 auto', fontFamily: 'sans-serif' }}>
             
@@ -442,24 +474,126 @@ const Compras = () => {
 
                             <div style={{ backgroundColor: '#fff', padding: '15px', border: '2px solid #2563eb', borderRadius: '8px', marginBottom: '20px' }}>
                                 <h4 style={{ margin: '0 0 10px 0', color: '#2563eb' }}>Agregar Producto</h4>
+    
                                 <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-end' }}>
-                                    <div style={{ flex: 3 }}>
-                                        <select 
-                                            value={productoEdicion.idProductoUnidad} 
-                                            onChange={(e) => setProductoEdicion({...productoEdicion, idProductoUnidad: e.target.value})}
-                                            style={{ width: '100%', padding: '8px' }}
-                                        >
-                                            <option value="">-- Buscar producto --</option>
-                                            {productosMaster.map(p => <option key={p.idProductoUnidad} value={p.idProductoUnidad}>{p.nombreMostrar}</option>)}
-                                        </select>
+        
+                                    {/* --- INICIO DEL AUTOCOMPLETE (Reemplaza al Select) --- */}
+                                    <div style={{ flex: 3, position: 'relative' }}> {/* Importante: position relative para anclar la lista */}
+            
+                                        {/* EL INPUT DE BÚSQUEDA */}
+                                        <input 
+                                            type="text" 
+                                            placeholder="🔍 Escriba 3 letras para buscar..." 
+                                            value={busquedaTexto}
+                                            onChange={(e) => handleBusquedaChange(e.target.value)}
+                                            onFocus={() => {
+                                                // Si ya hay algo seleccionado, borramos para buscar de nuevo
+                                                if(productoEdicion.idProductoUnidad) {
+                                                    setBusquedaTexto("");
+                                                    setProductoEdicion({...productoEdicion, idProductoUnidad: ""});
+                                                }
+                                            }}
+                                            style={{ 
+                                                width: '100%', 
+                                                padding: '8px', 
+                                                borderRadius: '4px',
+                                                border: '1px solid #ccc' 
+                                            }}
+                                        />
+
+                                        {/* LA LISTA FLOTANTE DE RESULTADOS */}
+                                        {mostrarLista && sugerencias.length > 0 && (
+                                            <ul style={{
+                                                position: 'absolute',
+                                                top: '100%', // Justo debajo del input
+                                                left: 0,
+                                                right: 0,
+                                                backgroundColor: 'white',
+                                                border: '1px solid #ccc',
+                                                borderRadius: '0 0 4px 4px',
+                                                maxHeight: '200px', // Altura máxima con scroll
+                                                overflowY: 'auto',
+                                                zIndex: 1000, // Para que flote encima de todo
+                                                listStyle: 'none',
+                                                padding: 0,
+                                                margin: 0,
+                                                boxShadow: '0 4px 6px rgba(0,0,0,0.1)'
+                                            }}>
+                                                {sugerencias.map(p => (
+                                                    <li 
+                                                        key={p.idProductoUnidad}
+                                                        onClick={() => seleccionarProductoBusqueda(p)}
+                                                        style={{
+                                                            padding: '8px 12px',
+                                                            cursor: 'pointer',
+                                                            borderBottom: '1px solid #eee',
+                                                            fontSize: '0.9rem'
+                                                        }}
+                                                        onMouseEnter={(e) => e.target.style.backgroundColor = '#f1f5f9'}
+                                                        onMouseLeave={(e) => e.target.style.backgroundColor = 'white'}
+                                                    >
+                                                        {p.nombreMostrar}
+                                                    </li>
+                                                ))}
+                                            </ul>
+                                        )}
+
+                                        {/* Mensaje si no hay resultados */}
+                                        {mostrarLista && sugerencias.length === 0 && busquedaTexto.length >= 3 && (
+                                            <div style={{
+                                                position: 'absolute',
+                                                top: '100%',
+                                                left: 0,
+                                                width: '100%',
+                                                backgroundColor: 'white',
+                                                border: '1px solid #ef4444',
+                                                color: '#ef4444',
+                                                padding: '8px',
+                                                zIndex: 1000,
+                                                fontSize: '0.8rem'
+                                            }}>
+                                                No se encontraron productos.
+                                            </div>
+                                        )}
                                     </div>
+                                    {/* --- FIN DEL AUTOCOMPLETE --- */}
+
+                                    {/* INPUT CANTIDAD (Se mantiene igual) */}
                                     <div style={{ flex: 1 }}>
-                                        <input type="number" placeholder="Cant" value={productoEdicion.cantidad} onChange={(e) => setProductoEdicion({...productoEdicion, cantidad: e.target.value})} style={{ width: '100%', padding: '8px' }} />
+                                        <input 
+                                            type="number" 
+                                            placeholder="Cant" 
+                                            value={productoEdicion.cantidad} 
+                                            onChange={(e) => setProductoEdicion({...productoEdicion, cantidad: e.target.value})} 
+                                            style={{ width: '100%', padding: '8px' }} 
+                                        />
                                     </div>
+
+                                    {/* INPUT COSTO (Se mantiene igual) */}
                                     <div style={{ flex: 1 }}>
-                                        <input type="number" placeholder="Costo" value={productoEdicion.costoUnitario} onChange={(e) => setProductoEdicion({...productoEdicion, costoUnitario: e.target.value})} style={{ width: '100%', padding: '8px' }} />
+                                        <input 
+                                            type="number" 
+                                            placeholder="Costo" 
+                                            value={productoEdicion.costoUnitario} 
+                                            onChange={(e) => setProductoEdicion({...productoEdicion, costoUnitario: e.target.value})} 
+                                            style={{ width: '100%', padding: '8px' }} 
+                                        />
                                     </div>
-                                    <button onClick={agregarProductoALista} style={{ padding: '10px 20px', backgroundColor: '#2563eb', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}>+</button>
+
+                                    {/* BOTÓN AGREGAR (Se mantiene igual) */}
+                                    <button 
+                                        onClick={agregarProductoALista} 
+                                        style={{ 
+                                            padding: '10px 20px', 
+                                            backgroundColor: '#2563eb', 
+                                            color: 'white', 
+                                            border: 'none', 
+                                            borderRadius: '5px', 
+                                            cursor: 'pointer' 
+                                        }}
+                                    >
+                                        +
+                                    </button>
                                 </div>
                             </div>
 
@@ -503,15 +637,52 @@ const Compras = () => {
                                 <option value="BS">Bolívares (Bs)</option>
                             </select>
 
+                            {/* ... dentro de la Columna Derecha ... */}
+
                             <label style={{ fontSize: '0.8rem', fontWeight: 'bold' }}>Tasa de Referencia</label>
-                            <input 
-                                type="number" 
+
+                            {/* INICIO DEL CAMBIO */}
+                            <select 
                                 value={tasaCompra} 
-                                onChange={(e) => setTasaCompra(parseFloat(e.target.value) || 0)} 
-                                style={{ width: '100%', padding: '10px', marginBottom: '20px', fontWeight: 'bold', border: '2px solid #2563eb', borderRadius: '5px', backgroundColor: '#eff6ff' }} 
-                            />
+                                onChange={(e) => {
+                                    // Convertimos el valor seleccionado a número
+                                    const valorSeleccionado = parseFloat(e.target.value);
+                                    setTasaCompra(valorSeleccionado || 0);
+                                }}
+                                style={{ 
+                                    width: '100%', 
+                                    padding: '10px', 
+                                    marginBottom: '20px', 
+                                    fontWeight: 'bold', 
+                                    border: '2px solid #2563eb', 
+                                    borderRadius: '5px', 
+                                    backgroundColor: '#eff6ff',
+                                    cursor: 'pointer'
+                                }}
+                            >
+                                <option value={0}>-- Seleccione una tasa --</option>
+    
+                                {/* Mapeamos las tasas traídas de la base de datos */}
+                                {tasasReferencia.map((t, index) => (
+                                    <option key={index} value={t.tasa}>
+                                        {/* Mostramos: Nombre (ej: BCV) - Valor (ej: 36.50) */}
+                                        {t.nombreTasa || t.nombre} - {t.tasa} 
+                                    </option>
+                                ))}
+                            </select>
+                            {/* FIN DEL CAMBIO */}
+
+                            {/* Opcional: Mostrar el valor seleccionado numéricamente abajo solo como referencia visual */}
+                            {tasaCompra > 0 && (
+                                <div style={{ fontSize: '0.8rem', color: '#64748b', marginBottom: '15px' }}>
+                                    Valor aplicado para cálculos: <strong>{tasaCompra}</strong>
+                                </div>
+                            )}
 
                             <div style={{ borderTop: '2px solid #eee', paddingTop: '10px' }}>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
+                                    <span>Exento:</span> <span>{totalesFactura.exento.toFixed(2)} {monedaFactura}</span>
+                                </div>
                                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
                                     <span>Base Imponible:</span> <span>{totalesFactura.baseImponible.toFixed(2)} {monedaFactura}</span>
                                 </div>
