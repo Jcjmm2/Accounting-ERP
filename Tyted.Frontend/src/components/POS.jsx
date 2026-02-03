@@ -28,6 +28,27 @@ const POS = () => {
     puntoBancamiga: 0,
     Metal: 0
     });
+  const [datosEmpresa, setDatosEmpresa] = useState({
+        razonSocial: "CARGANDO...",
+        rif: "",
+        direccion: "",
+        telefono: ""
+      });
+      useEffect(() => {
+    const cargarDatosEmpresa = async () => {
+        try {
+            const res = await fetch(`${API_URL}/Empresa/configuracion`);
+            if (res.ok) {
+                const data = await res.json();
+                // Aseguramos que data tenga datos, si no, mantenemos valores seguros
+                setDatosEmpresa(data || {});
+            }
+        } catch (error) {
+            console.error("Error cargando datos de empresa:", error);
+        }
+    };
+    cargarDatosEmpresa();
+    }, [API_URL]);
 
   // --- NUEVO ESTADO PARA PEDIDOS PENDIENTES ---
 const [mostrarModalPedidos, setMostrarModalPedidos] = useState(false);
@@ -714,8 +735,11 @@ const diferencia = totalUSD - totalPagadoUSD;
         </style>
       </head>
       <body onload="window.print(); window.close();">
-        <div class="text-center"><b>${venta.negocio || 'TU NEGOCIO C.A.'}</b></div>
-        <div class="text-center">RIF: J-12345678-9</div>
+        <div class="text-center"><b>${datosEmpresa.razonSocial || 'NOMBRE DE EMPRESA'}</b></div>
+        <div class="text-center">RIF: ${datosEmpresa.rif || 'J-00000000'}</div>
+        <div class="direccion">${datosEmpresa.direccion || ''}</div>
+        <div class="text-center" style="font-size:10px;">Telf: ${datosEmpresa.telefono || ''}</div>
+        
         <div class="linea"></div>
         
         <div class="seccion-cliente">
@@ -754,7 +778,7 @@ const diferencia = totalUSD - totalPagadoUSD;
         ${venta.pagos.map(pago => `
           <div style="font-size: 10px; display: flex; justify-content: space-between;">
             <span>${pago.metodoPago.replace('_', ' ')}:</span>
-            <span>${pago.montoMonedaExt.toLocaleString('es-VE', {minimumFractionDigits: 2})} ${pago.metodoPago.includes('USD') || pago.metodoPago === 'METAL' ? '$' : 'Bs.'}</span>
+            <span>${pago.montoMonedaExt.toLocaleString('es-VE', {minimumFractionDigits: 2})} ${pago.metodoPago.includes('USD') || pago.metodoPago === 'METAL' ? 'Bs.' : 'Bs.'}</span>
           </div>
         `).join('')}
 

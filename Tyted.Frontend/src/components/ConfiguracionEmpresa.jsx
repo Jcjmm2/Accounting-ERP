@@ -6,11 +6,12 @@ const ConfiguracionEmpresa = () => {
     
     // Estado para datos básicos (Endpoint /configuracion)
     const [empresa, setEmpresa] = useState({
-        nombre: '',
+        id: 1,
+        razonSocial: '', // <--- Antes decia 'nombre'
         rif: '',
         direccion: '',
         telefono: '',
-        correo: ''
+        email: ''        // <--- Agregamos email que estaba en tu BD
     });
 
     // Estado para ajustes técnicos (Endpoint /ajustes)
@@ -29,7 +30,11 @@ const ConfiguracionEmpresa = () => {
                 fetch(`${API_URL}/Empresa/ajustes`)
             ]);
 
-            if (resEmpresa.ok) setEmpresa(await resEmpresa.json());
+            if (resEmpresa.ok) {
+                const data = await resEmpresa.json();
+                console.log("Datos cargados:", data); // Para verificar en consola
+                setEmpresa(data);
+            }
             if (resAjustes.ok) setAjustes(await resAjustes.json());
         } catch (error) {
             console.error("Error al cargar configuración:", error);
@@ -82,7 +87,12 @@ const ConfiguracionEmpresa = () => {
                 <h3>🏢 Identidad de la Empresa</h3>
                 <form onSubmit={guardarDatosEmpresa} style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
                     <label>Nombre / Razón Social:</label>
-                    <input type="text" value={empresa.nombre} onChange={e => setEmpresa({...empresa, nombre: e.target.value})} />
+                    <input 
+                        type="text" 
+                        value={empresa.razonSocial || ''} 
+                        onChange={e => setEmpresa({...empresa, razonSocial: e.target.value})} 
+                        placeholder="Ej: Inversiones Tyted, C.A."
+                    />
                     
                     <label>RIF / NIT:</label>
                     <input type="text" value={empresa.rif} onChange={e => setEmpresa({...empresa, rif: e.target.value})} />
