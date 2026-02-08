@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-//using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization;
 using Tyted.API.Data;
 using Tyted.API.Models;
 using Tyted.API.DTOs;
@@ -8,8 +8,7 @@ using Tyted.API.DTOs;
 namespace Tyted.API.Controllers
 {
     [Route("api/[controller]")]
-    // Mantenemos los roles para asegurar que solo personal autorizado gestione pagos
-    //[Authorize(Roles = "AdministradorSistema,Administrador,Comprador,Cajero")] 
+    [Authorize(Roles = "AdministradorSistema,Administrador,Comprador,Cajero")] 
     [ApiController]
     public class PagosController : ControllerBase
     {

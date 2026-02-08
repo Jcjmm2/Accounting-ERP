@@ -1,11 +1,11 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-//using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization;
 using Tyted.API.Data;
 using Tyted.API.Models;
 
 [Route("api/[controller]")]
-//[Authorize(Roles = "AdministradorSistema,Administrador,Comprador,Analista")]
+[Authorize(Roles = "AdministradorSistema,Administrador,Comprador,Analista")]
 [ApiController]
 public class UnidadesMedidaController : ControllerBase
 {

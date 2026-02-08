@@ -1,6 +1,6 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
-//using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization;
 using Tyted.API.Data;
 using Tyted.API.Models;
 
@@ -8,7 +8,7 @@ using Tyted.API.Models;
 namespace Tyted.API.Controllers
 {
     [Route("api/[controller]")]
-    //[Authorize(Roles = "AdministradorSistema,Administrador,Comprador")]
+    [Authorize(Roles = "AdministradorSistema,Administrador,Comprador")]
     [ApiController]
     public class ProductosController : ControllerBase
     {

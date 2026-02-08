@@ -1,12 +1,12 @@
 using Microsoft.AspNetCore.Mvc;
-//using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization;
 using Tyted.API.Models;
 using Tyted.API.Services;
 
 namespace Tyted.API.Controllers
 {
     [Route("api/[controller]")]
-    //[Authorize(Roles = "AdministradorSistema,Administrador,Comprador,Cajero")] // Requiere login
+    [Authorize(Roles = "AdministradorSistema,Administrador,Comprador,Cajero")] // Requiere login
     [ApiController]
     public class PedidosController : ControllerBase
     {

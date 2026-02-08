@@ -1,12 +1,12 @@
 using Microsoft.AspNetCore.Mvc;
 using Tyted.API.Models;
-//using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization;
 using Tyted.API.Services;
 
 namespace Tyted.API.Controllers
 {
     [Route("api/[controller]")]
-    //[Authorize(Roles = "AdministradorSistema,Administrador,Comprador")]
+    [Authorize(Roles = "AdministradorSistema,Administrador,Comprador")]
     [ApiController]
     public class NotasEntregaController : ControllerBase
     {

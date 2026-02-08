@@ -1,12 +1,14 @@
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Tyted.API.Data;
+using Microsoft.AspNetCore.Authorization;
 using Tyted.API.Models;
 using System.Text.Json.Serialization;
 
 namespace Tyted.API.Controllers
 {
     [Route("api/[controller]")]
+    [Authorize(Roles = "AdministradorSistema,Administrador,Comprador,Cajero")]
     [ApiController]
     public class TasaDeCambioController : ControllerBase
     {

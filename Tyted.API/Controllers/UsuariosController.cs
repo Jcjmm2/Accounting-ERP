@@ -12,7 +12,7 @@ using System.Security.Cryptography;
 namespace Tyted.API.Controllers
 {
     [Route("api/[controller]")]
-    //[Authorize(Roles = "AdministradorSistema,Administrador")]
+    [Authorize(Roles = "AdministradorSistema,Administrador")]
     [ApiController]
     public class UsuariosController : ControllerBase
     {
@@ -25,15 +25,30 @@ namespace Tyted.API.Controllers
             _config = config;
         }
 
-        // 1. REGISTRO DE USUARIOS (Solo AdminSistema puede crear usuarios)
+        // 1. OBTENER LISTA DE USUARIOS (READ)
+        [Authorize(Roles = "AdministradorSistema,Administrador")]
+        [HttpGet]
+        public async Task<ActionResult<IEnumerable<Usuario>>> GetUsuarios()
+        {
+            return await _context.Usuarios.ToListAsync();
+        }
+
+        // 2. REGISTRO DE USUARIOS (CREATE) - Ahora usa DTO para seguridad
         [Authorize(Roles = "AdministradorSistema")]
         [HttpPost("registrar")]
-        public async Task<IActionResult> Registrar(Usuario usuario, string password)
+        public async Task<IActionResult> Registrar([FromBody] RegistroUsuarioDto dto)
         {
-            if (await _context.Usuarios.AnyAsync(u => u.Username == usuario.Username))
+            if (await _context.Usuarios.AnyAsync(u => u.Username == dto.Username))
                 return BadRequest("El nombre de usuario ya existe.");
 
-            usuario.PasswordHash = BCrypt.Net.BCrypt.HashPassword(password); // Se recomienda usar la librería BCrypt.Net-Next
+            var usuario = new Usuario
+            {
+                Username = dto.Username,
+                NombreCompleto = dto.NombreCompleto,
+                Rol = dto.Rol,
+                Activo = dto.Activo,
+                PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password)
+            };
             
             _context.Usuarios.Add(usuario);
             await _context.SaveChangesAsync();
@@ -41,15 +56,64 @@ namespace Tyted.API.Controllers
             return Ok(new { message = "Usuario creado exitosamente" });
         }
 
-        // 2. LOGIN (Genera el Token JWT)
+        // 3. EDITAR USUARIO (UPDATE)
+        [Authorize(Roles = "AdministradorSistema")]
+        [HttpPut("{id}")]
+        public async Task<IActionResult> UpdateUsuario(int id, [FromBody] UpdateUsuarioDto dto)
+        {
+            var usuario = await _context.Usuarios.FindAsync(id);
+            if (usuario == null) return NotFound("Usuario no encontrado.");
+
+            // Actualizamos campos básicos
+            usuario.NombreCompleto = dto.NombreCompleto;
+            usuario.Rol = dto.Rol;
+            usuario.Activo = dto.Activo;
+
+            // Solo actualizamos contraseña si el usuario escribió una nueva
+            if (!string.IsNullOrEmpty(dto.Password))
+            {
+                usuario.PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password);
+            }
+
+            _context.Entry(usuario).State = EntityState.Modified;
+            await _context.SaveChangesAsync();
+
+            return Ok(new { message = "Usuario actualizado correctamente" });
+        }
+
+        // 4. ELIMINAR USUARIO (DELETE)
+        [Authorize(Roles = "AdministradorSistema")]
+        [HttpDelete("{id}")]
+        public async Task<IActionResult> DeleteUsuario(int id)
+        {
+            var usuario = await _context.Usuarios.FindAsync(id);
+            if (usuario == null) return NotFound("Usuario no encontrado.");
+
+            // Opcional: Evitar que se borre a sí mismo o al admin principal
+            // if (usuario.Username == "admin") return BadRequest("No se puede eliminar al admin principal.");
+
+            _context.Usuarios.Remove(usuario);
+            await _context.SaveChangesAsync();
+
+            return Ok(new { message = "Usuario eliminado correctamente" });
+        }
+
+        // 5. LOGIN
         [HttpPost("login")]
         public async Task<IActionResult> Login([FromBody] LoginDto login)
         {
             var usuario = await _context.Usuarios
                 .FirstOrDefaultAsync(u => u.Username == login.Username && u.Activo);
 
-            if (usuario == null || !BCrypt.Net.BCrypt.Verify(login.Password, usuario.PasswordHash))
+            if (usuario == null)
                 return Unauthorized("Credenciales incorrectas.");
+
+            if (!usuario.Activo)
+                return Unauthorized("Usuario inactivo. Contacte al administrador.");
+
+            if (!BCrypt.Net.BCrypt.Verify(login.Password, usuario.PasswordHash))
+                return Unauthorized("Credenciales incorrectas.");
+
 
             var token = GenerarJwtToken(usuario);
 
@@ -66,7 +130,7 @@ namespace Tyted.API.Controllers
             {
                 new Claim(ClaimTypes.NameIdentifier, usuario.Id.ToString()),
                 new Claim(ClaimTypes.Name, usuario.Username),
-                new Claim(ClaimTypes.Role, usuario.Rol) // Aquí es donde se asigna el permiso
+                new Claim(ClaimTypes.Role, usuario.Rol)
             };
 
             var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["Jwt:Key"] ?? "TuClaveSuperSecretaDe32Caracteres"));
@@ -84,9 +148,27 @@ namespace Tyted.API.Controllers
         }
     }
 
+    // --- DTOs PARA MANEJAR DATOS SEGUROS ---
     public class LoginDto
     {
         public string Username { get; set; } = string.Empty;
         public string Password { get; set; } = string.Empty;
+    }
+
+    public class RegistroUsuarioDto
+    {
+        public string Username { get; set; }
+        public string Password { get; set; }
+        public string NombreCompleto { get; set; }
+        public string Rol { get; set; }
+        public bool Activo { get; set; }
+    }
+
+    public class UpdateUsuarioDto
+    {
+        public string NombreCompleto { get; set; }
+        public string Rol { get; set; }
+        public bool Activo { get; set; }
+        public string? Password { get; set; } // Opcional al editar
     }
 }

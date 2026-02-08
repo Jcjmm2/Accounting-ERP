@@ -7,14 +7,26 @@ const Usuarios = () => {
     const [loading, setLoading] = useState(true);
     const [showModal, setShowModal] = useState(false);
     
-    // Estado para el formulario de registro (según tu UsuariosController.cs)
+    // Estado para saber si estamos editando o creando
+    const [isEditing, setIsEditing] = useState(false);
+    const [currentId, setCurrentId] = useState(null);
+
     const [formData, setFormData] = useState({
         username: '',
-        password: '', // Se envía como parámetro 'password' al endpoint /registrar
+        password: '',
         rol: 'Cajero',
         nombreCompleto: '',
         activo: true
     });
+
+    // Helper para obtener headers con Token
+    const getAuthHeaders = () => {
+        const token = localStorage.getItem('token');
+        return {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+        };
+    };
 
     useEffect(() => {
         cargarUsuarios();
@@ -23,11 +35,15 @@ const Usuarios = () => {
     const cargarUsuarios = async () => {
         try {
             setLoading(true);
-            // Nota: Asegúrate de tener un GET /api/Usuarios en tu backend para listar
-            const res = await fetch(`${API_URL}/Usuarios`);
+            const res = await fetch(`${API_URL}/Usuarios`, {
+                headers: getAuthHeaders() // Enviamos token
+            });
+            
             if (res.ok) {
                 const data = await res.json();
                 setUsuarios(data);
+            } else {
+                console.error("Error cargando usuarios:", res.status);
             }
         } catch (error) {
             console.error("Error al cargar usuarios:", error);
@@ -36,32 +52,34 @@ const Usuarios = () => {
         }
     };
 
-    const handleRegistrar = async (e) => {
+    const handleGuardar = async (e) => {
         e.preventDefault();
         try {
-            // INTEGRACIÓN: Tu controlador recibe el objeto 'usuario' y un string 'password'
-            // El endpoint es: /api/Usuarios/registrar?password=...
-            const url = `${API_URL}/Usuarios/registrar?password=${encodeURIComponent(formData.password)}`;
-            
+            let url = `${API_URL}/Usuarios/registrar`;
+            let method = 'POST';
+
+            // Si estamos editando, cambiamos URL y Método
+            if (isEditing) {
+                url = `${API_URL}/Usuarios/${currentId}`;
+                method = 'PUT';
+            }
+
             const objetoUsuario = {
                 username: formData.username,
+                password: formData.password, // En DTO
                 rol: formData.rol,
                 nombreCompleto: formData.nombreCompleto,
                 activo: formData.activo
             };
 
             const res = await fetch(url, {
-                method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json',
-                    // Si activaste el [Authorize], aquí deberías enviar el token:
-                    // 'Authorization': `Bearer ${localStorage.getItem('token')}`
-                },
+                method: method,
+                headers: getAuthHeaders(),
                 body: JSON.stringify(objetoUsuario)
             });
 
             if (res.ok) {
-                alert("Usuario registrado exitosamente");
+                alert(isEditing ? "Usuario actualizado" : "Usuario registrado exitosamente");
                 setShowModal(false);
                 resetForm();
                 cargarUsuarios();
@@ -70,31 +88,67 @@ const Usuarios = () => {
                 alert("Error: " + errorText);
             }
         } catch (error) {
-            console.error("Error en el registro:", error);
+            console.error("Error en la operación:", error);
+        }
+    };
+
+    const handleEditarClick = (usuario) => {
+        setIsEditing(true);
+        setCurrentId(usuario.id); // Asegúrate que tu modelo backend retorna 'id'
+        setFormData({
+            username: usuario.username,
+            password: '', // La contraseña no se carga por seguridad
+            rol: usuario.rol,
+            nombreCompleto: usuario.nombreCompleto,
+            activo: usuario.activo
+        });
+        setShowModal(true);
+    };
+
+    const handleEliminar = async (id) => {
+        if(!window.confirm("¿Estás seguro de eliminar este usuario?")) return;
+
+        try {
+            const res = await fetch(`${API_URL}/Usuarios/${id}`, {
+                method: 'DELETE',
+                headers: getAuthHeaders()
+            });
+
+            if (res.ok) {
+                alert("Usuario eliminado");
+                cargarUsuarios();
+            } else {
+                alert("No se pudo eliminar el usuario.");
+            }
+        } catch (error) {
+            console.error(error);
         }
     };
 
     const resetForm = () => {
         setFormData({ username: '', password: '', rol: 'Cajero', nombreCompleto: '', activo: true });
+        setIsEditing(false);
+        setCurrentId(null);
     };
 
     return (
         <div className="modulo-container">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
                 <h2>👥 Gestión de Usuarios y Accesos</h2>
-                <button className="btn-primary" onClick={() => setShowModal(true)}>
+                <button className="btn-primary" onClick={() => { resetForm(); setShowModal(true); }}>
                     + Nuevo Usuario
                 </button>
             </div>
 
             {loading ? <p>Cargando personal...</p> : (
-                <table>
+                <table className="tabla-usuarios">
                     <thead>
                         <tr>
                             <th>Usuario</th>
                             <th>Nombre Completo</th>
                             <th>Rol / Permisos</th>
                             <th>Estado</th>
+                            <th>Acciones</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -108,18 +162,31 @@ const Usuarios = () => {
                                     </span>
                                 </td>
                                 <td>{u.activo ? '🟢 Activo' : '🔴 Inactivo'}</td>
+                                <td>
+                                    <button 
+                                        className="btn-sm btn-warning" 
+                                        onClick={() => handleEditarClick(u)}
+                                        style={{marginRight: '5px'}}>
+                                        ✏️
+                                    </button>
+                                    <button 
+                                        className="btn-sm btn-danger" 
+                                        onClick={() => handleEliminar(u.id)}>
+                                        🗑️
+                                    </button>
+                                </td>
                             </tr>
                         ))}
                     </tbody>
                 </table>
             )}
 
-            {/* Modal de Registro */}
+            {/* Modal de Registro / Edición */}
             {showModal && (
                 <div className="modal-overlay">
                     <div className="modulo-container" style={{ width: '450px' }}>
-                        <h3>Registrar Nuevo Usuario</h3>
-                        <form onSubmit={handleRegistrar}>
+                        <h3>{isEditing ? 'Editar Usuario' : 'Registrar Nuevo Usuario'}</h3>
+                        <form onSubmit={handleGuardar}>
                             <div className="form-group">
                                 <label>Nombre Real:</label>
                                 <input 
@@ -135,18 +202,20 @@ const Usuarios = () => {
                                 <input 
                                     type="text" 
                                     required 
+                                    disabled={isEditing} // No permitir cambiar username al editar
                                     value={formData.username}
                                     onChange={e => setFormData({...formData, username: e.target.value})}
                                     placeholder="jperez"
                                 />
                             </div>
                             <div className="form-group">
-                                <label>Contraseña:</label>
+                                <label>Contraseña {isEditing && <small>(Opcional)</small>}:</label>
                                 <input 
                                     type="password" 
-                                    required 
+                                    required={!isEditing} // Solo requerida si es NUEVO
                                     value={formData.password}
                                     onChange={e => setFormData({...formData, password: e.target.value})}
+                                    placeholder={isEditing ? "Dejar en blanco para mantener actual" : ""}
                                 />
                             </div>
                             <div className="form-group">
@@ -162,8 +231,22 @@ const Usuarios = () => {
                                 </select>
                             </div>
                             
+                            {isEditing && (
+                                <div className="form-group" style={{marginTop: '10px'}}>
+                                    <label>
+                                        <input 
+                                            type="checkbox"
+                                            checked={formData.activo}
+                                            onChange={e => setFormData({...formData, activo: e.target.checked})}
+                                        /> Usuario Activo
+                                    </label>
+                                </div>
+                            )}
+                            
                             <div style={{ marginTop: '20px', display: 'flex', gap: '10px' }}>
-                                <button type="submit" className="btn-primary" style={{ flex: 1 }}>Guardar Usuario</button>
+                                <button type="submit" className="btn-primary" style={{ flex: 1 }}>
+                                    {isEditing ? 'Actualizar' : 'Guardar Usuario'}
+                                </button>
                                 <button type="button" onClick={() => setShowModal(false)} className="btn-secondary" style={{ flex: 1 }}>Cancelar</button>
                             </div>
                         </form>
