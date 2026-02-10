@@ -7,8 +7,8 @@ using Tyted.API.Models;
 namespace Tyted.API.Controllers
 {
     [Route("api/[controller]")]
-    [Authorize(Roles = "AdministradorSistema,Administrador,Comprador,Cajero")] 
     [ApiController]
+    [Authorize(Roles = "AdministradorSistema,Administrador,Cajero")]
     public class ClientesController : ControllerBase
     {
         private readonly TytedContext _context;
@@ -25,7 +25,6 @@ namespace Tyted.API.Controllers
                 .ToListAsync();
             return Ok(clientes);
         }
-
         [HttpPost]
         public async Task<IActionResult> Crear([FromBody] Cliente cliente)
         {

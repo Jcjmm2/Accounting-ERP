@@ -9,8 +9,8 @@ namespace Tyted.API.Controllers
 {
 
     [Route("api/[controller]")]
-    [Authorize(Roles = "AdministradorSistema,Administrador,Comprador,Cajero")]
     [ApiController]
+    [Authorize(Roles = "AdministradorSistema,Administrador,Analista")]
     public class DashboardController : ControllerBase
     {
         private readonly EstadisticasService _estadisticasService;

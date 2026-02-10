@@ -55,7 +55,7 @@ const Usuarios = () => {
     const handleGuardar = async (e) => {
         e.preventDefault();
         try {
-            let url = `${API_URL}/Usuarios/registrar`;
+            let url = `${API_URL}/Usuarios/Registrar`;
             let method = 'POST';
 
             // Si estamos editando, cambiamos URL y Método

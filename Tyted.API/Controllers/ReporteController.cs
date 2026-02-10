@@ -9,8 +9,8 @@ using Tyted.API.Helpers;
 namespace Tyted.API.Controllers
 {
     [Route("api/[controller]")]
-    [Authorize(Roles = "AdministradorSistema,Administrador,Analista")]
     [ApiController]
+    [Authorize(Roles = "AdministradorSistema,Administrador,Analista")]
     public class ReportesController : ControllerBase
     {
         private readonly TytedContext _context;
@@ -175,12 +175,14 @@ namespace Tyted.API.Controllers
 
             return Ok(stats);
         }
+
         [HttpGet("descargar-margenes-excel")]
         public async Task<IActionResult> DescargarMargenes()
         {
             var archivo = await _reportService.GenerarExcelMargenesAsync();
             return File(archivo, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "MargenesGanancia.xlsx");
         }
+        [Authorize(Roles = "AdministradorSistema,Administrador,Comprador,Cajero")]
         [HttpGet("descargar-cierre-pdf")]
         public async Task<IActionResult> DescargarCierrePdf([FromQuery] DateTime? fecha)
         {
@@ -192,6 +194,7 @@ namespace Tyted.API.Controllers
             string nombreArchivo = $"Cierre_{fechaReporte:yyyyMMdd}.pdf";
             return File(pdf, "application/pdf", nombreArchivo);
         }
+
         [HttpGet("stock-critico")]
         public async Task<IActionResult> GetStockCritico()
         {
@@ -223,6 +226,7 @@ namespace Tyted.API.Controllers
                 Items = productosCriticos
             });
         }
+
         [HttpGet("descargar-inventario-valorado")]
         public async Task<IActionResult> DescargarInventarioValorado()
         {

@@ -6,8 +6,8 @@ using Tyted.API.Services;
 namespace Tyted.API.Controllers
 {
     [Route("api/[controller]")]
-    [Authorize(Roles = "AdministradorSistema,Administrador,Comprador,Cajero")] // Requiere login
     [ApiController]
+    [Authorize(Roles = "AdministradorSistema,Administrador,Cajero,Analista")]
     public class PedidosController : ControllerBase
     {
         private readonly PedidoService _pedidoService;
@@ -86,6 +86,7 @@ namespace Tyted.API.Controllers
                 return BadRequest(ex.Message);
             }
         }
+
         [HttpPut("{id}")]
         public async Task<IActionResult> ActualizarPedido(int id, Pedido pedido)
         {
@@ -107,10 +108,5 @@ namespace Tyted.API.Controllers
                 return BadRequest(ex.Message);
             }
         }
-    
-
-
-        // Nota: Para "Actualizar", lo más seguro es anular y crear uno nuevo si hay cambios grandes,
-        // o implementar un método Update en PedidoService que valide que el estado sea "Pendiente".}
     }
 }

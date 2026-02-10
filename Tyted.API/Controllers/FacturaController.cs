@@ -7,8 +7,8 @@ using Tyted.API.Models;
 namespace Tyted.API.Controllers
 {
     [Route("api/[controller]")]
-    [Authorize(Roles = "AdministradorSistema,Administrador,Comprador,Cajero")]
     [ApiController]
+    [Authorize(Roles = "AdministradorSistema,Administrador,Cajero")]    
     public class FacturaController : ControllerBase
     {
         private readonly TytedContext _context;

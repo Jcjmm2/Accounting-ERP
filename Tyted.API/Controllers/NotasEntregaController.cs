@@ -6,7 +6,7 @@ using Tyted.API.Services;
 namespace Tyted.API.Controllers
 {
     [Route("api/[controller]")]
-    [Authorize(Roles = "AdministradorSistema,Administrador,Comprador")]
+    [Authorize(Roles = "AdministradorSistema,Administrador,Comprador,Analista")]
     [ApiController]
     public class NotasEntregaController : ControllerBase
     {

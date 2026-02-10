@@ -5,8 +5,8 @@ using Tyted.API.Data;
 using Tyted.API.Models;
 
 [Route("api/[controller]")]
-[Authorize(Roles = "AdministradorSistema,Administrador,Comprador,Analista")]
 [ApiController]
+[Authorize(Roles = "AdministradorSistema,Administrador,Analista")]
 public class UnidadesMedidaController : ControllerBase
 {
     private readonly TytedContext _context;
@@ -25,7 +25,7 @@ public class UnidadesMedidaController : ControllerBase
         return await _context.UnidadesMedida.ToListAsync();
     }
 
-            // POST: api/UnidadesMedida (Para crear GRAMO, KILO, etc.)
+        // POST: api/UnidadesMedida (Para crear GRAMO, KILO, etc.)
         [HttpPost]
         public async Task<ActionResult<UnidadMedida>> PostUnidad(UnidadMedida unidad)
         {

@@ -7,7 +7,7 @@ using Tyted.API.Models;
 namespace Tyted.API.Controllers
 {
     [Route("api/[controller]")]
-    [Authorize(Roles = "AdministradorSistema,Administrador,Comprador")]
+    [Authorize(Roles = "AdministradorSistema,Administrador,Comprador,Cajero,Analista")]
     [ApiController]
     public class ProductosUnidadController : ControllerBase
     {
@@ -92,6 +92,7 @@ namespace Tyted.API.Controllers
                 .Where(u => u.CodigoProd == codigoProd)
                 .ToListAsync();
         }
+
         [HttpPost("RecalcularPreciosBolivares")]
         public async Task<IActionResult> RecalcularPrecios()
         {

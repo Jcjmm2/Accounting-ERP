@@ -8,8 +8,8 @@ using Tyted.API.Models;
 namespace Tyted.API.Controllers
 {
     [Route("api/[controller]")]
-    [Authorize(Roles = "AdministradorSistema,Administrador,Comprador")]
     [ApiController]
+    [Authorize(Roles = "AdministradorSistema,Administrador,Comprador,Cajero,Analista")]
     public class ProductosController : ControllerBase
     {
         private readonly TytedContext _context;
@@ -97,6 +97,7 @@ namespace Tyted.API.Controllers
         {
             return _context.Productos.Any(e => e.CodigoProd == id);
         }
+
         [HttpDelete("{id}")]
         public async Task<IActionResult> DeleteProducto(string id)
         {
@@ -181,6 +182,7 @@ namespace Tyted.API.Controllers
 
             return Ok(respuesta);
         }
+
         [HttpPut("ActualizarPreciosMasivo")]
         public async Task<IActionResult> ActualizarPreciosMasivo([FromBody] List<ActualizarPrecioDTO> preciosDto)
         {
@@ -266,6 +268,7 @@ namespace Tyted.API.Controllers
 
             return Ok(productosCriticos);
         }
+
         [HttpGet("TasasIVA")] // La URL será /api/Productos/TasasIVA
         public async Task<ActionResult> GetTasasIVA()
         {
@@ -320,6 +323,7 @@ namespace Tyted.API.Controllers
                 return StatusCode(500, new { message = "Error en la búsqueda", detail = ex.Message });
             }
         }
+
         [HttpPost]
         public async Task<ActionResult<UnidadMedida>> PostUnidad(UnidadMedida unidad)
         {

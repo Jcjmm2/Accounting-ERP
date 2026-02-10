@@ -13,7 +13,7 @@ namespace Tyted.API.Models
         public string Username { get; set; } = string.Empty;
         public string PasswordHash { get; set; } = string.Empty;
         public string NombreCompleto { get; set; } = string.Empty;
-        public string Rol { get; set; } = "AdministradorSistema,Administrador,Comprador,Cajero,Analista";
+        public string Rol { get; set; } = "AdministradorSistema";
         
         public bool Activo { get; set; } = true;
     }

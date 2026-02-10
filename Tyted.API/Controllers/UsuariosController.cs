@@ -12,8 +12,8 @@ using System.Security.Cryptography;
 namespace Tyted.API.Controllers
 {
     [Route("api/[controller]")]
-    [Authorize(Roles = "AdministradorSistema,Administrador")]
     [ApiController]
+    [AllowAnonymous]
     public class UsuariosController : ControllerBase
     {
         private readonly TytedContext _context;
@@ -26,16 +26,16 @@ namespace Tyted.API.Controllers
         }
 
         // 1. OBTENER LISTA DE USUARIOS (READ)
-        [Authorize(Roles = "AdministradorSistema,Administrador")]
         [HttpGet]
+        [AllowAnonymous]
         public async Task<ActionResult<IEnumerable<Usuario>>> GetUsuarios()
         {
             return await _context.Usuarios.ToListAsync();
         }
 
         // 2. REGISTRO DE USUARIOS (CREATE) - Ahora usa DTO para seguridad
-        [Authorize(Roles = "AdministradorSistema")]
         [HttpPost("registrar")]
+        [AllowAnonymous]
         public async Task<IActionResult> Registrar([FromBody] RegistroUsuarioDto dto)
         {
             if (await _context.Usuarios.AnyAsync(u => u.Username == dto.Username))
@@ -57,8 +57,8 @@ namespace Tyted.API.Controllers
         }
 
         // 3. EDITAR USUARIO (UPDATE)
-        [Authorize(Roles = "AdministradorSistema")]
         [HttpPut("{id}")]
+        [AllowAnonymous]
         public async Task<IActionResult> UpdateUsuario(int id, [FromBody] UpdateUsuarioDto dto)
         {
             var usuario = await _context.Usuarios.FindAsync(id);
@@ -82,8 +82,8 @@ namespace Tyted.API.Controllers
         }
 
         // 4. ELIMINAR USUARIO (DELETE)
-        [Authorize(Roles = "AdministradorSistema")]
         [HttpDelete("{id}")]
+        [AllowAnonymous]
         public async Task<IActionResult> DeleteUsuario(int id)
         {
             var usuario = await _context.Usuarios.FindAsync(id);
@@ -100,6 +100,7 @@ namespace Tyted.API.Controllers
 
         // 5. LOGIN
         [HttpPost("login")]
+        [AllowAnonymous]
         public async Task<IActionResult> Login([FromBody] LoginDto login)
         {
             var usuario = await _context.Usuarios

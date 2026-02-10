@@ -5,8 +5,8 @@ using Tyted.API.Data;
 using Tyted.API.Models;
 
 [Route("api/[controller]")]
-[Authorize(Roles = "AdministradorSistema,Administrador,Comprador")] 
 [ApiController]
+[Authorize(Roles = "AdministradorSistema,Administrador,Comprador,Cajero,Analista")]
 public class ProveedoresController : ControllerBase
 {
     private readonly TytedContext _context;

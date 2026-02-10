@@ -7,8 +7,8 @@ using Tyted.API.Models;
 namespace Tyted.API.Controllers
 {
     [Route("api/[controller]")]
-    [Authorize(Roles = "AdministradorSistema,Administrador")]
     [ApiController]
+    [AllowAnonymous]
     public class EmpresaController : ControllerBase
     {
         private readonly TytedContext _context;
@@ -21,6 +21,7 @@ namespace Tyted.API.Controllers
         // --- MÉTODOS PARA DATOS DE LA EMPRESA (Encabezado) ---
 
         [HttpGet("configuracion")]
+        [AllowAnonymous]
         public async Task<ActionResult<Empresa>> GetEmpresa()
         {
             var empresa = await _context.Empresa.FirstOrDefaultAsync();
@@ -29,6 +30,7 @@ namespace Tyted.API.Controllers
         }
 
         [HttpPut("configuracion")]
+        [AllowAnonymous]
         public async Task<IActionResult> UpdateEmpresa(Empresa empresa)
         {
             empresa.Id = 1; // Forzamos el ID 1 para que siempre sea el único registro
@@ -49,6 +51,7 @@ namespace Tyted.API.Controllers
 
         // Obtener todas las configuraciones (útil para una pantalla de ajustes)
         [HttpGet("ajustes")]
+        [AllowAnonymous]
         public async Task<ActionResult<IEnumerable<EmpresaConfig>>> GetAjustes()
         {
             return await _context.EmpresaConfigs.ToListAsync();
@@ -56,6 +59,7 @@ namespace Tyted.API.Controllers
 
         // Actualizar una configuración específica por su Clave
         [HttpPut("ajustes/{clave}")]
+        [AllowAnonymous]
         public async Task<IActionResult> UpdateAjuste(string clave, [FromBody] string nuevoValor)
         {
             var config = await _context.EmpresaConfigs

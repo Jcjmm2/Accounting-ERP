@@ -1,5 +1,5 @@
 import React, { useState, useContext } from 'react';
-// Importación de componentes existentes
+import Login from './Components/Login';
 import POS from './Components/POS';
 import TasaDeCambio from './Components/TasaDeCambio';
 import { ConfigContext } from './Context/ConfigContext';
@@ -22,7 +22,13 @@ import Pedidos from './Components/Pedidos'; // PedidosController
 
 function App() {
   const [vista, setVista] = useState('pos');
-  const { tasa } = useContext(ConfigContext);
+  const { tasa, user, logout } = useContext(ConfigContext); 
+
+  // --- LÓGICA DE PROTECCIÓN ---
+  // Si no hay usuario logueado, mostramos SOLAMENTE el Login
+  if (!user) {
+    return <Login />;
+  }
 
   // Función para renderizar el componente según la vista seleccionada
   const renderVista = () => {
@@ -52,6 +58,10 @@ function App() {
       <aside className="sidebar">
         <h1 style={{ fontSize: '1.2rem', marginBottom: '1.5rem', color: '#60a5fa' }}>TY Management Software</h1>
         
+        <div style={{ marginBottom: '1.5rem', paddingBottom: '1rem', borderBottom: '1px solid #334155', fontSize: '0.8rem', color: '#cbd5e1' }}>
+           Hola, <b>{user.username}</b> <br/>
+           <span style={{ fontSize: '0.7rem', opacity: 0.7 }}>{user.rol}</span>
+        </div>
         <nav className="nav-menu">
           <small className="nav-label">VENTAS</small>
           <button className={`nav-button ${vista === 'dashboard' ? 'active' : ''}`} onClick={() => setVista('dashboard')}>📊 Dashboard</button>
@@ -75,6 +85,19 @@ function App() {
           <button className={`nav-button ${vista === 'usuarios' ? 'active' : ''}`} onClick={() => setVista('usuarios')}>👤 Usuarios</button>
           <button className={`nav-button ${vista === 'config' ? 'active' : ''}`} onClick={() => setVista('config')}>⚙️ Configuración</button>
         </nav>
+        <div className="sidebar-footer">
+          {/* Botón de Cerrar Sesión */}
+          <button 
+            onClick={logout}
+            style={{ 
+                width: '100%', padding: '8px', background: '#dc2626', color: 'white', 
+                border: 'none', borderRadius: '6px', cursor: 'pointer', marginBottom: '10px' 
+            }}
+          >
+            🔒 Cerrar Sesión
+          </button>
+          <p style={{ fontSize: '0.75rem' }}>Tasa: <b>{tasa} Bs/$</b></p>
+        </div>
 
         {/* Indicador de Tasa al final */}
         <div className="sidebar-footer">

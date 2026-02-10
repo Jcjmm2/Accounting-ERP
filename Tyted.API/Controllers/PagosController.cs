@@ -8,8 +8,8 @@ using Tyted.API.DTOs;
 namespace Tyted.API.Controllers
 {
     [Route("api/[controller]")]
-    [Authorize(Roles = "AdministradorSistema,Administrador,Comprador,Cajero")] 
     [ApiController]
+    [Authorize(Roles = "AdministradorSistema,Administrador,Comprador,Cajero,Analista")]
     public class PagosController : ControllerBase
     {
         private readonly TytedContext _context;

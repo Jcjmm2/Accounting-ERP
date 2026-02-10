@@ -8,8 +8,8 @@ using System.Text.Json.Serialization;
 namespace Tyted.API.Controllers
 {
     [Route("api/[controller]")]
-    [Authorize(Roles = "AdministradorSistema,Administrador,Comprador,Cajero")]
     [ApiController]
+    [AllowAnonymous]
     public class TasaDeCambioController : ControllerBase
     {
         private readonly TytedContext _context;

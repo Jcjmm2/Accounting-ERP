@@ -2,11 +2,13 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Tyted.API.Data;
 using Tyted.API.Models;
+using Microsoft.AspNetCore.Authorization;
 using Tyted.API.Services;
 
 namespace Tyted.API.Controllers
 {
     [Route("api/[controller]")]
+    [Authorize(Roles = "AdministradorSistema,Administrador,Cajero")] 
     [ApiController]
     public class VentasController : ControllerBase
     {
@@ -18,9 +20,8 @@ namespace Tyted.API.Controllers
             _ventaService = ventaService;
             _context = context;
         }
-
         // --- GESTIÓN DE VENTAS ---
-
+        [Authorize(Roles = "AdministradorSistema,Administrador,Comprador,Cajero")]
         [HttpPost]
         public async Task<IActionResult> RegistrarVenta([FromBody] Venta venta)
         {
@@ -42,6 +43,7 @@ namespace Tyted.API.Controllers
             }
         }
 
+        [Authorize(Roles = "AdministradorSistema,Administrador,Comprador,Cajero")]
         [HttpPost("anular/{id}")]
         public async Task<IActionResult> AnularVenta(int id)
         {
@@ -57,14 +59,15 @@ namespace Tyted.API.Controllers
         }
 
         // --- ARQUEO Y CIERRE DE CAJA ---
-
-        [HttpGet("reporte-diario")]
+    
+        [Authorize(Roles = "AdministradorSistema,Administrador,Comprador,Cajero")]
         public async Task<IActionResult> GetReporteDiario()
         {
             var reporte = await _ventaService.GetReporteDiarioAsync(null);
                 return Ok(reporte);
         }
 
+        [Authorize(Roles = "AdministradorSistema,Administrador,Comprador,Cajero")]
         [HttpPost("consultar-cuadre-caja")]
         public async Task<IActionResult> ConsultarCuadreCaja([FromBody] ArqueoCajaDTO arqueo)
         {
@@ -102,6 +105,7 @@ namespace Tyted.API.Controllers
 
         // --- SESIONES DE CAJA ---
 
+        [Authorize(Roles = "AdministradorSistema,Administrador,Comprador,Cajero")]
         [HttpPost("abrir-caja")]
         public async Task<IActionResult> AbrirCaja([FromBody] decimal montoInicial)
         {
@@ -121,6 +125,7 @@ namespace Tyted.API.Controllers
             return Ok(new { message = "Caja abierta exitosamente" });
         }
 
+        [Authorize(Roles = "AdministradorSistema,Administrador,Comprador,Cajero")]
         [HttpPost("cerrar-caja")]
         public async Task<IActionResult> CerrarCaja([FromBody] ArqueoCajaDTO arqueo)
         {
@@ -140,6 +145,7 @@ namespace Tyted.API.Controllers
         }
 
         [HttpGet("estado-caja")]
+        [AllowAnonymous]
         public async Task<IActionResult> GetEstadoCaja()
         {
             var abierta = await _context.CajaSesiones
@@ -149,6 +155,7 @@ namespace Tyted.API.Controllers
 
         // --- REPORTES ---
 
+        [Authorize(Roles = "AdministradorSistema,Administrador,Comprador,Cajero")]
         [HttpGet("reporte-productos")]
         public async Task<IActionResult> GetVentasPorProducto()
         {
