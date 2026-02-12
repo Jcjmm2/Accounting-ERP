@@ -30,6 +30,7 @@ const FilaComparacion = ({ titulo, esperado, campo, color, declarado, setDeclara
 
 const ModalArqueo = ({ isOpen, onClose, API_URL }) => {
     const { tasa } = useContext(ConfigContext);
+    const token = localStorage.getItem("token");
     
     // --- 2. HOOKS ---
     const [datosSistema, setDatosSistema] = useState({
@@ -166,8 +167,9 @@ const ModalArqueo = ({ isOpen, onClose, API_URL }) => {
     const procesarArqueo = async () => {
         setCargando(true);
         try {
+            const token = localStorage.getItem("token");
             const payload = {
-                usuario: "CAJERO_PRINCIPAL",
+                usuario: user.username,
                 efectivoUSDDeclarado: parseFloat(declarado.efectivoUSD) || 0,
                 efectivoVESDeclarado: parseFloat(declarado.efectivoVES) || 0,
                 pagoMovilDeclarado: parseFloat(declarado.pagoMovil) || 0,
@@ -178,7 +180,9 @@ const ModalArqueo = ({ isOpen, onClose, API_URL }) => {
             };
             const res = await fetch(`${API_URL}/Ventas/consultar-cuadre-caja`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                 },
                 body: JSON.stringify(payload)
             });
             if (res.ok) {
@@ -193,8 +197,9 @@ const ModalArqueo = ({ isOpen, onClose, API_URL }) => {
         if (!window.confirm("¿Está seguro de cerrar el turno?")) return;
         setCargando(true);
         try {
+            const token = localStorage.getItem("token");
             const payload = {
-                usuario: "CAJERO_PRINCIPAL",
+                usuario: user.username,
                 montoCierreEfectivoUSD: parseFloat(declarado.efectivoUSD) || 0,
                 montoCierreEfectivoVES: (parseFloat(declarado.efectivoVES) || 0) / tasa,
                 montoCierrePagoMovil: (parseFloat(declarado.pagoMovil) || 0) / tasa,
@@ -205,7 +210,9 @@ const ModalArqueo = ({ isOpen, onClose, API_URL }) => {
             };
             const res = await fetch(`${API_URL}/Ventas/cerrar-caja`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                 },
                 body: JSON.stringify(payload)
             });
             if (res.ok) {

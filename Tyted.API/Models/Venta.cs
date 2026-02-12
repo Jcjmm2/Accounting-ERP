@@ -48,6 +48,9 @@ namespace Tyted.API.Models
         [ForeignKey("ClienteId")]
         public Cliente? Cliente { get; set; }
         public string? MetodoPago { get; set; }
+        
+        [StringLength(100)]
+        public string? Usuario { get; set; }
 
         public virtual ICollection<VentaPago> Pagos { get; set; } = new List<VentaPago>();
 

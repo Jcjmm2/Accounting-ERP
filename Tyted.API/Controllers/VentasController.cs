@@ -8,8 +8,8 @@ using Tyted.API.Services;
 namespace Tyted.API.Controllers
 {
     [Route("api/[controller]")]
-    [Authorize(Roles = "AdministradorSistema,Administrador,Cajero")] 
     [ApiController]
+    [Authorize(Roles = "AdministradorSistema,Administrador,Cajero")] 
     public class VentasController : ControllerBase
     {
         private readonly VentaService _ventaService;
@@ -21,18 +21,26 @@ namespace Tyted.API.Controllers
             _context = context;
         }
         // --- GESTIÓN DE VENTAS ---
-        [Authorize(Roles = "AdministradorSistema,Administrador,Comprador,Cajero")]
+
         [HttpPost]
         public async Task<IActionResult> RegistrarVenta([FromBody] Venta venta)
         {
+            string usuarioActual = User.Identity?.Name;
+
+            if (string.IsNullOrEmpty(usuarioActual)) 
+            {
+                return Unauthorized("No se pudo identificar al usuario.");
+            }
+            
             var caja = await _context.CajaSesiones
-                .FirstOrDefaultAsync(c => c.IsAbierta && c.Usuario == "CAJERO_PRINCIPAL");
+                .FirstOrDefaultAsync(c => c.IsAbierta && c.Usuario == usuarioActual);
 
             if (caja == null)
-                return BadRequest("OPERACIÓN DENEGADA: La caja está cerrada. Debe realizar una apertura para facturar.");
+                return BadRequest($"OPERACIÓN DENEGADA: El usuario {usuarioActual} no tiene una sesión de caja abierta. Debe realizar una apertura.");
 
             try
             {
+                venta.Usuario = usuarioActual;
                 // El VentaService debe estar preparado para recibir 'venta.Pagos'
                 var nuevaVenta = await _ventaService.RegistrarVentaAsync(venta);
                 return Ok(nuevaVenta);
@@ -43,7 +51,6 @@ namespace Tyted.API.Controllers
             }
         }
 
-        [Authorize(Roles = "AdministradorSistema,Administrador,Comprador,Cajero")]
         [HttpPost("anular/{id}")]
         public async Task<IActionResult> AnularVenta(int id)
         {
@@ -60,14 +67,13 @@ namespace Tyted.API.Controllers
 
         // --- ARQUEO Y CIERRE DE CAJA ---
     
-        [Authorize(Roles = "AdministradorSistema,Administrador,Comprador,Cajero")]
+        [HttpGet("reporte-diario")]
         public async Task<IActionResult> GetReporteDiario()
         {
             var reporte = await _ventaService.GetReporteDiarioAsync(null);
                 return Ok(reporte);
         }
 
-        [Authorize(Roles = "AdministradorSistema,Administrador,Comprador,Cajero")]
         [HttpPost("consultar-cuadre-caja")]
         public async Task<IActionResult> ConsultarCuadreCaja([FromBody] ArqueoCajaDTO arqueo)
         {
@@ -105,18 +111,26 @@ namespace Tyted.API.Controllers
 
         // --- SESIONES DE CAJA ---
 
-        [Authorize(Roles = "AdministradorSistema,Administrador,Comprador,Cajero")]
         [HttpPost("abrir-caja")]
         public async Task<IActionResult> AbrirCaja([FromBody] decimal montoInicial)
         {
-            var existe = await _context.CajaSesiones.AnyAsync(c => c.IsAbierta);
-            if (existe) return BadRequest("Ya existe una sesión de caja abierta.");
+            string usuarioActual = User.Identity?.Name; // <--- OBTENER DEL TOKEN
+            if (string.IsNullOrEmpty(usuarioActual)) return Unauthorized();
+
+            var existeMismaCaja = await _context.CajaSesiones
+                .AnyAsync(c => c.IsAbierta && c.Usuario == usuarioActual);
+                
+            if (existeMismaCaja) return BadRequest($"El usuario {usuarioActual} ya tiene una caja abierta.");
+
+            // 2. Opcional: Validar si OTRO usuario tiene la caja abierta (si solo tienes 1 PC)
+            // var existeOtraCaja = await _context.CajaSesiones.AnyAsync(c => c.IsAbierta);
+            // if (existeOtraCaja) return BadRequest("Hay una caja abierta por otro usuario. Debe cerrarse primero.");
 
             var nuevaCaja = new CajaSesion
             {
                 FechaApertura = DateTime.Now,
                 MontoAperturaUSD = montoInicial,
-                Usuario = "CAJERO_PRINCIPAL",
+                Usuario = usuarioActual,
                 IsAbierta = true
             };
 
@@ -125,12 +139,13 @@ namespace Tyted.API.Controllers
             return Ok(new { message = "Caja abierta exitosamente" });
         }
 
-        [Authorize(Roles = "AdministradorSistema,Administrador,Comprador,Cajero")]
         [HttpPost("cerrar-caja")]
         public async Task<IActionResult> CerrarCaja([FromBody] ArqueoCajaDTO arqueo)
         {
+            string usuarioActual = User.Identity?.Name;
+
             var caja = await _context.CajaSesiones
-                .FirstOrDefaultAsync(c => c.IsAbierta && c.Usuario == "CAJERO_PRINCIPAL");
+                .FirstOrDefaultAsync(c => c.IsAbierta && c.Usuario == usuarioActual);
 
             if (caja == null) return BadRequest("No hay una caja abierta para cerrar.");
 
@@ -145,22 +160,24 @@ namespace Tyted.API.Controllers
         }
 
         [HttpGet("estado-caja")]
-        [AllowAnonymous]
         public async Task<IActionResult> GetEstadoCaja()
         {
+            string usuarioActual = User.Identity?.Name;
+            if (string.IsNullOrEmpty(usuarioActual)) return Ok(false);
             var abierta = await _context.CajaSesiones
-                .AnyAsync(c => c.IsAbierta && c.Usuario == "CAJERO_PRINCIPAL");
+                .AnyAsync(c => c.IsAbierta && c.Usuario == usuarioActual);
             return Ok(abierta);
         }
 
         // --- REPORTES ---
 
-        [Authorize(Roles = "AdministradorSistema,Administrador,Comprador,Cajero")]
         [HttpGet("reporte-productos")]
         public async Task<IActionResult> GetVentasPorProducto()
         {
+            string usuarioActual = User.Identity?.Name;
+            
             var cajaActiva = await _context.CajaSesiones
-                .FirstOrDefaultAsync(c => c.IsAbierta && c.Usuario == "CAJERO_PRINCIPAL");
+                .FirstOrDefaultAsync(c => c.IsAbierta && c.Usuario == usuarioActual);
 
             if (cajaActiva == null) return Ok(new List<object>());
 

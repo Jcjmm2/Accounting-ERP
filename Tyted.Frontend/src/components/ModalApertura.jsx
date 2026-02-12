@@ -7,6 +7,7 @@ const ModalApertura = ({ isOpen, onOpenSuccess, API_URL }) => {
     if (!isOpen) return null;
 
     const manejarApertura = async () => {
+        const token = localStorage.getItem("token");
         if (montoInicial < 0) {
             alert("El monto inicial no puede ser negativo");
             return;
@@ -16,7 +17,9 @@ const ModalApertura = ({ isOpen, onOpenSuccess, API_URL }) => {
         try {
             const res = await fetch(`${API_URL}/Ventas/abrir-caja`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+                 },
                 body: JSON.stringify(parseFloat(montoInicial))
             });
 

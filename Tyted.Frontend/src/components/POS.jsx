@@ -7,7 +7,8 @@ import ModalApertura from '../Components/ModalApertura';
 const CLIENTE_DEFECTO = { id: 1, nombre: "CLIENTE EVENTUAL", rif: "V00000000" };
 
 const POS = () => {
-  const { tasa, API_URL } = useContext(ConfigContext);
+  const { tasa, API_URL, user } = useContext(ConfigContext);
+  const token = localStorage.getItem("token");
   const [carrito, setCarrito] = useState([]);
   const [busqueda, setBusqueda] = useState("");
   const [resultadosBusqueda, setResultadosBusqueda] = useState([]);
@@ -16,7 +17,7 @@ const POS = () => {
   const [cliente, setCliente] = useState(CLIENTE_DEFECTO);
   const [mostrarModalCliente, setMostrarModalCliente] = useState(false);
   const [productoEnPesaje, setProductoEnPesaje] = useState(null);
-  const [cajaAbierta, setCajaAbierta] = useState(true);
+  const [cajaAbierta, setCajaAbierta] = useState(false);
   const [mostrarArqueo, setMostrarArqueo] = useState(false);
   const [esCredito, setEsCredito] = useState(false);
   const [errorBusqueda, setErrorBusqueda] = useState(null);
@@ -194,7 +195,13 @@ const cargarPedidoAlCarrito = (pedido) => {
     }
 
     try {
-        const res = await fetch(`${API_URL}/Productos/buscar?termino=${valor}&tasaDelDia=${tasa}`);
+        const res = await fetch(`${API_URL}/Productos/buscar?termino=${valor}&tasaDelDia=${tasa}`, {
+          method: 'GET', // Es buena práctica ser explícito
+          headers: {
+        'Authorization': `Bearer ${token}` // <--- AGREGAR HEADER
+        }
+    });
+          
         if (res.status === 404) {
             throw new Error("PRODUCTO_NO_ENCONTRADO");
         }
@@ -295,7 +302,9 @@ const guardarPedido = async () => {
         setProcesando(true);
         const res = await fetch(`${API_URL}/Pedidos`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: { 'Content-Type': 'application/json',
+              'Authorization': `Bearer ${token}`
+             },
             body: JSON.stringify(pedidoData)
         });
 
@@ -497,6 +506,7 @@ const finalizarVenta = async (tipoVenta = null) => {
   // 3. Construcción del objeto Venta
   const ventaData = {
     clienteId: cliente.id || 1,
+    usuario: user.username,
     esCredito: creditoFinal,
     fechaVenta: new Date().toISOString(),
     fechaVencimiento: creditoFinal ? new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString() : null,
@@ -544,7 +554,9 @@ const finalizarVenta = async (tipoVenta = null) => {
   try {
     const response = await fetch(`${API_URL}/Ventas`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+       },
       body: JSON.stringify(ventaData)
     });
 
@@ -805,11 +817,23 @@ const diferencia = totalUSD - totalPagadoUSD;
   }, [cajaAbierta]);
 
   const verificarEstadoCaja = async () => {
+      const token = localStorage.getItem("token");
       try {
-          const res = await fetch(`${API_URL}/Ventas/estado-caja`);
+          const res = await fetch(`${API_URL}/Ventas/estado-caja`, {
+              method: 'GET',
+              headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${token}` // <--- ESTA ES LA CLAVE
+              }
+          });
           if (res.ok) {
               const estaAbierta = await res.json();
+              console.log("Estado de caja recibido:", estaAbierta);
               setCajaAbierta(estaAbierta);
+          } else {
+              // Si el token expiró o hay error 401, asumimos caja cerrada
+              console.warn("No se pudo verificar caja (posible error de token), bloqueando...");
+              setCajaAbierta(false);
           }
       } catch (e) {
           console.error("Error verificando caja:", e);
@@ -823,6 +847,14 @@ console.log("Cliente Actual:", cliente.nombre, "Permitir Crédito:", cliente.per
 return (
     <>
       {/* 1. ENVOLTORIO PRINCIPAL: Controla el bloqueo visual y funcional */}
+      {/* Barra de Información del Sistema */}
+      <div className="flex justify-between items-center mb-4 bg-gray-800 text-white p-2 rounded-lg text-xs font-bold uppercase tracking-wider">
+        <span>🏪 {datosEmpresa.razonSocial}</span>
+        <div className="flex gap-4">
+          <span className="text-green-400">👤 Cajero: {user?.username || 'DESCONOCIDO'}</span>
+          <span className="text-blue-400">💼 Rol: {user?.rol || 'N/A'}</span>
+        </div>
+      </div>
       <div className={`transition-all duration-700 ${!cajaAbierta ? "pointer-events-none opacity-30 grayscale blur-[2px]" : ""}`} style={{ zIndex: 1 }}>
         <div className="flex h-screen bg-gray-100 font-sans">
           
