@@ -35,6 +35,27 @@ const Compras = () => {
     // 4. Estado de propuestas para el Paso 2
     const [propuestas, setPropuestas] = useState([]);
 
+const fetchWithAuth = async (endpoint, options = {}) => {
+        const token = localStorage.getItem('token');
+        const headers = {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+            ...options.headers
+        };
+
+        const response = await fetch(`${API_URL}${endpoint}`, {
+            ...options,
+            headers
+        });
+
+        if (response.status === 401) {
+            // Manejar sesión expirada (opcional: redirigir a login)
+            console.error("Sesión expirada o no autorizado");
+        }
+
+        return response;
+    };
+
     // 5. Carga de datos inicial
     useEffect(() => {
         cargarDatosIniciales();
@@ -49,7 +70,7 @@ const Compras = () => {
 
     const cargarHistorialCompras = async () => {
         try {
-            const res = await fetch(`${API_URL}/Compras`);
+            const res = await fetchWithAuth('/Compras');
             if (res.ok) setListaCompras(await res.json());
         } catch (error) {
             console.error("Error cargando historial:", error);
@@ -59,8 +80,8 @@ const Compras = () => {
     const cargarDatosIniciales = async () => {
         try {
             const [resProv, resProd] = await Promise.all([
-                fetch(`${API_URL}/Proveedores`),
-                fetch(`${API_URL}/Productos`)
+                fetchWithAuth('/Proveedores'),
+                fetchWithAuth('/Productos')
             ]);
             
             if (resProv.ok) setProveedores(await resProv.json());
@@ -89,7 +110,7 @@ const Compras = () => {
 
     const cargarTasasReferencia = async () => {
         try {
-            const res = await fetch(`${API_URL}/TasaDeCambio/comparativa-compras`);
+            const res = await fetchWithAuth('/TasaDeCambio/comparativa-compras');
             if (res.ok) {
                 const data = await res.json();
                 setTasasReferencia(data);
@@ -109,7 +130,7 @@ const Compras = () => {
         if (!window.confirm("¿Está seguro de anular esta compra? Se revertirá el stock y los costos promedio.")) return;
         try {
             setGuardando(true);
-            const res = await fetch(`${API_URL}/Compras/anular/${id}`, { method: 'POST' });
+            const res = await fetchWithAuth(`Compras/anular/${id}`, { method: 'POST' });
             const data = await res.json();
             if (res.ok) {
                 alert(data.message);
@@ -281,9 +302,8 @@ const Compras = () => {
         // 4. ENVÍO AL SERVIDOR
         try {
             setGuardando(true);
-            const res = await fetch(`${API_URL}/Compras`, {
+            const res = await fetchWithAuth('Compras', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(compraParaEnviar)
             });
 
@@ -307,9 +327,8 @@ const Compras = () => {
         if (guardando) return;
         try {
             setGuardando(true);
-            const res = await fetch(`${API_URL}/Compras/confirmar-precios`, {
+            const res = await fetchWithAuth('Compras/confirmar-precios', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(propuestas) 
             });
             

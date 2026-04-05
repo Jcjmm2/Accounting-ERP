@@ -5,31 +5,52 @@ const ArqueoCaja = () => {
     const { API_URL } = useContext(ConfigContext);
     const [declarado, setDeclarado] = useState({ usd: 0, ves: 0 });
     const [resultado, setResultado] = useState(null);
-
-    const procesarArqueo = async () => {
-    try {
-        const payload = {
-            usuario: "CAJERO_01", // Puedes dinamizarlo luego
-            efectivoUSDDeclarado: declarado.usd,
-            efectivoVESDeclarado: declarado.ves,
-            pagoMovilDeclarado: declarado.pagoMovil, // Nuevo campo
-            observaciones: "Cierre de prueba factura #000007" 
+    // --- FUNCIÓN PARA OBTENER HEADERS CON TOKEN ---
+    const getAuthHeaders = () => {
+        const token = localStorage.getItem('token');
+        return {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
         };
+    };
 
-        const res = await fetch(`${API_URL}/Ventas/consultar-cuadre-caja`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-        });
+const procesarArqueo = async () => {
+        try {
+            setError(null);
+            
+            // 1. Obtener el nombre de usuario real del localStorage o del contexto de auth
+            // Si guardas el objeto usuario al loguearte, extráelo de ahí.
+            const usernameActivo = localStorage.getItem('username') || "Usuario Desconocido";
 
-        if (res.ok) {
-            const data = await res.json();
-            setResultado(data);
+            const payload = {
+                usuario: usernameActivo, // Dinamizado con el usuario real
+                efectivoUSDDeclarado: parseFloat(declarado.usd) || 0,
+                efectivoVESDeclarado: parseFloat(declarado.ves) || 0,
+                pagoMovilDeclarado: parseFloat(declarado.pagoMovil) || 0,
+                observaciones: `Cierre de caja efectuado por ${usernameActivo}` 
+            };
+
+            const res = await fetch(`${API_URL}/Ventas/consultar-cuadre-caja`, {
+                method: 'POST',
+                headers: getAuthHeaders(), // AGREGADO: Token de seguridad
+                body: JSON.stringify(payload)
+            });
+
+            if (res.ok) {
+                const data = await res.json();
+                setResultado(data);
+                alert("✅ Arqueo procesado con éxito");
+            } else if (res.status === 401) {
+                setError("No autorizado: Tu sesión ha expirado.");
+            } else {
+                const errorData = await res.text();
+                setError("Error en el servidor: " + errorData);
+            }
+        } catch (error) {
+            console.error("Error en arqueo:", error);
+            setError("Error de conexión al procesar el cierre.");
         }
-    } catch (error) {
-        console.error("Error en arqueo:", error);
-    }
-};
+    };
 
     return (
         <div className="p-6 max-w-4xl mx-auto">

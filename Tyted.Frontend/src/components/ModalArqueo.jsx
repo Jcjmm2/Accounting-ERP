@@ -30,7 +30,8 @@ const FilaComparacion = ({ titulo, esperado, campo, color, declarado, setDeclara
 
 const ModalArqueo = ({ isOpen, onClose, API_URL }) => {
     const { tasa } = useContext(ConfigContext);
-    const token = localStorage.getItem("token");
+    const userString = localStorage.getItem("user");
+    const user = userString ? JSON.parse(userString) : { username: "Desconocido" };
     
     // --- 2. HOOKS ---
     const [datosSistema, setDatosSistema] = useState({
@@ -46,7 +47,12 @@ const ModalArqueo = ({ isOpen, onClose, API_URL }) => {
     const [observaciones, setObservaciones] = useState("");
     const [resultado, setResultado] = useState(null);
     const [cargando, setCargando] = useState(false);
-    const [cierreRealizado, setCierreRealizado] = useState(false); 
+    const [cierreRealizado, setCierreRealizado] = useState(false);
+
+const getAuthHeaders = () => ({
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem("token")}`
+    });
 
     useEffect(() => {
         if (isOpen) {
@@ -60,6 +66,80 @@ const ModalArqueo = ({ isOpen, onClose, API_URL }) => {
             });
         }
     }, [isOpen]);
+
+    const obtenerTotalesSistema = async () => {
+        try {
+            const res = await fetch(`${API_URL}/Ventas/reporte-diario`, {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem("token")}` }
+            });
+            if (res.ok) {
+                const data = await res.json();
+                setDatosSistema({
+                    sistemaUSD: data.montoEfectivoUSD || 0,
+                    sistemaVES: data.montoEfectivoVES || 0,
+                    sistemaPM: data.montoPagoMovil || 0,
+                    sistemaBDV: data.montoBDV || 0, 
+                    sistemaBancamiga: data.montoBancamiga || 0,
+                    sistemaMetal: data.montoMetal || 0
+                });
+            }
+        } catch (error) { console.error("Error sistema:", error); }
+    };
+
+    // 2. PROCESAR ARQUEO (POST con Token)
+    const procesarArqueo = async () => {
+        setCargando(true);
+        try {
+            const payload = {
+                usuario: user.username,
+                efectivoUSDDeclarado: parseFloat(declarado.efectivoUSD) || 0,
+                efectivoVESDeclarado: parseFloat(declarado.efectivoVES) || 0,
+                pagoMovilDeclarado: parseFloat(declarado.pagoMovil) || 0,
+                bdvDeclarado: parseFloat(declarado.puntoBDV) || 0,
+                bancamigaDeclarado: parseFloat(declarado.puntoBancamiga) || 0,
+                metalDeclarado: parseFloat(declarado.metal) || 0, // corregido key 'metal'
+                observaciones: observaciones 
+            };
+            const res = await fetch(`${API_URL}/Ventas/consultar-cuadre-caja`, {
+                method: 'POST',
+                headers: getAuthHeaders(),
+                body: JSON.stringify(payload)
+            });
+            if (res.ok) {
+                const data = await res.json();
+                setResultado(data);
+            }
+        } catch (error) { console.error("Error arqueo:", error); } 
+        finally { setCargando(false); }
+    };
+
+    // 3. CIERRE DEFINITIVO (POST con Token)
+    const finalizarCierreDefinitivo = async () => {
+        if (!window.confirm("¿Está seguro de cerrar el turno definitivamente?")) return;
+        setCargando(true);
+        try {
+            const payload = {
+                usuario: user.username,
+                montoCierreEfectivoUSD: parseFloat(declarado.efectivoUSD) || 0,
+                montoCierreEfectivoVES: parseFloat(declarado.efectivoVES) || 0,
+                montoCierrePagoMovil: parseFloat(declarado.pagoMovil) || 0,
+                montoCierrePuntoBDV: parseFloat(declarado.puntoBDV) || 0,
+                montoCierrePuntoBancamiga: parseFloat(declarado.puntoBancamiga) || 0,
+                montoCierremetal: parseFloat(declarado.metal) || 0,
+                observacionesCierre: observaciones || "Cierre de turno estándar",
+            };
+            const res = await fetch(`${API_URL}/Ventas/cerrar-caja`, {
+                method: 'POST',
+                headers: getAuthHeaders(),
+                body: JSON.stringify(payload)
+            });
+            if (res.ok) {
+                setCierreRealizado(true);
+                alert("✅ Caja cerrada exitosamente.");
+            }
+        } catch (e) { alert("Error de conexión."); } 
+        finally { setCargando(false); }
+    };
 
     const imprimirTicketCierre = () => {
     // 1. Calculamos los totales justo antes de imprimir para asegurar datos frescos
@@ -147,81 +227,6 @@ const ModalArqueo = ({ isOpen, onClose, API_URL }) => {
     ventana.close();
 };
 
-    const obtenerTotalesSistema = async () => {
-        try {
-            const res = await fetch(`${API_URL}/Ventas/reporte-diario`);
-            if (res.ok) {
-                const data = await res.json();
-                setDatosSistema({
-                    sistemaUSD: data.montoEfectivoUSD || 0,
-                    sistemaVES: data.montoEfectivoVES || 0,
-                    sistemaPM: data.montoPagoMovil || 0,
-                    sistemaBDV: data.montoBDV || 0, 
-                    sistemaBancamiga: data.montoBancamiga || 0,
-                    sistemaMetal: data.montoMetal || 0
-                });
-            }
-        } catch (error) { console.error("Error sistema:", error); }
-    };
-
-    const procesarArqueo = async () => {
-        setCargando(true);
-        try {
-            const token = localStorage.getItem("token");
-            const payload = {
-                usuario: user.username,
-                efectivoUSDDeclarado: parseFloat(declarado.efectivoUSD) || 0,
-                efectivoVESDeclarado: parseFloat(declarado.efectivoVES) || 0,
-                pagoMovilDeclarado: parseFloat(declarado.pagoMovil) || 0,
-                bdvDeclarado: parseFloat(declarado.puntoBDV) || 0,
-                bancamigaDeclarado: parseFloat(declarado.puntoBancamiga) || 0,
-                metalDeclarado: parseFloat(declarado.Metal) || 0,
-                observaciones: observaciones 
-            };
-            const res = await fetch(`${API_URL}/Ventas/consultar-cuadre-caja`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                 },
-                body: JSON.stringify(payload)
-            });
-            if (res.ok) {
-                const data = await res.json();
-                setResultado(data);
-            }
-        } catch (error) { console.error("Error arqueo:", error); } 
-        finally { setCargando(false); }
-    };
-
-    const finalizarCierreDefinitivo = async () => {
-        if (!window.confirm("¿Está seguro de cerrar el turno?")) return;
-        setCargando(true);
-        try {
-            const token = localStorage.getItem("token");
-            const payload = {
-                usuario: user.username,
-                montoCierreEfectivoUSD: parseFloat(declarado.efectivoUSD) || 0,
-                montoCierreEfectivoVES: (parseFloat(declarado.efectivoVES) || 0) / tasa,
-                montoCierrePagoMovil: (parseFloat(declarado.pagoMovil) || 0) / tasa,
-                montoCierrePuntoBDV: (parseFloat(declarado.puntoBDV) || 0) / tasa,
-                montoCierrePuntoBancamiga: (parseFloat(declarado.puntoBancamiga) || 0) / tasa,
-                montoCierremetal: (parseFloat(declarado.Metal) || 0),
-                observacionesCierre: observaciones || "Cierre de turno estándar",
-            };
-            const res = await fetch(`${API_URL}/Ventas/cerrar-caja`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${token}`
-                 },
-                body: JSON.stringify(payload)
-            });
-            if (res.ok) {
-                setCierreRealizado(true);
-            }
-        } catch (e) { alert("Error de conexión."); } 
-        finally { setCargando(false); }
-    };
-    
     if (!isOpen) return null;
 
     return (
