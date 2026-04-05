@@ -1,5 +1,6 @@
 using Tyted.API.Models;
 using Tyted.API.Data;
+using BCrypt.Net;
 
 namespace Tyted.API.Services
 {
@@ -38,6 +39,19 @@ namespace Tyted.API.Services
                     RIF = "J-12345678-9",
                     Direccion = "Ciudad Bolívar, Estado Bolívar",
                     TipoContribuyente = "Contribuyente Especial"
+                });
+            }
+
+            // 4. Usuario Admin predefinido
+            if (!context.Usuarios.Any())
+            {
+                context.Usuarios.Add(new Usuario
+                {
+                    Username = "admin",
+                    PasswordHash = BCrypt.Net.BCrypt.HashPassword("Admin123!"),
+                    NombreCompleto = "Administrador del Sistema",
+                    Rol = "AdministradorSistema",
+                    Activo = true
                 });
             }
 
