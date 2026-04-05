@@ -8,22 +8,36 @@ const Categorias = () => {
     const [editando, setEditando] = useState(null); // Guarda el ID de la categoría a editar
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
+    const [porcentaje, setPorcentaje] = useState(0);
+
+// Función auxiliar para obtener headers con el token
+    const getAuthHeaders = () => {
+        const token = localStorage.getItem('token');
+        return {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+        };
+    };    
 
     // 1. Cargar categorías al iniciar (GET)
     const obtenerCategorias = async () => {
         try {
             setLoading(true);
-            const res = await fetch(`${API_URL}/Categorias`);
+            const res = await fetch(`${API_URL}/Categorias`, {
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+                });
             if (res.ok) {
                 const data = await res.json();
                 setCategorias(data);
+            } else if (res.status === 401) {
+            setError("Sesión expirada o no autorizada");
             }
-        } catch (err) {
+            } catch (err) {
             setError("Error al conectar con el servidor");
         } finally {
             setLoading(false);
-        }
-    };
+    }
+};
 
     useEffect(() => {
         obtenerCategorias();
@@ -42,18 +56,20 @@ const Categorias = () => {
 
         const categoriaObj = {
             idCategoria: editando || 0,
-            nombre: nombre.toUpperCase() // Mantenemos consistencia en mayúsculas
+            nombre: nombre.toUpperCase(), // Mantenemos consistencia en mayúsculas
+            porcentajeMargen: parseFloat(porcentaje) || 0
         };
 
         try {
             const res = await fetch(url, {
                 method: method,
-                headers: { 'Content-Type': 'application/json' },
+                headers: getAuthHeaders(),
                 body: JSON.stringify(categoriaObj)
             });
 
             if (res.ok) {
                 setNombre('');
+                setPorcentaje(0);
                 setEditando(null);
                 obtenerCategorias();
             } else {
@@ -70,7 +86,9 @@ const Categorias = () => {
         if (!window.confirm("¿Está seguro de eliminar esta categoría?")) return;
 
         try {
-            const res = await fetch(`${API_URL}/Categorias/${id}`, { method: 'DELETE' });
+            const res = await fetch(`${API_URL}/Categorias/${id}`, { method: 'DELETE',
+                headers: { 'Authorization': `Bearer ${localStorage.getItem('token')}` }
+            });
             
             if (res.ok) {
                 obtenerCategorias();
@@ -87,6 +105,7 @@ const Categorias = () => {
     const prepararEdicion = (cat) => {
         setEditando(cat.idCategoria);
         setNombre(cat.nombre);
+        setPorcentaje(cat.porcentajeMargen);
     };
 
     return (
@@ -102,6 +121,14 @@ const Categorias = () => {
                     onChange={(e) => setNombre(e.target.value)}
                     style={{ padding: '10px', flex: 1, borderRadius: '5px', border: '1px solid #ccc' }}
                 />
+                <input
+                        type="number"
+                        step="0.01"
+                        placeholder="% Margen"
+                        value={porcentaje}
+                        onChange={(e) => setPorcentaje(e.target.value)}
+                        style={{ padding: '10px', flex: 1, borderRadius: '5px', border: '1px solid #ccc' }}
+                    />
                 <button 
                     type="submit" 
                     style={{ padding: '10px 20px', background: editando ? '#f59e0b' : '#2563eb', color: 'white', border: 'none', borderRadius: '5px', cursor: 'pointer' }}

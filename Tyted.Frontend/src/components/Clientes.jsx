@@ -16,6 +16,17 @@ const Clientes = () => {
         direccion: '',
         permitirCredito: false
     });
+// --- FUNCIÓN PARA HEADERS CON TOKEN ---
+    const getAuthHeaders = (incluirJson = true) => {
+        const token = localStorage.getItem('token');
+        const headers = {
+            'Authorization': `Bearer ${token}`
+        };
+        if (incluirJson) {
+            headers['Content-Type'] = 'application/json';
+        }
+        return headers;
+    };
 
     // 1. CARGA INICIAL Y BÚSQUEDA
     useEffect(() => {
@@ -33,10 +44,14 @@ const Clientes = () => {
                 ? `${API_URL}/Clientes/buscar/${busqueda}` 
                 : `${API_URL}/Clientes`; // Asegúrate de tener un GET general o usa uno por defecto
             
-            const res = await fetch(url);
+            const res = await fetch(url, {
+                headers: getAuthHeaders(false) // No enviamos body, solo el token
+            });
             if (res.ok) {
                 const data = await res.json();
                 setClientes(data);
+            } else if (res.status === 401) {
+                console.error("No autorizado. Redirigir al login si es necesario.");
             }
         } catch (error) {
             console.error("Error:", error);
@@ -82,7 +97,7 @@ const Clientes = () => {
         try {
             const res = await fetch(url, {
                 method: metodo,
-                headers: { 'Content-Type': 'application/json' },
+                headers: getAuthHeaders(),
                 body: JSON.stringify({ 
                     ...nuevoCliente, 
                     id: editandoId || 0 // El ID debe ir dentro del cuerpo también
@@ -99,8 +114,34 @@ const Clientes = () => {
             }
         } catch (error) {
             console.error("Error de red:", error);
+            alert("❌ Error de conexión con el servidor.");
         }
     };
+    const eliminarCliente = async (id) => {
+    // 1. Confirmación de seguridad
+    if (!window.confirm("¿Estás seguro de eliminar este cliente? Esta acción no se puede deshacer.")) return;
+
+    try {
+        const token = localStorage.getItem('token');
+        const res = await fetch(`${API_URL}/Clientes/${id}`, {
+            method: 'DELETE',
+            headers: {
+                'Authorization': `Bearer ${token}` // Importante para evitar error 401
+            }
+        });
+
+        if (res.ok) {
+            alert("✅ Cliente eliminado correctamente");
+            listarClientes(); // Refresca la lista automáticamente
+        } else {
+            const errorMsg = await res.text();
+            alert("❌ Error al eliminar: " + (errorMsg || "No se pudo completar la acción"));
+        }
+    } catch (error) {
+        console.error("Error de red:", error);
+        alert("❌ Error de conexión al intentar eliminar");
+    }
+};
 
     return (
         <div className="modulo-container">
@@ -157,6 +198,22 @@ const Clientes = () => {
                                         EDITAR
                                     </button>
                                 </td>
+                                <td className="p-4 text-center">
+                                 <div className="flex gap-2 justify-center">
+                                 <button 
+                                    onClick={() => abrirEdicion(c)}
+                                    className="text-blue-600 hover:text-blue-800 font-bold text-xs bg-blue-50 px-3 py-1.5 rounded transition-colors"
+                                      >
+                                          EDITAR
+                                      </button>
+                                      <button 
+                                          onClick={() => eliminarCliente(c.id)}
+                                          className="text-red-600 hover:text-red-800 font-bold text-xs bg-red-50 px-3 py-1.5 rounded transition-colors"
+                                      >
+                                          ELIMINAR
+                                      </button>
+                                  </div>
+                              </td>
                             </tr>
                         ))}
                     </tbody>

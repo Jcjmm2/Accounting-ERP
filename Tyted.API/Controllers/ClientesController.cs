@@ -62,5 +62,27 @@ namespace Tyted.API.Controllers
                 .ToListAsync();
             return Ok(clientes);
         }
+        [HttpDelete("{id}")]
+        public async Task<IActionResult> Eliminar(int id)
+        {
+            var cliente = await _context.Clientes.FindAsync(id);
+    
+            if (cliente == null)
+            {
+                return NotFound("El cliente no existe.");
+            }
+
+            try
+            {
+                _context.Clientes.Remove(cliente);
+                await _context.SaveChangesAsync();
+                return Ok(new { message = "Cliente eliminado correctamente" });
+            }
+            catch (DbUpdateException)
+            {
+                // Esto ocurre si el cliente ya tiene facturas o ventas asociadas
+                return BadRequest("No se puede eliminar el cliente porque tiene registros relacionados (facturas/ventas).");
+            }
+        }
     }
 }
