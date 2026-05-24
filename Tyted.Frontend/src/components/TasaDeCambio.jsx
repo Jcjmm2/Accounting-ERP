@@ -3,6 +3,10 @@ import { ConfigContext } from '../Context/ConfigContext';
 
 const TasaDeCambio = () => {
     const { API_URL, setTasa } = useContext(ConfigContext);
+    const getAuthHeaders = () => ({
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem("token")}`
+    });
     
     // Estados para los valores nominales en VES que el usuario ve en la calle
     const [tasaUSDT, setTasaUSDT] = useState(""); 
@@ -48,7 +52,7 @@ const TasaDeCambio = () => {
             for (const t of configuracion) {
                 await fetch(`${API_URL}/TasaDeCambio/registrar-nueva-tasa`, {
                     method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
+                    headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
                     body: JSON.stringify({
                         valorTasa: t.valor,
                         nombreTasa: t.nombre,

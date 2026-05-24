@@ -6,6 +6,10 @@ const CLIENTE_DEFECTO = { id: 1, nombre: "CLIENTE EVENTUAL", rif: "V00000000" };
 
 const Pedidos = () => {
     const { API_URL, tasa } = useContext(ConfigContext);
+    const getAuthHeaders = () => ({
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem("token")}`
+    });
 
     // --- ESTADOS GLOBALES ---
     const [vista, setVista] = useState('nuevo'); // 'nuevo' (Tipo POS) o 'lista' (Tabla)
@@ -111,7 +115,8 @@ const Pedidos = () => {
         }
 
         try {
-            const res = await fetch(`${API_URL}/Productos/buscar?termino=${valor}&tasaDelDia=${tasa}`);
+            const res = await fetch(`${API_URL}/Productos/buscar?termino=${valor}&tasaDelDia=${tasa}`, {
+                headers: getAuthHeaders() });
             if (res.ok) {
                 const data = await res.json();
                 
@@ -147,7 +152,9 @@ const Pedidos = () => {
     const verPresentaciones = async (codigoMaestro) => {
         setBusqueda(codigoMaestro);
         try {
-            const res = await fetch(`${API_URL}/Productos/buscar?termino=${codigoMaestro}&tasaDelDia=${tasa}`);
+            const res = await fetch(`${API_URL}/Productos/buscar?termino=${codigoMaestro}&tasaDelDia=${tasa}` , {
+            headers: getAuthHeaders()
+            });
             if (res.ok) {
                 const data = await res.json();
                 setResultadosBusqueda(data); // Mostramos todas las variantes
@@ -290,9 +297,7 @@ const Pedidos = () => {
             setProcesando(true);
             const res = await fetch(`${API_URL}/Pedidos`, {
                 method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json'
-                },
+                headers: getAuthHeaders(),
                 body: JSON.stringify(pedidoData)
             });
 
@@ -318,7 +323,9 @@ const Pedidos = () => {
     const cargarListaPedidos = async () => {
         try {
             setCargandoLista(true);
-            const res = await fetch(`${API_URL}/Pedidos`);
+            const res = await fetch(`${API_URL}/Pedidos`, {
+                headers: getAuthHeaders()
+            });
             if (res.ok) {
                 const data = await res.json();
                 setListaPedidos(data);
@@ -335,7 +342,10 @@ const Pedidos = () => {
     const facturarPedido = async (id, metodo, credito) => {
         if(!window.confirm("¿Convertir pedido en factura?")) return;
         try {
-            const res = await fetch(`${API_URL}/Pedidos/${id}/facturar?metodoPago=${metodo}&esCredito=${credito}`, { method: 'POST' });
+            const res = await fetch(`${API_URL}/Pedidos/${id}/facturar?metodoPago=${metodo}&esCredito=${credito}`, { 
+                method: 'POST',
+                headers: getAuthHeaders()
+                });
             if (res.ok) {
                 const data = await res.json();
                 alert(`Factura #${data.factura} generada.`);

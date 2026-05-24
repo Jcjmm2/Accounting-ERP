@@ -1,26 +1,24 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { ConfigContext } from '../Context/ConfigContext';
 
+const getAuthHeaders = () => ({
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${localStorage.getItem("token")}`
+});
+    
 const Reportes = () => {
     const { API_URL, tasa } = useContext(ConfigContext);
-    
-    // --- ESTADOS ---
     const [loading, setLoading] = useState(false);
     const [tab, setTab] = useState('cierre'); // 'cierre', 'stock', 'estadisticas', 'precios'
-    
-    // Datos
     const [cierre, setCierre] = useState(null);
     const [utilidad, setUtilidad] = useState(null);
     const [stockCritico, setStockCritico] = useState([]);
     const [listaPrecios, setListaPrecios] = useState([]);
     const [estadisticas, setEstadisticas] = useState([]);
-    
-    // Filtros para estadísticas
     const [rangoFechas, setRangoFechas] = useState({
         inicio: new Date().toISOString().split('T')[0],
         fin: new Date().toISOString().split('T')[0]
     });
-
     // --- EFECTOS ---
     useEffect(() => {
         if (tab === 'cierre') cargarCierreDiario();
@@ -36,8 +34,8 @@ const Reportes = () => {
         try {
             // Hacemos ambas peticiones en paralelo para velocidad
             const [resCierre, resUtilidad] = await Promise.all([
-                fetch(`${API_URL}/Reportes/cierre-caja-hoy`),
-                fetch(`${API_URL}/Reportes/utilidad-hoy`)
+                fetch(`${API_URL}/Reportes/cierre-caja-hoy`, { headers: getAuthHeaders() }),
+                fetch(`${API_URL}/Reportes/utilidad-hoy`, { headers: getAuthHeaders() })
             ]);
 
             if (resCierre.ok) setCierre(await resCierre.json());
@@ -53,7 +51,7 @@ const Reportes = () => {
     const cargarStockCritico = async () => {
         setLoading(true);
         try {
-            const res = await fetch(`${API_URL}/Reportes/stock-critico`);
+            const res = await fetch(`${API_URL}/Reportes/stock-critico`, { headers: getAuthHeaders() });
             const data = await res.json();
             // El endpoint devuelve { items: [...] } o un mensaje
             setStockCritico(data.items || []); 
@@ -67,7 +65,8 @@ const Reportes = () => {
     const cargarListaPrecios = async () => {
         setLoading(true);
         try {
-            const res = await fetch(`${API_URL}/Reportes/productos-costos-precios`);
+            const res = await fetch(`${API_URL}/Reportes/productos-costos-precios`
+                , { headers: getAuthHeaders() });
             if(res.ok) setListaPrecios(await res.json());
         } catch (error) {
             console.error(error);
@@ -79,7 +78,9 @@ const Reportes = () => {
     const buscarEstadisticas = async () => {
         setLoading(true);
         try {
-            const res = await fetch(`${API_URL}/Reportes/estadisticas-ventas?inicio=${rangoFechas.inicio}&fin=${rangoFechas.fin}`);
+            const res = await fetch(`${API_URL}/Reportes/estadisticas-ventas?inicio=${rangoFechas.inicio}&fin=${rangoFechas.fin}`,{ 
+                headers: getAuthHeaders() }
+            );
             if(res.ok) setEstadisticas(await res.json());
         } catch (error) {
             console.error(error);

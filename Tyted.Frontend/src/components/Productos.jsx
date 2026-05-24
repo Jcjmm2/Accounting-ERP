@@ -3,6 +3,10 @@ import { ConfigContext } from '../Context/ConfigContext';
 
 const Productos = () => {
     const { API_URL, tasa } = useContext(ConfigContext);
+    const getAuthHeaders = () => ({
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem("token")}`
+    });
     const [productos, setProductos] = useState([]);
     const [loading, setLoading] = useState(true);
     const [busqueda, setBusqueda] = useState("");
@@ -51,7 +55,7 @@ const Productos = () => {
     const cargarProductos = async () => {
         try {
             setLoading(true);
-            const res = await fetch(`${API_URL}/Productos`);
+            const res = await fetch(`${API_URL}/Productos`, { headers: getAuthHeaders() });
             if (res.ok) {
                 const data = await res.json();
                 setProductos(data);
@@ -65,7 +69,7 @@ const Productos = () => {
 
     const cargarUnidadesMedida = async () => {
         try {
-            const res = await fetch(`${API_URL}/UnidadesMedida`); // Verifica que esta ruta sea correcta
+            const res = await fetch(`${API_URL}/UnidadesMedida`, { headers: getAuthHeaders() }); // Verifica que esta ruta sea correcta
             if (res.ok) {
                 const data = await res.json();
                 setUnidadesMedida(data);
@@ -76,7 +80,7 @@ const Productos = () => {
     };
     const cargarCategorias = async () => {
         try {
-            const res = await fetch(`${API_URL}/Categorias`); // Verifica que tu endpoint sea este
+            const res = await fetch(`${API_URL}/Categorias`, { headers: getAuthHeaders() }); // Verifica que tu endpoint sea este
             if (res.ok) {
                 const data = await res.json();
                 setCategorias(data);
@@ -88,7 +92,7 @@ const Productos = () => {
     const cargarTasasIva = async () => {
         try {
             // Nota: Se usa /TasasIVA según la ruta estándar de tu controlador
-            const res = await fetch(`${API_URL}/TasasIVA`); 
+            const res = await fetch(`${API_URL}/TasasIVA`, { headers: getAuthHeaders() });
             if (res.ok) {
                 const data = await res.json();
                 setTasasIva(data);
@@ -109,7 +113,7 @@ const Productos = () => {
 
             const res = await fetch(url, {
                 method: metodo,
-                headers: { 'Content-Type': 'application/json' },
+                headers: getAuthHeaders(),
                 body: JSON.stringify({ 
                     idUnidad: unidadForm.idUnidad,
                     nombreUnidad: unidadForm.nombreUnidad.toUpperCase(),
@@ -136,7 +140,10 @@ const Productos = () => {
     const borrarUnidadCatalogo = async (id) => {
         if(!window.confirm("¿Seguro de eliminar esta unidad del sistema?")) return;
         try {
-            const res = await fetch(`${API_URL}/UnidadesMedida/${id}`, { method: 'DELETE' });
+            const res = await fetch(`${API_URL}/UnidadesMedida/${id}`, {
+                method: 'DELETE',
+                headers: getAuthHeaders()
+            });
             if(res.ok) {
                 cargarUnidadesMedida();
             } else {
@@ -260,7 +267,7 @@ const Productos = () => {
 
             const res = await fetch(url, {
                 method: metodo,
-                headers: { 'Content-Type': 'application/json' },
+                headers: getAuthHeaders(),
                 body: JSON.stringify(payload)
             });
 
@@ -352,7 +359,7 @@ const Productos = () => {
 
             const res = await fetch(url, {
                 method: metodo,
-                headers: { 'Content-Type': 'application/json' },
+                headers: getAuthHeaders(),
                 body: JSON.stringify({ 
                     idCategoria: categoriaForm.idCategoria,
                     nombre: categoriaForm.nombreCategoria.toUpperCase()

@@ -41,7 +41,7 @@ const ModalArqueo = ({ isOpen, onClose, API_URL }) => {
 
     const [declarado, setDeclarado] = useState({
         efectivoUSD: "", efectivoVES: "", pagoMovil: "", 
-        puntoBDV: "", puntoBancamiga: "", metal: ""
+        puntoBDV: "", puntoBancamiga: "", Metal: ""
     });
 
     const [observaciones, setObservaciones] = useState("");
@@ -62,7 +62,7 @@ const getAuthHeaders = () => ({
             setObservaciones("");
             setDeclarado({
                 efectivoUSD: "", efectivoVES: "", pagoMovil: "",
-                puntoBDV: "", puntoBancamiga: "", metal: ""
+                puntoBDV: "", puntoBancamiga: "", Metal: ""
             });
         }
     }, [isOpen]);
@@ -97,7 +97,7 @@ const getAuthHeaders = () => ({
                 pagoMovilDeclarado: parseFloat(declarado.pagoMovil) || 0,
                 bdvDeclarado: parseFloat(declarado.puntoBDV) || 0,
                 bancamigaDeclarado: parseFloat(declarado.puntoBancamiga) || 0,
-                metalDeclarado: parseFloat(declarado.metal) || 0, // corregido key 'metal'
+                MetalDeclarado: parseFloat(declarado.Metal) || 0, // corregido key 'metal'
                 observaciones: observaciones 
             };
             const res = await fetch(`${API_URL}/Ventas/consultar-cuadre-caja`, {
@@ -125,7 +125,7 @@ const getAuthHeaders = () => ({
                 montoCierrePagoMovil: parseFloat(declarado.pagoMovil) || 0,
                 montoCierrePuntoBDV: parseFloat(declarado.puntoBDV) || 0,
                 montoCierrePuntoBancamiga: parseFloat(declarado.puntoBancamiga) || 0,
-                montoCierremetal: parseFloat(declarado.metal) || 0,
+                montoCierreMetal: parseFloat(declarado.Metal) || 0,
                 observacionesCierre: observaciones || "Cierre de turno estándar",
             };
             const res = await fetch(`${API_URL}/Ventas/cerrar-caja`, {
@@ -284,7 +284,7 @@ const getAuthHeaders = () => ({
                                     <span>Dif. PM: <b className={resultado.diferenciaPM < 0 ? 'text-red-600' : 'text-green-600'}>{(resultado.diferenciaPM || 0).toFixed(2)} Bs</b></span>
                                     <span>Dif. BDV: <b className={resultado.diferenciaBDV < 0 ? 'text-red-600' : 'text-green-600'}>{(resultado.diferenciaBDV|| 0).toFixed(2)} Bs</b></span>
                                     <span>Dif. Bancamiga: <b className={resultado.diferenciaBancamiga < 0 ? 'text-red-600' : 'text-green-600'}>{(resultado.diferenciaBancamiga|| 0).toFixed(2)} Bs</b></span>
-                                    <span>Dif. Metal: <b className={resultado.diferenciametal < 0 ? 'text-red-600' : 'text-green-600'}>{(resultado.diferenciaMetal|| 0).toFixed(2)} $</b></span>
+                                    <span>Dif. Metal: <b className={resultado.diferenciaMetal < 0 ? 'text-red-600' : 'text-green-600'}>{(resultado.diferenciaMetal|| 0).toFixed(2)} $</b></span>
                                 </div>
                                 <textarea className="w-full p-3 border-2 border-gray-100 rounded-xl text-sm outline-none focus:border-blue-200" placeholder="Notas..." value={observaciones} onChange={e => setObservaciones(e.target.value)} />
                                 <button onClick={finalizarCierreDefinitivo} disabled={cargando} className="w-full bg-red-600 text-white font-black py-4 rounded-xl shadow-xl hover:bg-red-700">

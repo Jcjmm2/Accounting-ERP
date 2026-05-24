@@ -5,10 +5,12 @@ import ModalArqueo from '../Components/ModalArqueo';
 import ModalApertura from '../Components/ModalApertura';
 
 const CLIENTE_DEFECTO = { id: 1, nombre: "CLIENTE EVENTUAL", rif: "V00000000" };
-
+const getAuthHeaders = () => ({
+  'Content-Type': 'application/json',
+  'Authorization': `Bearer ${localStorage.getItem("token")}`
+  });
 const POS = () => {
   const { tasa, API_URL, user } = useContext(ConfigContext);
-  const token = localStorage.getItem("token");
   const [carrito, setCarrito] = useState([]);
   const [busqueda, setBusqueda] = useState("");
   const [resultadosBusqueda, setResultadosBusqueda] = useState([]);
@@ -38,7 +40,9 @@ const POS = () => {
       useEffect(() => {
     const cargarDatosEmpresa = async () => {
         try {
-            const res = await fetch(`${API_URL}/Empresa/configuracion`);
+            const res = await fetch(`${API_URL}/Empresa/configuracion`,{
+            headers: getAuthHeaders() // Agrégalo si el endpoint está protegido
+        });
             if (res.ok) {
                 const data = await res.json();
                 // Aseguramos que data tenga datos, si no, mantenemos valores seguros
@@ -197,9 +201,7 @@ const cargarPedidoAlCarrito = (pedido) => {
     try {
         const res = await fetch(`${API_URL}/Productos/buscar?termino=${valor}&tasaDelDia=${tasa}`, {
           method: 'GET', // Es buena práctica ser explícito
-          headers: {
-        'Authorization': `Bearer ${token}` // <--- AGREGAR HEADER
-        }
+          headers: getAuthHeaders()
     });
           
         if (res.status === 404) {
@@ -302,9 +304,7 @@ const guardarPedido = async () => {
         setProcesando(true);
         const res = await fetch(`${API_URL}/Pedidos`, {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json',
-              'Authorization': `Bearer ${token}`
-             },
+            headers: getAuthHeaders(),
             body: JSON.stringify(pedidoData)
         });
 
@@ -334,7 +334,9 @@ const guardarPedido = async () => {
 
 const obtenerPedidosPendientes = async () => {
     try {
-        const response = await fetch(`${API_URL}/Pedidos`);
+        const response = await fetch(`${API_URL}/Pedidos`, {
+          headers: getAuthHeaders()
+        });
         if (response.ok) {
             const data = await response.json();
             // Si tienes un estado para los pedidos en el POS, lo actualizas aquí
@@ -366,7 +368,9 @@ const obtenerPedidosPendientes = async () => {
     
     try {
         // Consultamos al API directamente por el código maestro
-        const res = await fetch(`${API_URL}/Productos/buscar?termino=${codigoMaestro}&tasaDelDia=${tasa}`);
+        const res = await fetch(`${API_URL}/Productos/buscar?termino=${codigoMaestro}&tasaDelDia=${tasa}`, {
+          headers: getAuthHeaders()
+        });
         if (res.ok) {
             const data = await res.json();
             // Seteamos los resultados SIN aplicar el filtro de "una sola línea" 
@@ -554,9 +558,7 @@ const finalizarVenta = async (tipoVenta = null) => {
   try {
     const response = await fetch(`${API_URL}/Ventas`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json',
-        'Authorization': `Bearer ${token}`
-       },
+      headers: getAuthHeaders(),
       body: JSON.stringify(ventaData)
     });
 
@@ -821,10 +823,7 @@ const diferencia = totalUSD - totalPagadoUSD;
       try {
           const res = await fetch(`${API_URL}/Ventas/estado-caja`, {
               method: 'GET',
-              headers: {
-                  'Content-Type': 'application/json',
-                  'Authorization': `Bearer ${token}` // <--- ESTA ES LA CLAVE
-              }
+              headers: getAuthHeaders()
           });
           if (res.ok) {
               const estaAbierta = await res.json();
@@ -1371,21 +1370,40 @@ const ModalPedidosPendientes = ({
     const [busqueda, setBusqueda] = useState("");
     const [procesando, setProcesando] = useState(false);
 
-    // Cargar la lista de pedidos al abrir
-    useEffect(() => {
-        if (isOpen) {
-            fetch(`${API_URL}/Pedidos`)
-                .then(res => res.json())
-                .then(data => setPedidos(data))
-                .catch(err => console.error("❌ Error cargando lista:", err));
+    
+
+// REEMPLÁZALO POR ESTO:
+useEffect(() => {
+    const cargarLista = async () => {
+        try {
+            const res = await fetch(`${API_URL}/Pedidos`, {
+                headers: getAuthHeaders() // Ahora sí incluye el token
+            });
+
+            if (!res.ok) {
+                if (res.status === 401) console.error("❌ No autorizado. Revisa el token.");
+                return;
+            }
+
+            const data = await res.json();
+            setPedidos(data);
+        } catch (err) {
+            console.error("❌ Error cargando lista:", err);
         }
-    }, [isOpen, API_URL]);
+    };
+
+    if (isOpen) {
+        cargarLista();
+    }
+}, [isOpen, API_URL]);
 
     // Función de importación con la lógica de IVA corregida
     const manejarSeleccion = async (id) => {
         try {
             setProcesando(true);
-            const response = await fetch(`${API_URL}/Pedidos/${id}`);
+            const response = await fetch(`${API_URL}/Pedidos/${id}`, {
+                headers: getAuthHeaders() // Asegúrate de incluir el token
+            });
             
             if (response.ok) {
                 const pedido = await response.json();

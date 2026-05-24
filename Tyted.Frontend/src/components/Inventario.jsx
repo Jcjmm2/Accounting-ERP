@@ -3,6 +3,13 @@ import { ConfigContext } from '../Context/ConfigContext';
 
 const Inventario = () => {
     const { API_URL } = useContext(ConfigContext);
+    const getAuthHeaders = () => {
+        const token = localStorage.getItem("token");
+        return {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+        };
+    };
     const [productos, setProductos] = useState([]);
     const [movimientos, setMovimientos] = useState([]);
     const [productoSeleccionado, setProductoSeleccionado] = useState(null);
@@ -23,11 +30,19 @@ const Inventario = () => {
         cargarInventario();
     }, []);
 
-    const cargarInventario = async () => {
+const cargarInventario = async () => {
         try {
             setLoading(true);
-            // Usamos el endpoint de productos para ver el stock actual
-            const res = await fetch(`${API_URL}/Productos`);
+            const res = await fetch(`${API_URL}/Productos`, { 
+                method: 'GET', // Opcional pero recomendado
+                headers: getAuthHeaders() 
+            });
+
+            if (res.status === 401) {
+                alert("Sesión expirada. Por favor inicie sesión nuevamente.");
+                return;
+            }
+
             if (res.ok) {
                 const data = await res.json();
                 setProductos(data);
@@ -44,7 +59,7 @@ const Inventario = () => {
         setMovimientos([]);
         try {
             // INTEGRACIÓN CON InventarioController.cs
-            const res = await fetch(`${API_URL}/Inventario/movimientos/${producto.codigoProd}`);
+            const res = await fetch(`${API_URL}/Inventario/movimientos/${producto.codigoProd}`, { headers: getAuthHeaders() });
             if (res.ok) {
                 const data = await res.json();
                 setMovimientos(data);
@@ -90,18 +105,17 @@ const Inventario = () => {
         try {
             const res = await fetch(`${API_URL}/Inventario/ajuste`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: getAuthHeaders(), // Simplificado: ya trae el Content-Type
                 body: JSON.stringify(payload)
             });
 
             if (res.ok) {
-                alert("Ajuste realizado con éxito");
+                alert("✅ Ajuste realizado con éxito");
                 setMostrarModalAjuste(false);
-                cargarInventario(); // Recargar stock visual
-                verKardex(productoSeleccionado); // Recargar kardex si está abierto
+                cargarInventario();
             } else {
                 const err = await res.text();
-                alert("Error al ajustar: " + err);
+                alert("❌ Error: " + err);
             }
         } catch (error) {
             console.error("Error de red:", error);
@@ -175,7 +189,7 @@ const Inventario = () => {
         try {
             const res = await fetch(`${API_URL}/Inventario/ajuste-masivo`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: { 'Content-Type': 'application/json', ...getAuthHeaders() },
                 body: JSON.stringify(payload)
             });
 

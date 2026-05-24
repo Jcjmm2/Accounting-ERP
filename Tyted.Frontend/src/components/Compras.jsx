@@ -1,10 +1,14 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { ConfigContext } from '../Context/ConfigContext';
 
+const getAuthHeaders = () => ({
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${localStorage.getItem("token")}`
+});
 const Compras = () => {
     // 1. Contexto y Configuración
     const { API_URL, tasa } = useContext(ConfigContext);
-
+    
     // 2. Estados de Datos
     const [proveedores, setProveedores] = useState([]);
     const [productosMaster, setProductosMaster] = useState([]);
@@ -35,27 +39,6 @@ const Compras = () => {
     // 4. Estado de propuestas para el Paso 2
     const [propuestas, setPropuestas] = useState([]);
 
-const fetchWithAuth = async (endpoint, options = {}) => {
-        const token = localStorage.getItem('token');
-        const headers = {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`,
-            ...options.headers
-        };
-
-        const response = await fetch(`${API_URL}${endpoint}`, {
-            ...options,
-            headers
-        });
-
-        if (response.status === 401) {
-            // Manejar sesión expirada (opcional: redirigir a login)
-            console.error("Sesión expirada o no autorizado");
-        }
-
-        return response;
-    };
-
     // 5. Carga de datos inicial
     useEffect(() => {
         cargarDatosIniciales();
@@ -70,7 +53,7 @@ const fetchWithAuth = async (endpoint, options = {}) => {
 
     const cargarHistorialCompras = async () => {
         try {
-            const res = await fetchWithAuth('/Compras');
+            const res = await fetch(`${API_URL}/Compras`, { headers: getAuthHeaders() });
             if (res.ok) setListaCompras(await res.json());
         } catch (error) {
             console.error("Error cargando historial:", error);
@@ -80,8 +63,8 @@ const fetchWithAuth = async (endpoint, options = {}) => {
     const cargarDatosIniciales = async () => {
         try {
             const [resProv, resProd] = await Promise.all([
-                fetchWithAuth('/Proveedores'),
-                fetchWithAuth('/Productos')
+                fetch(`${API_URL}/Proveedores`, { headers: getAuthHeaders() }),
+                fetch(`${API_URL}/Productos`, { headers: getAuthHeaders()})
             ]);
             
             if (resProv.ok) setProveedores(await resProv.json());
@@ -110,9 +93,10 @@ const fetchWithAuth = async (endpoint, options = {}) => {
 
     const cargarTasasReferencia = async () => {
         try {
-            const res = await fetchWithAuth('/TasaDeCambio/comparativa-compras');
-            if (res.ok) {
-                const data = await res.json();
+            const res = await fetch(`${API_URL}/TasaDeCambio/comparativa-compras}`, {
+                headers: getAuthHeaders() });
+                if (res.ok) {
+                const data = await res.json(); 
                 setTasasReferencia(data);
             
                 // Opcional: Si existe una tasa llamada "BCV", ponerla por defecto al cargar
@@ -121,7 +105,9 @@ const fetchWithAuth = async (endpoint, options = {}) => {
                     setTasaCompra(bcv.tasa);
                 }
             }
-        } catch (e) { console.error("Error tasas:", e); }
+            } catch (error) {
+                console.error("Error tasas:", error);
+            }
     };
 
     // --- FUNCIONES DE MANEJO ---
@@ -130,7 +116,10 @@ const fetchWithAuth = async (endpoint, options = {}) => {
         if (!window.confirm("¿Está seguro de anular esta compra? Se revertirá el stock y los costos promedio.")) return;
         try {
             setGuardando(true);
-            const res = await fetchWithAuth(`Compras/anular/${id}`, { method: 'POST' });
+            const res = await fetch(`${API_URL}/Compras/anular/${id}`, { 
+                method: 'POST',
+                headers: getAuthHeaders()
+            });
             const data = await res.json();
             if (res.ok) {
                 alert(data.message);
@@ -302,7 +291,8 @@ const fetchWithAuth = async (endpoint, options = {}) => {
         // 4. ENVÍO AL SERVIDOR
         try {
             setGuardando(true);
-            const res = await fetchWithAuth('Compras', {
+            const res = await fetch(`${API_URL}/Compras`,{
+                headers: getAuthHeaders(),
                 method: 'POST',
                 body: JSON.stringify(compraParaEnviar)
             });
@@ -327,7 +317,8 @@ const fetchWithAuth = async (endpoint, options = {}) => {
         if (guardando) return;
         try {
             setGuardando(true);
-            const res = await fetchWithAuth('Compras/confirmar-precios', {
+            const res = await fetch(`${API_URL}/Compras/confirmar-precios`,{
+                headers: getAuthHeaders(),
                 method: 'POST',
                 body: JSON.stringify(propuestas) 
             });
@@ -492,7 +483,7 @@ const fetchWithAuth = async (endpoint, options = {}) => {
                             </div>
 
                             <div style={{ backgroundColor: '#fff', padding: '15px', border: '2px solid #2563eb', borderRadius: '8px', marginBottom: '20px' }}>
-                                <h4 style={{ margin: '0 0 10px 0', color: '#2563eb' }}>Agregar Producto</h4>
+                                <h4 style={{ margin: '0 0 10px 0', color: '#2563eb' }}>Agregar Producto - Cantidad  - Costo</h4>
     
                                 <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-end' }}>
         

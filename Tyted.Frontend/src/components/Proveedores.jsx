@@ -3,6 +3,10 @@ import { ConfigContext } from '../Context/ConfigContext';
 
 const Proveedores = () => {
     const { API_URL } = useContext(ConfigContext);
+    const getAuthHeaders = () => ({
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem("token")}`
+    });
     const [proveedores, setProveedores] = useState([]);
     const [loading, setLoading] = useState(true);
     const [busqueda, setBusqueda] = useState("");
@@ -31,7 +35,9 @@ const Proveedores = () => {
                 ? `${API_URL}/Proveedores?razonsocial=${termino}` 
                 : `${API_URL}/Proveedores`;
             
-            const res = await fetch(url);
+            const res = await fetch(url, {
+                headers: getAuthHeaders()
+            });
             if (res.ok) {
                 const data = await res.json();
                 setProveedores(data);
@@ -53,7 +59,7 @@ const Proveedores = () => {
         try {
             const res = await fetch(url, {
                 method: metodo,
-                headers: { 'Content-Type': 'application/json' },
+                headers: getAuthHeaders(),
                 body: JSON.stringify(formData)
             });
 
