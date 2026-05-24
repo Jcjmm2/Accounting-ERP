@@ -45,7 +45,8 @@ const Clientes = () => {
                 : `${API_URL}/Clientes`; // Asegúrate de tener un GET general o usa uno por defecto
             
             const res = await fetch(url, {
-                headers: getAuthHeaders(false) // No enviamos body, solo el token
+                method: 'GET',
+                headers: getAuthHeaders(false) 
             });
             if (res.ok) {
                 const data = await res.json();
@@ -97,7 +98,7 @@ const Clientes = () => {
         try {
             const res = await fetch(url, {
                 method: metodo,
-                headers: getAuthHeaders(),
+                headers: getAuthHeaders(true),
                 body: JSON.stringify({ 
                     ...nuevoCliente, 
                     id: editandoId || 0 // El ID debe ir dentro del cuerpo también
@@ -125,9 +126,7 @@ const Clientes = () => {
         const token = localStorage.getItem('token');
         const res = await fetch(`${API_URL}/Clientes/${id}`, {
             method: 'DELETE',
-            headers: {
-                'Authorization': `Bearer ${token}` // Importante para evitar error 401
-            }
+            headers: getAuthHeaders(false)
         });
 
         if (res.ok) {

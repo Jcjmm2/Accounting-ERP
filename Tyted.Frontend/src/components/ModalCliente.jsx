@@ -9,18 +9,26 @@ const ModalCliente = ({ isOpen, onClose, onSelectCliente, API_URL }) => {
         rif: '', nombre: '', telefono: '', direccion: '', permitirCredito: false
     });
 
+    const getAuthHeaders = () => ({
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem("token")}`
+    });
+
     if (!isOpen) return null;
 
     const buscarCliente = async (valor) => {
         setBusqueda(valor);
         if (valor.length < 3) return;
         try {
-            const res = await fetch(`${API_URL}/Clientes/buscar/${valor}`);
-            if (res.ok) {
+            const res = await fetch(`${API_URL}/Clientes/buscar/${valor}`, {
+                method: 'GET',
+                headers: getAuthHeaders()
+            });
+                if (res.ok) {
                 const data = await res.json();
                 setResultados(data);
             }
-        } catch (error) { console.error(error); }
+        } catch (error) { console.error("Error al buscar cliente:", error); }
     };
 
     const guardarNuevo = async (e) => {
@@ -28,7 +36,7 @@ const ModalCliente = ({ isOpen, onClose, onSelectCliente, API_URL }) => {
         try {
             const res = await fetch(`${API_URL}/Clientes`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: getAutohHeaders(),
                 body: JSON.stringify(nuevoCliente)
             });
             if (res.ok) {
