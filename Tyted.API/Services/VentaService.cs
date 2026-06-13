@@ -81,13 +81,17 @@ namespace Tyted.API.Services
                     // 7. CÁLCULOS FINANCIEROS DE LA LÍNEA (Basados en la cantidad facturada, no la real)
                     // Nota: El precio ya viene por la unidad seleccionada (Bulto, Gramo, etc.)
                     detalle.PrecioUnitarioMonedaExt = Math.Round(detalle.PrecioUnitarioMonedaBase * venta.TasaDeCambio, 4);
+                    detalle.PrecioUnitarioMonedaExt = Math.Round(detalle.PrecioUnitarioMonedaBase * venta.TasaDeCambio, 4, MidpointRounding.AwayFromZero);
                     detalle.SubtotalLineaMonedaBase = detalle.Cantidad * detalle.PrecioUnitarioMonedaBase;
                     detalle.SubtotalLineaMonedaExt = Math.Round(detalle.Cantidad * detalle.PrecioUnitarioMonedaExt, 2);
+                    detalle.SubtotalLineaMonedaExt = Math.Round(detalle.Cantidad * detalle.PrecioUnitarioMonedaExt, 2, MidpointRounding.AwayFromZero);
 
                     decimal factorIva = (detalle.TasaIVA) / 100;
                     detalle.IvaLineaMonedaExt = Math.Round(detalle.SubtotalLineaMonedaExt * factorIva, 2);
+                    detalle.IvaLineaMonedaExt = Math.Round(detalle.SubtotalLineaMonedaExt * factorIva, 2, MidpointRounding.AwayFromZero);
                     detalle.TotalLineaMonedaExt = detalle.SubtotalLineaMonedaExt + detalle.IvaLineaMonedaExt;
                     detalle.TotalLineaMonedaBase = Math.Round(detalle.SubtotalLineaMonedaBase * (1 + factorIva), 4);
+                    detalle.TotalLineaMonedaBase = Math.Round(detalle.SubtotalLineaMonedaBase * (1 + factorIva), 4, MidpointRounding.AwayFromZero);
                 }
 
                 // --- TOTALES DE CABECERA ---

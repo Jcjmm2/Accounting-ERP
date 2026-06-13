@@ -245,10 +245,14 @@ const cargarPedidoAlCarrito = (pedido) => {
         console.warn("Manejando error de búsqueda:", error.message);
 
         if (error.message === "PRODUCTO_NO_ENCONTRADO") {
+        if (error.name === 'AbortError') {
+            setErrorBusqueda("⏳ El servidor local tarda mucho en responder...");
+        } else if (error.message === "PRODUCTO_NO_ENCONTRADO") {
             setErrorBusqueda("🔍 Producto no encontrado");
         } else {
             // Solo si no es un 404, mostramos el error de conexión
             setErrorBusqueda("⚠️ Error de conexión con el servidor");
+            setErrorBusqueda("⚠️ Error de red local. Verifique el servidor.");
         }
         
         setResultadosBusqueda([]);
@@ -455,6 +459,11 @@ const totalVES = totalUSD * (tasa || 0);
 
 const finalizarVenta = async (tipoVenta = null) => {
   if (carrito.length === 0) return;
+
+  if (!tasa || tasa <= 0) {
+    alert("⚠️ Error Crítico: La tasa de cambio del día no es válida (0 o nula). Por favor, actualice la tasa antes de facturar.");
+    return;
+  }
 
   const creditoFinal = tipoVenta !== null ? tipoVenta : esCredito;
 
