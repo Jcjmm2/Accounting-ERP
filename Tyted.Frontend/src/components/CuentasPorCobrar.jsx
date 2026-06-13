@@ -10,18 +10,35 @@ const CuentasPorCobrar = () => {
     const [seleccionada, setSeleccionada] = useState(null);
     const [montoAbono, setMontoAbono] = useState('');
 
+    const getAuthHeaders = (incluirJson = true) => {
+        const token = localStorage.getItem("token");
+        const headers = {
+            'Authorization': `Bearer ${token}`
+        };
+        if (incluirJson) {
+            headers['Content-Type'] = 'application/json';
+        }
+        return headers;
+    };
+
     useEffect(() => {
         cargarCuentas();
     }, []);
 
-    const cargarCuentas = async () => {
+const cargarCuentas = async () => {
         try {
             setLoading(true);
-            // Usamos el endpoint del PagosController que devuelve las deudas
-            const res = await fetch(`${API_URL}/Pagos/cxc/pendientes`);
+            
+            const res = await fetch(`${API_URL}/Pagos/cxc/pendientes`, {
+                method: 'GET',
+                headers: getAuthHeaders(false) 
+            });
+
             if (res.ok) {
                 const data = await res.json();
                 setCuentas(data);
+            } else if (res.status === 401) {
+                console.error("No autorizado. Token inválido o expirado.");
             }
         } catch (error) {
             console.error("Error al cargar cuentas:", error);
@@ -43,7 +60,7 @@ const CuentasPorCobrar = () => {
         try {
             const res = await fetch(`${API_URL}/Pagos/cxc/abono`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: getAuthHeaders(true),
                 body: JSON.stringify(abonoDto)
             });
 

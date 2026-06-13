@@ -1,10 +1,16 @@
 import React, { useState, useEffect, useContext } from 'react';
 import { ConfigContext } from '../Context/ConfigContext';
 
-const getAuthHeaders = () => ({
-    'Content-Type': 'application/json',
-    'Authorization': `Bearer ${localStorage.getItem("token")}`
-});
+const getAuthHeaders = (incluirJson = true) => {
+        const token = localStorage.getItem("token");
+        const headers = {
+            'Authorization': `Bearer ${token}`
+        };
+        if (incluirJson) {
+            headers['Content-Type'] = 'application/json';
+        }
+        return headers;
+    };
 const Compras = () => {
     // 1. Contexto y Configuración
     const { API_URL, tasa } = useContext(ConfigContext);
@@ -53,7 +59,10 @@ const Compras = () => {
 
     const cargarHistorialCompras = async () => {
         try {
-            const res = await fetch(`${API_URL}/Compras`, { headers: getAuthHeaders() });
+            const res = await fetch(`${API_URL}/Compras`, { 
+                method: 'GET',
+                headers: getAuthHeaders(false) // GET puro, sin JSON body
+            });
             if (res.ok) setListaCompras(await res.json());
         } catch (error) {
             console.error("Error cargando historial:", error);
@@ -62,9 +71,10 @@ const Compras = () => {
 
     const cargarDatosIniciales = async () => {
         try {
+            // Usamos false en ambos porque son consultas GET directas
             const [resProv, resProd] = await Promise.all([
-                fetch(`${API_URL}/Proveedores`, { headers: getAuthHeaders() }),
-                fetch(`${API_URL}/Productos`, { headers: getAuthHeaders()})
+                fetch(`${API_URL}/Proveedores`, { method: 'GET', headers: getAuthHeaders(false) }),
+                fetch(`${API_URL}/Productos`, { method: 'GET', headers: getAuthHeaders(false) })
             ]);
             
             if (resProv.ok) setProveedores(await resProv.json());
@@ -93,21 +103,24 @@ const Compras = () => {
 
     const cargarTasasReferencia = async () => {
         try {
-            const res = await fetch(`${API_URL}/TasaDeCambio/comparativa-compras}`, {
-                headers: getAuthHeaders() });
-                if (res.ok) {
+            // CORREGIDO: Se eliminó el "}" huérfano al final de la URL
+            const res = await fetch(`${API_URL}/TasaDeCambio/comparativa-compras`, {
+                method: 'GET',
+                headers: getAuthHeaders(false) 
+            });
+            
+            if (res.ok) {
                 const data = await res.json(); 
                 setTasasReferencia(data);
             
-                // Opcional: Si existe una tasa llamada "BCV", ponerla por defecto al cargar
                 const bcv = data.find(t => t.nombreTasa === "BCV");
                 if (bcv && tasaCompra === 0) {
                     setTasaCompra(bcv.tasa);
                 }
             }
-            } catch (error) {
-                console.error("Error tasas:", error);
-            }
+        } catch (error) {
+            console.error("Error tasas:", error);
+        }
     };
 
     // --- FUNCIONES DE MANEJO ---
@@ -118,7 +131,7 @@ const Compras = () => {
             setGuardando(true);
             const res = await fetch(`${API_URL}/Compras/anular/${id}`, { 
                 method: 'POST',
-                headers: getAuthHeaders()
+                headers: getAuthHeaders(true)
             });
             const data = await res.json();
             if (res.ok) {
@@ -291,9 +304,9 @@ const Compras = () => {
         // 4. ENVÍO AL SERVIDOR
         try {
             setGuardando(true);
-            const res = await fetch(`${API_URL}/Compras`,{
-                headers: getAuthHeaders(),
+            const res = await fetch(`${API_URL}/Compras`, {
                 method: 'POST',
+                headers: getAuthHeaders(true), // Enviamos JSON body
                 body: JSON.stringify(compraParaEnviar)
             });
 
@@ -317,9 +330,9 @@ const Compras = () => {
         if (guardando) return;
         try {
             setGuardando(true);
-            const res = await fetch(`${API_URL}/Compras/confirmar-precios`,{
-                headers: getAuthHeaders(),
+            const res = await fetch(`${API_URL}/Compras/confirmar-precios`, {
                 method: 'POST',
+                headers: getAuthHeaders(true),
                 body: JSON.stringify(propuestas) 
             });
             
