@@ -22,6 +22,13 @@ namespace Tyted.API.Controllers
         }
         // --- GESTIÓN DE VENTAS ---
 
+        [HttpGet]
+        public async Task<ActionResult<IEnumerable<Venta>>> GetVentas()
+        {
+            var ventas = await _ventaService.ObtenerTodasAsync();
+            return Ok(ventas);
+        }
+
         [HttpPost]
         public async Task<IActionResult> RegistrarVenta([FromBody] Venta venta)
         {
@@ -38,22 +45,23 @@ namespace Tyted.API.Controllers
             if (caja == null)
                 return BadRequest($"OPERACIÓN DENEGADA: El usuario {usuarioActual} no tiene una sesión de caja abierta. Debe realizar una apertura.");
 
-            try
-            {
-                venta.Usuario = usuarioActual;
-                // El VentaService debe estar preparado para recibir 'venta.Pagos'
-                var nuevaVenta = await _ventaService.RegistrarVentaAsync(venta);
-                return Ok(nuevaVenta);
-            }
-            catch (Exception ex)
-            {
-                return BadRequest(new { message = ex.Message });
-            }
+            venta.Usuario = usuarioActual;
+            // Ahora delegamos el error al Middleware global
+            var nuevaVenta = await _ventaService.RegistrarVentaAsync(venta);
+            return Ok(nuevaVenta);
         }
 
         [HttpPost("anular/{id}")]
-        public async Task<IActionResult> AnularVenta(int id)
+        public async Task<IActionResult> AnularVenta(int id, [FromHeader(Name = "X-Admin-Key")] string adminKey)
         {
+            // En producción, esto debería venir de una configuración en la DB
+            const string CLAVE_SEGURIDAD = "admin123";
+
+            if (adminKey != CLAVE_SEGURIDAD)
+            {
+                return Unauthorized(new { message = "Clave de autorización de administrador inválida." });
+            }
+
             try
             {
                 await _ventaService.AnularVentaAsync(id);

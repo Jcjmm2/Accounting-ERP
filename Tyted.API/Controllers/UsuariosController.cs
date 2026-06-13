@@ -134,7 +134,13 @@ namespace Tyted.API.Controllers
                 new Claim(ClaimTypes.Role, usuario.Rol)
             };
 
-            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["Jwt:Key"] ?? "TuClaveSuperSecretaDe32Caracteres"));
+            var jwtKey = _config["Jwt:Key"];
+            if (string.IsNullOrEmpty(jwtKey) || jwtKey.Length < 32)
+            {
+                throw new Exception("ERROR DE SEGURIDAD: La clave JWT no está configurada en el entorno o es demasiado corta.");
+            }
+
+            var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(jwtKey));
             var creds = new SigningCredentials(key, SecurityAlgorithms.HmacSha256);
 
             var token = new JwtSecurityToken(

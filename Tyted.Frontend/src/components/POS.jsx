@@ -1,8 +1,9 @@
 import React, { useState, useContext, useRef, useEffect } from 'react';
 import { ConfigContext } from '../Context/ConfigContext';
-import ModalCliente from '../Components/ModalCliente';
-import ModalArqueo from '../Components/ModalArqueo';
-import ModalApertura from '../Components/ModalApertura';
+import ModalCliente from './ModalCliente';
+import ModalArqueo from './ModalArqueo';
+import ModalApertura from './ModalApertura';
+import Swal from 'sweetalert2';
 
 const CLIENTE_DEFECTO = { id: 1, nombre: "CLIENTE EVENTUAL", rif: "V00000000" };
 const getAuthHeaders = () => ({
@@ -11,7 +12,19 @@ const getAuthHeaders = () => ({
   });
 const POS = () => {
   const { tasa, API_URL, user } = useContext(ConfigContext);
-  const [carrito, setCarrito] = useState([]);
+  // Fase 3.3: Recuperar carrito al cargar
+  const [carrito, setCarrito] = useState(() => {
+    try {
+      const saved = localStorage.getItem("tyted_carrito_v1");
+      return saved ? JSON.parse(saved) : [];
+    } catch { return []; }
+  });
+
+  // Sincronizar carrito con LocalStorage automáticamente
+  useEffect(() => {
+    localStorage.setItem("tyted_carrito_v1", JSON.stringify(carrito));
+  }, [carrito]);
+
   const [busqueda, setBusqueda] = useState("");
   const [resultadosBusqueda, setResultadosBusqueda] = useState([]);
   const [indexSeleccionado, setIndexSeleccionado] = useState(-1);
@@ -21,6 +34,7 @@ const POS = () => {
   const [productoEnPesaje, setProductoEnPesaje] = useState(null);
   const [cajaAbierta, setCajaAbierta] = useState(false);
   const [mostrarArqueo, setMostrarArqueo] = useState(false);
+  const [mostrarHistorial, setMostrarHistorial] = useState(false);
   const [esCredito, setEsCredito] = useState(false);
   const [errorBusqueda, setErrorBusqueda] = useState(null);
   const [pagos, setPagos] = useState({
@@ -111,7 +125,6 @@ const cargarPedidoAlCarrito = (pedido) => {
     if (typeof setMostrarModalPedidos === 'function') setMostrarModalPedidos(false);
     if (typeof setPedidoIdOrigen === 'function') setPedidoIdOrigen(pedido.id);
     
-    setVista('nuevo'); 
     console.log(`✅ Pedido #${pedido.id} cargado con éxito`, nuevosProductos);
 };
 
@@ -237,27 +250,28 @@ const cargarPedidoAlCarrito = (pedido) => {
                 setResultadosBusqueda(unicos);
                 if (unicos.length === 0) {
                         setErrorBusqueda("🔍 Producto no encontrado");
-                      }
+                }
             }
         }
     } catch (error) {
-        // --- AQUÍ ESTÁ EL TRUCO PARA EL USUARIO ---
-        console.warn("Manejando error de búsqueda:", error.message);
-
         if (error.message === "PRODUCTO_NO_ENCONTRADO") {
-        if (error.name === 'AbortError') {
-            setErrorBusqueda("⏳ El servidor local tarda mucho en responder...");
-        } else if (error.message === "PRODUCTO_NO_ENCONTRADO") {
             setErrorBusqueda("🔍 Producto no encontrado");
         } else {
-            // Solo si no es un 404, mostramos el error de conexión
-            setErrorBusqueda("⚠️ Error de conexión con el servidor");
             setErrorBusqueda("⚠️ Error de red local. Verifique el servidor.");
         }
-        
         setResultadosBusqueda([]);
     }
   };
+
+  const notificar = (mensaje, tipo = 'info') => {
+    Swal.fire({
+      icon: tipo,
+      title: tipo === 'error' ? 'Atención' : 'Operación Exitosa',
+      text: mensaje,
+      confirmButtonColor: '#2563eb'
+    });
+  };
+
   const [procesando, setProcesando] = useState(false);
 
   useEffect(() => {
@@ -268,12 +282,12 @@ const cargarPedidoAlCarrito = (pedido) => {
 }, [cliente]);
 
 const guardarPedido = async () => {
-    if (carrito.length === 0) return alert("El carrito está vacío");
+    if (carrito.length === 0) return notificar("El carrito está vacío", "error");
 
     // Validación de integridad (tomada de tu archivo Pedidos.jsx)
     const itemsInvalidos = carrito.filter(i => !i.idProductoUnidad);
     if (itemsInvalidos.length > 0) {
-        alert("⚠️ Error: Hay productos sin ID de unidad. Intente agregarlos de nuevo.");
+        notificar("Hay productos sin ID de unidad. Intente agregarlos de nuevo.", "error");
         return;
     }
 
@@ -314,7 +328,7 @@ const guardarPedido = async () => {
 
         if (res.ok) {
             const data = await res.json();
-            alert(`✅ Pedido #${data.id} guardado. Puede recuperarlo cuando el cliente regrese.`);
+            notificar(`Pedido #${data.id} guardado con éxito.`, "success");
             
             // Limpiar el POS para el siguiente cliente
             setCarrito([]);
@@ -325,11 +339,11 @@ const guardarPedido = async () => {
             if (typeof obtenerPedidosPendientes === 'function') obtenerPedidosPendientes();
         } else {
             const errorText = await res.text();
-            alert("Error al guardar pedido: " + errorText);
+            notificar("Error al guardar pedido: " + errorText, "error");
         }
     } catch (error) {
         console.error("Error:", error);
-        alert("Error de conexión al intentar guardar el pedido");
+        notificar("Error de conexión al intentar guardar el pedido", "error");
     } finally {
         setProcesando(false);
         setTimeout(() => inputBusquedaRef.current?.focus(), 150);
@@ -461,7 +475,7 @@ const finalizarVenta = async (tipoVenta = null) => {
   if (carrito.length === 0) return;
 
   if (!tasa || tasa <= 0) {
-    alert("⚠️ Error Crítico: La tasa de cambio del día no es válida (0 o nula). Por favor, actualice la tasa antes de facturar.");
+    notificar("La tasa de cambio del día no es válida. Por favor, actualice la tasa.", "error");
     return;
   }
 
@@ -478,17 +492,17 @@ const finalizarVenta = async (tipoVenta = null) => {
 
   if (creditoFinal) {
         if (cliente.id === 1) {
-            alert("⚠️ No se puede otorgar crédito al CLIENTE EVENTUAL.");
+            notificar("No se puede otorgar crédito al CLIENTE EVENTUAL.", "error");
             return;
         }
         if (!cliente.permitirCredito) {
-            alert("⚠️ Este cliente no tiene autorizado el uso de crédito en su ficha.");
+            notificar("Este cliente no tiene autorizado el uso de crédito.", "error");
             return;
         }
     } else {
         // Validación para venta de contado
         if (totalPagadoUSD < (totalUSD - 0.01)) {
-            alert(`⚠️ Pago insuficiente. Total: $${totalUSD.toFixed(2)} - Pagado: $${totalPagadoUSD.toFixed(2)}`);
+            notificar(`Pago insuficiente. Total: $${totalUSD.toFixed(2)} - Pagado: $${totalPagadoUSD.toFixed(2)}`, "error");
             return;
         }
     }
@@ -499,17 +513,16 @@ const finalizarVenta = async (tipoVenta = null) => {
     .map(([metodo, monto]) => {
       const valor = Number(monto);
       const esDolar = metodo === 'efectivoUSD' || metodo === 'Metal';
+      const nombresMetodos = {
+        efectivoUSD: 'EFECTIVO_USD',
+        efectivoVES: 'EFECTIVO_VES',
+        pagoMovil: 'PAGO_MOVIL',
+        puntoBDV: 'PUNTO_BDV',
+        puntoBancamiga: 'PUNTO_BANCAMIGA',
+        Metal: 'METAL'
+      };
       return {
-        metodoPago: metodo === 'Metal' ? 'METAL' : metodo.replace(/([A-Z])/g, '_$1').toUpperCase(), // Convierte puntoBDV a PUNTO_B_D_V o similar, pero más seguro:
-        // Ajuste manual para coincidir con tu Backend:
-        metodoPago: {
-          efectivoUSD: 'EFECTIVO_USD',
-          efectivoVES: 'EFECTIVO_VES',
-          pagoMovil: 'PAGO_MOVIL',
-          puntoBDV: 'PUNTO_BDV',
-          puntoBancamiga: 'PUNTO_BANCAMIGA',
-          Metal: 'METAL'
-        }[metodo] || metodo.toUpperCase(),
+        metodoPago: nombresMetodos[metodo] || metodo.toUpperCase(),
         montoMonedaBase: esDolar ? valor : valor / tasa,
         montoMonedaExt: esDolar ? valor * tasa : valor,
         tasaDeCambio: esDolar ? 1 : tasa
@@ -729,7 +742,7 @@ const diferencia = totalUSD - totalPagadoUSD;
     const ventana = window.open('', 'PRINT', 'height=600,width=400');
 
     if (!ventana) {
-      alert("El navegador bloqueó la impresión. Por favor, permite los popups para este sitio.");
+      notificar("El navegador bloqueó la impresión. Por favor, permite los popups.", "error");
       return;
     }
 
@@ -858,7 +871,13 @@ return (
       {/* Barra de Información del Sistema */}
       <div className="flex justify-between items-center mb-4 bg-gray-800 text-white p-2 rounded-lg text-xs font-bold uppercase tracking-wider">
         <span>🏪 {datosEmpresa.razonSocial}</span>
-        <div className="flex gap-4">
+        <div className="flex gap-4 items-center">
+          <button 
+            onClick={() => setMostrarHistorial(true)}
+            className="bg-red-500/20 hover:bg-red-500/40 text-red-200 border border-red-500/50 px-3 py-1 rounded transition-all text-[10px] font-black"
+          >
+            📋 HISTORIAL / ANULAR
+          </button>
           <span className="text-green-400">👤 Cajero: {user?.username || 'DESCONOCIDO'}</span>
           <span className="text-blue-400">💼 Rol: {user?.rol || 'N/A'}</span>
         </div>
@@ -1343,6 +1362,12 @@ return (
         onSelectCliente={(c) => setCliente(c)}
         API_URL={API_URL}
       />
+      {/* Modal para historial de ventas / anulación */}
+      <ModalHistorialVentas
+        isOpen={mostrarHistorial}
+        onClose={() => setMostrarHistorial(false)}
+        API_URL={API_URL}
+      />
       {/* Al final de tu componente POS, junto a los otros modales */}
       <ModalPedidosPendientes 
         isOpen={mostrarModalPedidos}
@@ -1354,12 +1379,104 @@ return (
         setEsCredito={setEsCredito}
         setMostrarModalPedidos={setMostrarModalPedidos}
         setPedidoIdOrigen={setPedidoIdOrigen}
+        tasa={tasa}
+        CLIENTE_DEFECTO={CLIENTE_DEFECTO}
       />
     </>
   );
   
   
   
+};
+
+const ModalHistorialVentas = ({ isOpen, onClose, API_URL }) => {
+    const [ventas, setVentas] = useState([]);
+    const [busqueda, setBusqueda] = useState("");
+
+    useEffect(() => {
+        if (isOpen) cargarVentas();
+    }, [isOpen]);
+
+    const cargarVentas = async () => {
+        try {
+            const res = await fetch(`${API_URL}/Ventas`, { headers: getAuthHeaders() });
+            if (res.ok) setVentas(await res.json());
+        } catch (err) { console.error("Error cargando historial:", err); }
+    };
+
+    const handleAnular = async (id, numero) => {
+        const clave = prompt(`⚠️ SEGURIDAD: Ingrese clave de ADMINISTRADOR para anular la factura #${numero}:`);
+        
+        if (!clave) return;
+
+        if (!window.confirm(`¿Confirmar anulación de la factura ${numero}? El stock será revertido.`)) return;
+
+        try {
+            const res = await fetch(`${API_URL}/Ventas/anular/${id}`, { 
+                method: 'POST', 
+                headers: {
+                    ...getAuthHeaders(),
+                    'X-Admin-Key': clave
+                }
+            });
+            if (res.ok) {
+                notificar("Factura anulada y stock actualizado.", "success");
+                cargarVentas();
+            } else {
+                const msg = await res.text();
+                notificar("Error: " + msg, "error");
+            }
+        } catch (err) { notificar("Error de conexión al intentar anular.", "error"); }
+    };
+
+    if (!isOpen) return null;
+    const filtradas = Array.isArray(ventas) ? ventas.filter(v => v.numeroFactura?.toLowerCase().includes(busqueda.toLowerCase())) : [];
+
+    return (
+        <div className="fixed inset-0 bg-black/80 backdrop-blur-sm z-[200] flex items-center justify-center p-4">
+            <div className="bg-white w-full max-w-4xl rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[85vh]">
+                <div className="p-6 border-b flex justify-between items-center bg-gray-50">
+                    <h2 className="text-2xl font-black text-gray-800 uppercase flex items-center gap-2">📝 Historial de Ventas</h2>
+                    <button onClick={onClose} className="text-gray-400 hover:text-red-500 text-3xl font-bold">&times;</button>
+                </div>
+                <div className="p-4 bg-gray-100">
+                    <input 
+                        type="text" placeholder="Buscar por número de factura..." 
+                        className="w-full p-3 rounded-xl border-2 border-gray-200 outline-none focus:border-blue-500 transition-all font-bold"
+                        value={busqueda} onChange={(e) => setBusqueda(e.target.value)}
+                    />
+                </div>
+                <div className="flex-1 overflow-y-auto p-4">
+                    <table className="w-full text-left">
+                        <thead className="bg-gray-50 sticky top-0">
+                            <tr className="text-gray-400 uppercase text-[10px] font-black">
+                                <th className="p-4">Factura</th>
+                                <th className="p-4">Fecha</th>
+                                <th className="p-4">Total ($)</th>
+                                <th className="p-4">Estado</th>
+                                <th className="p-4 text-center">Acción</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                            {filtradas.map(v => (
+                                <tr key={v.ventaId} className={v.isAnulada ? "bg-red-50/30 opacity-60" : "hover:bg-blue-50/50"}>
+                                    <td className="p-4 font-bold text-gray-700">#{v.numeroFactura}</td>
+                                    <td className="p-4 text-xs text-gray-500">{new Date(v.fechaVenta).toLocaleString()}</td>
+                                    <td className="p-4 font-mono font-black text-blue-600">${v.totalMonedaBase.toFixed(2)}</td>
+                                    <td className="p-4">
+                                        {v.isAnulada ? <span className="bg-red-100 text-red-600 px-2 py-1 rounded text-[10px] font-black">ANULADA</span> : <span className="bg-green-100 text-green-600 px-2 py-1 rounded text-[10px] font-black">ACTIVA</span>}
+                                    </td>
+                                    <td className="p-4 text-center">
+                                        {!v.isAnulada && <button onClick={() => handleAnular(v.ventaId, v.numeroFactura)} className="bg-red-600 text-white px-3 py-1.5 rounded-lg text-[10px] font-black hover:bg-red-700 shadow-sm">ANULAR</button>}
+                                    </td>
+                                </tr>
+                            ))}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </div>
+    );
 };
 
 const ModalPedidosPendientes = ({ 
@@ -1371,8 +1488,7 @@ const ModalPedidosPendientes = ({
     setPedidoIdOrigen, 
     setEsCredito, 
     setMostrarModalPedidos,
-    tasa, // Asegúrate de pasar la tasa desde el POS
-    setVista, // Asegúrate de pasar setVista desde el POS
+    tasa,
     CLIENTE_DEFECTO 
 }) => {
     const [pedidos, setPedidos] = useState([]);
@@ -1465,11 +1581,11 @@ useEffect(() => {
                 if (typeof setVista === 'function') setVista('nuevo'); 
                 if (typeof setMostrarModalPedidos === 'function') setMostrarModalPedidos(false);
                 
-                alert("✅ Pedido importado con éxito");
+                notificar("Pedido importado con éxito", "success");
             }
         } catch (error) {
             console.error("❌ Error al importar:", error);
-            alert("Error crítico al cargar el pedido");
+            notificar("Error crítico al cargar el pedido", "error");
         } finally {
             setProcesando(false);
         }

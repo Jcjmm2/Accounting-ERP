@@ -80,27 +80,23 @@ namespace Tyted.API.Services
 
                     // 7. CÁLCULOS FINANCIEROS DE LA LÍNEA (Basados en la cantidad facturada, no la real)
                     // Nota: El precio ya viene por la unidad seleccionada (Bulto, Gramo, etc.)
-                    detalle.PrecioUnitarioMonedaExt = Math.Round(detalle.PrecioUnitarioMonedaBase * venta.TasaDeCambio, 4);
                     detalle.PrecioUnitarioMonedaExt = Math.Round(detalle.PrecioUnitarioMonedaBase * venta.TasaDeCambio, 4, MidpointRounding.AwayFromZero);
                     detalle.SubtotalLineaMonedaBase = detalle.Cantidad * detalle.PrecioUnitarioMonedaBase;
-                    detalle.SubtotalLineaMonedaExt = Math.Round(detalle.Cantidad * detalle.PrecioUnitarioMonedaExt, 2);
                     detalle.SubtotalLineaMonedaExt = Math.Round(detalle.Cantidad * detalle.PrecioUnitarioMonedaExt, 2, MidpointRounding.AwayFromZero);
 
                     decimal factorIva = (detalle.TasaIVA) / 100;
-                    detalle.IvaLineaMonedaExt = Math.Round(detalle.SubtotalLineaMonedaExt * factorIva, 2);
                     detalle.IvaLineaMonedaExt = Math.Round(detalle.SubtotalLineaMonedaExt * factorIva, 2, MidpointRounding.AwayFromZero);
                     detalle.TotalLineaMonedaExt = detalle.SubtotalLineaMonedaExt + detalle.IvaLineaMonedaExt;
-                    detalle.TotalLineaMonedaBase = Math.Round(detalle.SubtotalLineaMonedaBase * (1 + factorIva), 4);
                     detalle.TotalLineaMonedaBase = Math.Round(detalle.SubtotalLineaMonedaBase * (1 + factorIva), 4, MidpointRounding.AwayFromZero);
                 }
 
                 // --- TOTALES DE CABECERA ---
                 venta.SubtotalMonedaBase = venta.Detalles.Sum(d => d.SubtotalLineaMonedaBase);
-                venta.TotalMonedaBase = venta.Detalles.Sum(d => d.TotalLineaMonedaBase);
+                venta.TotalMonedaBase = Math.Round(venta.Detalles.Sum(d => d.TotalLineaMonedaBase), 2, MidpointRounding.AwayFromZero);
                 venta.IvaMonedaBase = venta.TotalMonedaBase - venta.SubtotalMonedaBase;
 
                 venta.SubtotalMonedaExt = venta.Detalles.Sum(d => d.SubtotalLineaMonedaExt);
-                venta.TotalMonedaExt = venta.Detalles.Sum(d => d.TotalLineaMonedaExt);
+                venta.TotalMonedaExt = Math.Round(venta.Detalles.Sum(d => d.TotalLineaMonedaExt), 2, MidpointRounding.AwayFromZero);
                 venta.IvaMonedaExt = venta.TotalMonedaExt - venta.SubtotalMonedaExt;
                 venta.TotalUSD = venta.TotalMonedaBase; // Evita el NULL en SQL
                 venta.TotalVES = venta.TotalMonedaExt;
@@ -150,8 +146,17 @@ namespace Tyted.API.Services
                     catch (Exception ex)
                     {
                         await transaction.RollbackAsync();
-                        throw new Exception(ex.Message);
+                        throw new Exception($"Error crítico al registrar la venta: {ex.Message}", ex);
             }
+        }
+
+        public async Task<IEnumerable<Venta>> ObtenerTodasAsync()
+        {
+            return await _context.Ventas
+                .Include(v => v.Cliente)
+                .Include(v => v.Detalles)
+                .OrderByDescending(v => v.FechaVenta)
+                .ToListAsync();
         }
 
         public async Task<bool> AnularVentaAsync(int IdVenta)
