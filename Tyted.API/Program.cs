@@ -23,7 +23,7 @@ builder.Services.AddDbContext<TytedContext>(options =>
 // =========================================================================
 // 2. CONFIGURACIÓN DE AUTENTICACIÓN JWT
 // =========================================================================
-var jwtKey = builder.Configuration["Jwt:Key"] ?? "TuClaveSuperSecretaDeAlMenos32Caracteres";
+var jwtKey = builder.Configuration["Jwt:Key"] ?? throw new InvalidOperationException("JWT Key no configurada en appsettings.json");
 var keyBytes = Encoding.UTF8.GetBytes(jwtKey);
 
 builder.Services.AddAuthentication(options =>
@@ -95,10 +95,15 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("TytedPolicy", policy =>
     {
-        policy.WithOrigins("https://localhost:5173", "https://192.168.1.6:5173")
+        // En producción, carga estas URLs desde configuración
+        var allowedOrigins = builder.Configuration.GetSection("AllowedOrigins").Get<string[]>() 
+                             ?? new[] { "https://localhost:5173" };
+
+        policy.WithOrigins(allowedOrigins)
               .AllowAnyMethod()
               .AllowAnyHeader()
-              .AllowCredentials();
+              .AllowCredentials()
+              .SetPreflightMaxAge(TimeSpan.FromMinutes(10)); // Optimiza peticiones OPTIONS
     });
 });
 
