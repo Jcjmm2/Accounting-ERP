@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useContext, useRef } from 'react';
 import { ConfigContext } from '../Context/ConfigContext';
 import ModalCliente from './ModalCliente';
-import { Html5QrcodeScanner } from "html5-qrcode";
+import { Html5Qrcode } from "html5-qrcode";
 
 const CLIENTE_DEFECTO = { id: 1, nombre: "CLIENTE EVENTUAL", rif: "V00000000" };
 
@@ -110,23 +110,32 @@ const Pedidos = () => {
     useEffect(() => {
         if (!mostrarScanner) return;
 
-        // Configuración del escáner: FPS y tamaño de la zona de lectura
-        const scanner = new Html5QrcodeScanner("reader", { 
+        // Creamos la instancia del escáner manual
+        const html5QrCode = new Html5Qrcode("reader");
+        
+        const config = { 
             fps: 10, 
             qrbox: { width: 250, height: 150 },
-            aspectRatio: 1.0
-        }, false);
+            aspectRatio: 1.0 
+        };
 
-        scanner.render((decodedText) => {
+        const qrCodeSuccessCallback = (decodedText) => {
             // Al detectar un código, ejecutamos la búsqueda y cerramos
             manejarBusqueda(decodedText);
             setMostrarScanner(false);
-            scanner.clear();
-        }, (error) => {
-            // Errores de escaneo (silenciosos para no saturar consola)
-        });
+        };
 
-        return () => scanner.clear().catch(err => console.error("Error limpiando scanner:", err));
+        // Iniciamos el escaneo forzando la cámara trasera ("environment")
+        html5QrCode.start(
+            { facingMode: "environment" }, 
+            config, 
+            qrCodeSuccessCallback
+        ).catch(err => console.error("Error al iniciar la cámara:", err));
+
+        return () => {
+            // Importante: Detener la cámara cuando el componente se desmonte o se cierre el scanner
+            html5QrCode.stop().catch(err => console.error("Error al detener el scanner:", err));
+        };
     }, [mostrarScanner]);
 
     // --- FUNCIONES DE BÚSQUEDA ---

@@ -60,17 +60,6 @@ builder.Services.AddScoped<EstadisticasService>();
 // 4. CONFIGURACIÓN CORS (Actualizada)
 // =========================================================================
 QuestPDF.Settings.License = QuestPDF.Infrastructure.LicenseType.Community;
-
-builder.Services.AddCors(options =>
-{
-    options.AddPolicy("PermitirReact", policy =>
-    {
-        policy.AllowAnyOrigin()
-              .AllowAnyHeader()
-              .AllowAnyMethod();
-    });
-});
-
 builder.Services.AddControllers()
     .AddJsonOptions(options =>
     {
@@ -102,6 +91,18 @@ builder.Services.AddOpenApi(options =>
 // =========================================================================
 // 5. CONSTRUCCIÓN DE LA APLICACIÓN
 // =========================================================================
+builder.Services.AddCors(options =>
+{
+    options.AddPolicy("TytedPolicy", policy =>
+    {
+        policy.WithOrigins("https://localhost:5173", "https://192.168.1.6:5173")
+              .AllowAnyMethod()
+              .AllowAnyHeader()
+              .AllowCredentials();
+    });
+});
+
+
 var app = builder.Build(); 
 
 // Inicialización de DB
@@ -146,7 +147,8 @@ if (app.Environment.IsDevelopment())
 }
 
 // 1. CORS debe ir antes que cualquier ruta o autorización
-app.UseCors("PermitirReact");
+app.UseCors("TytedPolicy");
+
 
 // 2. Autenticación y Autorización (Descoméntalos si vas a usar seguridad JWT)
 app.UseAuthentication();

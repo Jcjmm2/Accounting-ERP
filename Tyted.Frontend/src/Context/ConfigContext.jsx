@@ -5,7 +5,7 @@ export const ConfigContext = createContext();
 
 export const ConfigProvider = ({ children }) => {
     // Leemos la URL desde el archivo .env.development (importante para pruebas en smartphone)
-    const [API_URL] = useState(import.meta.env.VITE_API_URL || "http://localhost:5077/api");
+    const [API_URL] = useState(import.meta.env.VITE_API_URL || "https://192.168.1.6:5077/api");
     const [tasa, setTasa] = useState(0);
     const [user, setUser] = useState(null);
 
