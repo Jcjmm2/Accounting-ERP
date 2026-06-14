@@ -10,6 +10,7 @@
             "args": [],
             "cwd": "${workspaceFolder}/Tyted.API",
             "stopAtEntry": false,
+            "launchSettingsProfile": "http",
             "serverReadyAction": {
                 "action": "openExternally",
                 "pattern": "\\bNow listening on:\\s+(https?://\\S+)"
