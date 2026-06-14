@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useContext, useRef } from 'react';
 import { ConfigContext } from '../Context/ConfigContext';
 import ModalCliente from './ModalCliente';
+import { Html5QrcodeScanner } from "html5-qrcode";
 
 const CLIENTE_DEFECTO = { id: 1, nombre: "CLIENTE EVENTUAL", rif: "V00000000" };
 
@@ -21,6 +22,7 @@ const Pedidos = () => {
     const [resultadosBusqueda, setResultadosBusqueda] = useState([]);
     const [indexSeleccionado, setIndexSeleccionado] = useState(-1);
     const [cliente, setCliente] = useState(CLIENTE_DEFECTO);
+    const [mostrarScanner, setMostrarScanner] = useState(false);
     const [mostrarModalCliente, setMostrarModalCliente] = useState(false);
     const [errorBusqueda, setErrorBusqueda] = useState(null);
     
@@ -104,6 +106,29 @@ const Pedidos = () => {
         }
     }, [indexSeleccionado]);
 
+    // --- LOGICA DEL ESCANER DE CAMARA (HTML5-QRCODE) ---
+    useEffect(() => {
+        if (!mostrarScanner) return;
+
+        // Configuración del escáner: FPS y tamaño de la zona de lectura
+        const scanner = new Html5QrcodeScanner("reader", { 
+            fps: 10, 
+            qrbox: { width: 250, height: 150 },
+            aspectRatio: 1.0
+        }, false);
+
+        scanner.render((decodedText) => {
+            // Al detectar un código, ejecutamos la búsqueda y cerramos
+            manejarBusqueda(decodedText);
+            setMostrarScanner(false);
+            scanner.clear();
+        }, (error) => {
+            // Errores de escaneo (silenciosos para no saturar consola)
+        });
+
+        return () => scanner.clear().catch(err => console.error("Error limpiando scanner:", err));
+    }, [mostrarScanner]);
+
     // --- FUNCIONES DE BÚSQUEDA ---
     const manejarBusqueda = async (valor) => {
         setBusqueda(valor);
@@ -114,9 +139,16 @@ const Pedidos = () => {
             return;
         }
 
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 5000);
+
         try {
             const res = await fetch(`${API_URL}/Productos/buscar?termino=${valor}&tasaDelDia=${tasa}`, {
-                headers: getAuthHeaders() });
+                headers: getAuthHeaders(),
+                signal: controller.signal
+            });
+            clearTimeout(timeoutId);
+
             if (res.ok) {
                 const data = await res.json();
                 
@@ -145,7 +177,11 @@ const Pedidos = () => {
             }
         } catch (error) {
             console.error(error);
-            setErrorBusqueda("⚠️ Error de conexión");
+            if (error.name === 'AbortError') {
+                setErrorBusqueda("⏳ El servidor local tarda mucho en responder...");
+            } else {
+                setErrorBusqueda("⚠️ Error de conexión");
+            }
         }
     };
 
@@ -206,7 +242,7 @@ const Pedidos = () => {
             codigoProd: productoEnPesaje.codigoProd,
             descripcion: productoEnPesaje.descripcion,
             precio: productoEnPesaje.precioUSD || productoEnPesaje.precioMonedaBase,
-            porcentajeIva: productoEnPesaje.porcentajeIva || prod.porcentajeIva || 0,
+            porcentajeIva: productoEnPesaje.porcentajeIva || 0,
             cantidad: valor,
             unidad: productoEnPesaje.unidad
         };
@@ -391,17 +427,36 @@ const Pedidos = () => {
                     <div className="flex-1 flex flex-col p-4 gap-4">
                         {/* Buscador y Resultados */}
                         <div className="relative z-50">
-                            <input
-                                ref={inputBusquedaRef}
-                                type="text"
-                                value={busqueda}
-                                onChange={(e) => manejarBusqueda(e.target.value)}
-                                className={`w-full p-4 border-2 rounded-xl outline-none text-lg shadow-sm font-bold transition-all ${
-                                    errorBusqueda ? 'border-red-500 bg-red-50' : 'border-blue-50 focus:border-blue-500 bg-white'
-                                }`}
-                                placeholder="🔍 F2 - Buscar producto..."
-                                autoFocus
-                            />
+                            <div className="flex gap-2">
+                                <input
+                                    ref={inputBusquedaRef}
+                                    type="text"
+                                    value={busqueda}
+                                    onChange={(e) => manejarBusqueda(e.target.value)}
+                                    className={`flex-1 p-4 border-2 rounded-xl outline-none text-lg shadow-sm font-bold transition-all ${
+                                        errorBusqueda ? 'border-red-500 bg-red-50' : 'border-blue-50 focus:border-blue-500 bg-white'
+                                    }`}
+                                    placeholder="🔍 F2 - Buscar..."
+                                    autoFocus
+                                />
+                                {/* Botón de Cámara (Solo visible en dispositivos móviles o pantallas pequeñas) */}
+                                <button 
+                                    onClick={() => setMostrarScanner(!mostrarScanner)}
+                                    className="md:hidden bg-blue-600 text-white p-4 rounded-xl shadow-lg active:bg-blue-800 transition-colors"
+                                    title="Escanear Código de Barras"
+                                >
+                                    {mostrarScanner ? '✕' : '📷'}
+                                </button>
+                            </div>
+
+                            {/* Contenedor del Lector de Cámara */}
+                            {mostrarScanner && (
+                                <div id="reader" className="mt-4 rounded-2xl overflow-hidden border-4 border-blue-500 shadow-2xl bg-black min-h-[250px]">
+                                    {/* Aquí se renderizará el visor de la cámara */}
+                                    <p className="text-white text-center p-10 text-xs">Iniciando cámara...</p>
+                                </div>
+                            )}
+                            
                             {/* Alerta Error */}
                             {errorBusqueda && (
                                 <div className="absolute right-0 top-0 bottom-0 flex items-center pr-4">

@@ -36,7 +36,7 @@ const ModalCliente = ({ isOpen, onClose, onSelectCliente, API_URL }) => {
         try {
             const res = await fetch(`${API_URL}/Clientes`, {
                 method: 'POST',
-                headers: getAutohHeaders(),
+                headers: getAuthHeaders(),
                 body: JSON.stringify(nuevoCliente)
             });
             if (res.ok) {
@@ -94,11 +94,15 @@ const ModalCliente = ({ isOpen, onClose, onSelectCliente, API_URL }) => {
                         </div>
                     ) : (
                         <form onSubmit={guardarNuevo} className="space-y-3">
-                            <input required placeholder="RIF (Ej: V12345678)" className="w-full p-2 border rounded-lg" 
-                                onChange={e => setNuevoCliente({...nuevoCliente, rif: e.target.value})}/>
-                            <input required placeholder="Nombre o Razón Social" className="w-full p-2 border rounded-lg" 
-                                onChange={e => setNuevoCliente({...nuevoCliente, nombre: e.target.value})}/>
-                            <input placeholder="Teléfono" className="w-full p-2 border rounded-lg" 
+                            <input required placeholder="RIF (Ej: V12345678)" 
+                                className="w-full p-2 border rounded-lg uppercase" 
+                                value={nuevoCliente.rif}
+                                onChange={e => setNuevoCliente({...nuevoCliente, rif: e.target.value.toUpperCase()})}/>
+                            <input required placeholder="Nombre o Razón Social" 
+                                className="w-full p-2 border rounded-lg uppercase" 
+                                value={nuevoCliente.nombre}
+                                onChange={e => setNuevoCliente({...nuevoCliente, nombre: e.target.value.toUpperCase()})}/>
+                            <input type="tel" placeholder="Teléfono" className="w-full p-2 border rounded-lg" 
                                 onChange={e => setNuevoCliente({...nuevoCliente, telefono: e.target.value})}/>
                             <textarea placeholder="Dirección" className="w-full p-2 border rounded-lg" 
                                 onChange={e => setNuevoCliente({...nuevoCliente, direccion: e.target.value})}/>

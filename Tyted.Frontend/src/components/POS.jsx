@@ -211,11 +211,17 @@ const cargarPedidoAlCarrito = (pedido) => {
         return;
     }
 
+    // AbortController para cancelar peticiones si el servidor local tarda mucho (Resiliencia Fase 4)
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000); 
+
     try {
         const res = await fetch(`${API_URL}/Productos/buscar?termino=${valor}&tasaDelDia=${tasa}`, {
-          method: 'GET', // Es buena práctica ser explícito
-          headers: getAuthHeaders()
-    });
+          method: 'GET',
+          headers: getAuthHeaders(),
+          signal: controller.signal
+        });
+        clearTimeout(timeoutId);
           
         if (res.status === 404) {
             throw new Error("PRODUCTO_NO_ENCONTRADO");
@@ -254,7 +260,10 @@ const cargarPedidoAlCarrito = (pedido) => {
             }
         }
     } catch (error) {
-        if (error.message === "PRODUCTO_NO_ENCONTRADO") {
+        console.warn("Manejando error de búsqueda:", error.message);
+        if (error.name === 'AbortError') {
+            setErrorBusqueda("⏳ El servidor local tarda mucho en responder...");
+        } else if (error.message === "PRODUCTO_NO_ENCONTRADO") {
             setErrorBusqueda("🔍 Producto no encontrado");
         } else {
             setErrorBusqueda("⚠️ Error de red local. Verifique el servidor.");
@@ -1381,6 +1390,7 @@ return (
         setPedidoIdOrigen={setPedidoIdOrigen}
         tasa={tasa}
         CLIENTE_DEFECTO={CLIENTE_DEFECTO}
+        notificar={notificar}
       />
     </>
   );
@@ -1389,7 +1399,7 @@ return (
   
 };
 
-const ModalHistorialVentas = ({ isOpen, onClose, API_URL }) => {
+const ModalHistorialVentas = ({ isOpen, onClose, API_URL, notificar }) => {
     const [ventas, setVentas] = useState([]);
     const [busqueda, setBusqueda] = useState("");
 
@@ -1489,7 +1499,8 @@ const ModalPedidosPendientes = ({
     setEsCredito, 
     setMostrarModalPedidos,
     tasa,
-    CLIENTE_DEFECTO 
+    CLIENTE_DEFECTO,
+    notificar
 }) => {
     const [pedidos, setPedidos] = useState([]);
     const [busqueda, setBusqueda] = useState("");
@@ -1578,7 +1589,6 @@ useEffect(() => {
 
                 // 3. Control de Estado del POS
                 if (typeof setPedidoIdOrigen === 'function') setPedidoIdOrigen(id);
-                if (typeof setVista === 'function') setVista('nuevo'); 
                 if (typeof setMostrarModalPedidos === 'function') setMostrarModalPedidos(false);
                 
                 notificar("Pedido importado con éxito", "success");

@@ -65,7 +65,7 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("PermitirReact", policy =>
     {
-        policy.WithOrigins("http://localhost:5173")
+        policy.AllowAnyOrigin()
               .AllowAnyHeader()
               .AllowAnyMethod();
     });
@@ -149,7 +149,7 @@ if (app.Environment.IsDevelopment())
 app.UseCors("PermitirReact");
 
 // 2. Autenticación y Autorización (Descoméntalos si vas a usar seguridad JWT)
-// app.UseAuthentication();
+app.UseAuthentication();
 app.UseAuthorization();
 
 // 3. Mapeo de Controladores
