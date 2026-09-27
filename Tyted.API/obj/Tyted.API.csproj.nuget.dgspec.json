@@ -1,17 +1,17 @@
 {
   "format": 1,
   "restore": {
-    "D:\\USUARIO\\Tyted\\Tyted_Project\\tyted.api\\Tyted.API.csproj": {}
+    "D:\\USUARIO\\Tyted\\Tyted_Project\\Tyted.API\\Tyted.API.csproj": {}
   },
   "projects": {
-    "D:\\USUARIO\\Tyted\\Tyted_Project\\tyted.api\\Tyted.API.csproj": {
+    "D:\\USUARIO\\Tyted\\Tyted_Project\\Tyted.API\\Tyted.API.csproj": {
       "version": "1.0.0",
       "restore": {
-        "projectUniqueName": "D:\\USUARIO\\Tyted\\Tyted_Project\\tyted.api\\Tyted.API.csproj",
+        "projectUniqueName": "D:\\USUARIO\\Tyted\\Tyted_Project\\Tyted.API\\Tyted.API.csproj",
         "projectName": "Tyted.API",
-        "projectPath": "D:\\USUARIO\\Tyted\\Tyted_Project\\tyted.api\\Tyted.API.csproj",
+        "projectPath": "D:\\USUARIO\\Tyted\\Tyted_Project\\Tyted.API\\Tyted.API.csproj",
         "packagesPath": "C:\\Users\\USARIO\\.nuget\\packages\\",
-        "outputPath": "D:\\USUARIO\\Tyted\\Tyted_Project\\tyted.api\\obj\\",
+        "outputPath": "D:\\USUARIO\\Tyted\\Tyted_Project\\Tyted.API\\obj\\",
         "projectStyle": "PackageReference",
         "configFilePaths": [
           "C:\\Users\\USARIO\\AppData\\Roaming\\NuGet\\NuGet.Config"
@@ -73,6 +73,10 @@
             "Microsoft.IdentityModel.Tokens": {
               "target": "Package",
               "version": "[8.15.0, )"
+            },
+            "Microsoft.OpenApi": {
+              "target": "Package",
+              "version": "[2.7.5, )"
             },
             "QuestPDF": {
               "target": "Package",

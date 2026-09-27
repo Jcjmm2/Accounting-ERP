@@ -95,15 +95,20 @@ builder.Services.AddCors(options =>
 {
     options.AddPolicy("TytedPolicy", policy =>
     {
-        // En producción, carga estas URLs desde configuración
-        var allowedOrigins = builder.Configuration.GetSection("AllowedOrigins").Get<string[]>() 
-                             ?? new[] { "https://localhost:5173" };
+        var allowedOrigins = builder.Configuration.GetSection("AllowedOrigins").Get<string[]>()
+            ?? new[]
+            {
+                "http://localhost:5173",
+                "https://localhost:5173",
+                "http://127.0.0.1:5173",
+                "https://127.0.0.1:5173"
+            };
 
         policy.WithOrigins(allowedOrigins)
               .AllowAnyMethod()
               .AllowAnyHeader()
               .AllowCredentials()
-              .SetPreflightMaxAge(TimeSpan.FromMinutes(10)); // Optimiza peticiones OPTIONS
+              .SetPreflightMaxAge(TimeSpan.FromMinutes(10));
     });
 });
 

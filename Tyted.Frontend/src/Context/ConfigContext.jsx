@@ -4,8 +4,8 @@ import React, { createContext, useState, useEffect } from 'react';
 export const ConfigContext = createContext();
 
 export const ConfigProvider = ({ children }) => {
-    // Leemos la URL desde el archivo .env.development (importante para pruebas en smartphone)
-    const [API_URL] = useState(import.meta.env.VITE_API_URL || "https://192.168.1.6:5077/api");
+    // Leemos la URL desde el archivo .env y usamos localhost como base local por defecto.
+    const [API_URL] = useState(import.meta.env.VITE_API_URL || "http://localhost:5077/api");
     const [tasa, setTasa] = useState(0);
     const [user, setUser] = useState(null);
 
