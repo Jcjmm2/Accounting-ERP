@@ -31,4 +31,15 @@
 *.out
 *.app
 
+# Local environment / secrets
+appsettings.Development.json
+appsettings.Local.json
+.env
+.env.*
+
+# Build artifacts
+bin/
+obj/
+.vs/
+
 .fake

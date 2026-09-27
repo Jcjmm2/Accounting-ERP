@@ -6,7 +6,7 @@ namespace Tyted.API.Services
 {
     public static class DbInitializer
     {
-        public static void Initialize(TytedContext context)
+        public static void Initialize(TytedContext context, bool seedDevelopmentDefaults = false)
         {
             context.Database.EnsureCreated();
 
@@ -42,8 +42,8 @@ namespace Tyted.API.Services
                 });
             }
 
-            // 4. Usuario Admin predefinido
-            if (!context.Usuarios.Any())
+            // 4. Usuario Admin predefinido (solo para desarrollo)
+            if (seedDevelopmentDefaults && !context.Usuarios.Any())
             {
                 context.Usuarios.Add(new Usuario
                 {
