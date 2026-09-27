@@ -56,24 +56,6 @@ npm install
 npm run dev
 ```
 
-## Credenciales de desarrollo
-
-El usuario administrador por defecto solo se crea en entorno de desarrollo si la base está vacía.
-
-Usuario:
-
-```text
-admin
-```
-
-Contraseña:
-
-```text
-Admin123!
-```
-
-> No se recomienda dejar estas credenciales en producción ni en repositorios públicos.
-
 ## Estructura principal
 
 - `Tyted.API/` - backend ASP.NET Core
