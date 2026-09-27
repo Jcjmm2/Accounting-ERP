@@ -1,6 +1,6 @@
 # Tyted Project
 
-Sistema de gestión empresarial para operaciones de compras, ventas, inventario, usuarios, reportes y control financiero.
+Sistema de gestión empresarial adaptada a la Economía en Venezuela Tasas de Cambio y Gestión de Productos en Economías Hiperinflacionarias, gestion de operaciones de compras, ventas, inventario, usuarios, reportes y control financiero.
 
 ## Tecnologías
 
