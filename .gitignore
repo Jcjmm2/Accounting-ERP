@@ -43,3 +43,9 @@ obj/
 .vs/
 
 .fake
+node_modules/
+Tyted.Frontend/node_modules/
+package-lock.json
+.env.local
+.env.*.local
+.local

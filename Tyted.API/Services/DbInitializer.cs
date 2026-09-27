@@ -43,16 +43,23 @@ namespace Tyted.API.Services
             }
 
             // 4. Usuario Admin predefinido (solo para desarrollo)
+            // To avoid committing secrets, the admin seed password must be provided
+            // via the environment variable `ADMIN_SEED_PASSWORD` when `seedDevelopmentDefaults` is true.
             if (seedDevelopmentDefaults && !context.Usuarios.Any())
             {
-                context.Usuarios.Add(new Usuario
+                var adminPassword = Environment.GetEnvironmentVariable("ADMIN_SEED_PASSWORD");
+                if (!string.IsNullOrWhiteSpace(adminPassword))
                 {
-                    Username = "admin",
-                    PasswordHash = BCrypt.Net.BCrypt.HashPassword("Admin123!"),
-                    NombreCompleto = "Administrador del Sistema",
-                    Rol = "AdministradorSistema",
-                    Activo = true
-                });
+                    context.Usuarios.Add(new Usuario
+                    {
+                        Username = "admin",
+                        PasswordHash = BCrypt.Net.BCrypt.HashPassword(adminPassword),
+                        NombreCompleto = "Administrador del Sistema",
+                        Rol = "AdministradorSistema",
+                        Activo = true
+                    });
+                }
+                // If no ADMIN_SEED_PASSWORD is provided, do not create a default admin user.
             }
 
             context.SaveChanges();
