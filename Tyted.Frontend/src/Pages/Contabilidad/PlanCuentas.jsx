@@ -25,12 +25,16 @@ export default function PlanCuentas() {
 
     try {
       await contabilidadApi.crearCuenta({
-        codigo,
-        nombre,
+        codigoCuenta: codigo,
+        nombreCuenta: nombre,
         naturaleza,
-        tipo: 'Activo',
+        tipoCuenta: 'Activo',
         activa: true,
-        empresaId: 1
+        empresaId: 1,
+        esMovimiento: true,
+        nivel: 5,
+        aceptaTerceros: false,
+        aceptaCentroCosto: false
       });
       setCodigo('');
       setNombre('');
@@ -88,9 +92,9 @@ export default function PlanCuentas() {
               </tr>
             ) : (
               cuentas.map((cuenta) => (
-                <tr key={cuenta.id} style={{ borderTop: '1px solid #1f2937' }}>
-                  <td style={{ padding: '10px' }}>{cuenta.codigo}</td>
-                  <td style={{ padding: '10px' }}>{cuenta.nombre}</td>
+                <tr key={cuenta.id ?? cuenta.cuentaId} style={{ borderTop: '1px solid #1f2937' }}>
+                  <td style={{ padding: '10px' }}>{cuenta.codigoCuenta ?? cuenta.codigo}</td>
+                  <td style={{ padding: '10px' }}>{cuenta.nombreCuenta ?? cuenta.nombre}</td>
                   <td style={{ padding: '10px' }}>{cuenta.naturaleza}</td>
                 </tr>
               ))

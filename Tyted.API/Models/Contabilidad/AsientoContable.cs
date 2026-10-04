@@ -9,17 +9,30 @@ public class AsientoContable
     public int Id { get; set; }
 
     [Required]
-    public DateTime Fecha { get; set; } = DateTime.Today;
-
-    [Required, StringLength(250)]
-    public string Descripcion { get; set; } = string.Empty;
-
-    [StringLength(50)]
-    public string Estado { get; set; } = "Borrador";
-
     public int EmpresaId { get; set; } = 1;
 
+    [Required]
     public int PeriodoContableId { get; set; }
+
+    [Required, StringLength(20)]
+    public string NumeroComprobante { get; set; } = string.Empty;
+
+    [Required]
+    public DateTime FechaComprobante { get; set; } = DateTime.Today;
+
+    [Required, StringLength(500)]
+    public string Concepto { get; set; } = string.Empty;
+
+    [Required, StringLength(10)]
+    public string TipoComprobante { get; set; } = "Diario";
+
+    [Required, StringLength(15)]
+    public string Estado { get; set; } = "Aprobado";
+
+    [Required]
+    public int UsuarioId { get; set; }
+
+    public DateTime FechaCreacion { get; set; } = DateTime.Now;
 
     [ForeignKey(nameof(PeriodoContableId))]
     public PeriodoContable? PeriodoContable { get; set; }

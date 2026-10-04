@@ -11,11 +11,14 @@ export default function NuevoAsiento() {
     event.preventDefault();
 
     const asiento = {
-      descripcion,
-      fecha: new Date().toISOString(),
-      estado: 'Borrador',
+      concepto: descripcion,
+      fechaComprobante: new Date().toISOString(),
+      estado: 'Aprobado',
       periodoContableId: 1,
       empresaId: 1,
+      usuarioId: 1,
+      tipoComprobante: 'Diario',
+      numeroComprobante: `A-${Date.now()}`,
       detalles: [
         {
           cuentaContableId: Number(cuentaId),

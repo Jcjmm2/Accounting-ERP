@@ -92,23 +92,11 @@ builder.Services.AddOpenApi(options =>
     });
 });
 
-// =========================================================================
-// 5. CONSTRUCCIÓN DE LA APLICACIÓN
-// =========================================================================
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("TytedPolicy", policy =>
     {
-        var allowedOrigins = builder.Configuration.GetSection("AllowedOrigins").Get<string[]>()
-            ?? new[]
-            {
-                "http://localhost:5173",
-                "https://localhost:5173",
-                "http://127.0.0.1:5173",
-                "https://127.0.0.1:5173"
-            };
-
-        policy.WithOrigins(allowedOrigins)
+        policy.SetIsOriginAllowed(origin => true) // Permite cualquier origen (localhost, 127.0.0.1, IPs de red local)
               .AllowAnyMethod()
               .AllowAnyHeader()
               .AllowCredentials()

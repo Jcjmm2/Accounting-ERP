@@ -92,10 +92,18 @@ namespace Tyted.API.Data
                 .IsUnique();
 
             modelBuilder.Entity<CuentaContable>()
+                .HasIndex(c => new { c.EmpresaId, c.CodigoCuenta })
+                .IsUnique();
+
+            modelBuilder.Entity<CuentaContable>()
                 .HasOne(c => c.Padre)
                 .WithMany(c => c.Hijos)
-                .HasForeignKey(c => c.PadreId)
+                .HasForeignKey(c => c.PadreCuentaId)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<PeriodoContable>()
+                .HasIndex(p => new { p.EmpresaId, p.Anio, p.Mes })
+                .IsUnique();
 
             modelBuilder.Entity<AsientoDetalle>()
                 .HasOne(d => d.CuentaContable)

@@ -16,21 +16,21 @@ public class PlanCuentasService
     public async Task<List<CuentaContable>> GetCuentasAsync()
     {
         return await _context.CuentasContables
-            .OrderBy(c => c.Codigo)
+            .OrderBy(c => c.CodigoCuenta)
             .ToListAsync();
     }
 
     public async Task<CuentaContable> CrearCuentaAsync(CuentaContable cuenta)
     {
-        if (string.IsNullOrWhiteSpace(cuenta.Codigo))
+        if (string.IsNullOrWhiteSpace(cuenta.CodigoCuenta))
             throw new InvalidOperationException("El código de la cuenta es obligatorio.");
 
-        if (string.IsNullOrWhiteSpace(cuenta.Nombre))
+        if (string.IsNullOrWhiteSpace(cuenta.NombreCuenta))
             throw new InvalidOperationException("El nombre de la cuenta es obligatorio.");
 
-        if (cuenta.PadreId.HasValue)
+        if (cuenta.PadreCuentaId.HasValue)
         {
-            var padreExiste = await _context.CuentasContables.AnyAsync(c => c.Id == cuenta.PadreId.Value);
+            var padreExiste = await _context.CuentasContables.AnyAsync(c => c.Id == cuenta.PadreCuentaId.Value);
             if (!padreExiste)
                 throw new InvalidOperationException("La cuenta padre indicada no existe.");
         }

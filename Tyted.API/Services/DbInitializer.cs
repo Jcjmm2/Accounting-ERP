@@ -42,7 +42,62 @@ namespace Tyted.API.Services
                 });
             }
 
-            // 4. Usuario Admin predefinido (solo para desarrollo)
+            // 4. Plan base de cuentas contables (estructura VEN-NIF)
+            if (!context.CuentasContables.Any())
+            {
+                var empresa = context.Empresa.FirstOrDefault();
+                var empresaId = empresa?.Id ?? 1;
+
+                var cuentas = new List<CuentaContable>
+                {
+                    new() { EmpresaId = empresaId, CodigoCuenta = "1", NombreCuenta = "ACTIVO", TipoCuenta = "Activo", Naturaleza = "D", EsMovimiento = false, Nivel = 1, AceptaTerceros = false, AceptaCentroCosto = false, Activa = true },
+                    new() { EmpresaId = empresaId, CodigoCuenta = "1.1", NombreCuenta = "CORRIENTE", TipoCuenta = "Activo", Naturaleza = "D", EsMovimiento = false, Nivel = 2, AceptaTerceros = false, AceptaCentroCosto = false, Activa = true },
+                    new() { EmpresaId = empresaId, CodigoCuenta = "1.1.1", NombreCuenta = "CAJA", TipoCuenta = "Activo", Naturaleza = "D", EsMovimiento = false, Nivel = 3, AceptaTerceros = false, AceptaCentroCosto = false, Activa = true },
+                    new() { EmpresaId = empresaId, CodigoCuenta = "1.1.1.1", NombreCuenta = "Cajas de operación", TipoCuenta = "Activo", Naturaleza = "D", EsMovimiento = true, Nivel = 4, AceptaTerceros = false, AceptaCentroCosto = false, Activa = true },
+                    new() { EmpresaId = empresaId, CodigoCuenta = "1.1.1.1.01", NombreCuenta = "Caja General", TipoCuenta = "Activo", Naturaleza = "D", EsMovimiento = true, Nivel = 5, AceptaTerceros = true, AceptaCentroCosto = true, Activa = true },
+
+                    new() { EmpresaId = empresaId, CodigoCuenta = "2", NombreCuenta = "PASIVO", TipoCuenta = "Pasivo", Naturaleza = "C", EsMovimiento = false, Nivel = 1, AceptaTerceros = false, AceptaCentroCosto = false, Activa = true },
+                    new() { EmpresaId = empresaId, CodigoCuenta = "2.1", NombreCuenta = "CORRIENTE", TipoCuenta = "Pasivo", Naturaleza = "C", EsMovimiento = false, Nivel = 2, AceptaTerceros = false, AceptaCentroCosto = false, Activa = true },
+                    new() { EmpresaId = empresaId, CodigoCuenta = "2.1.1", NombreCuenta = "CUENTAS POR PAGAR", TipoCuenta = "Pasivo", Naturaleza = "C", EsMovimiento = false, Nivel = 3, AceptaTerceros = false, AceptaCentroCosto = false, Activa = true },
+                    new() { EmpresaId = empresaId, CodigoCuenta = "2.1.1.1", NombreCuenta = "Proveedores", TipoCuenta = "Pasivo", Naturaleza = "C", EsMovimiento = true, Nivel = 4, AceptaTerceros = true, AceptaCentroCosto = false, Activa = true },
+                    new() { EmpresaId = empresaId, CodigoCuenta = "2.1.1.1.01", NombreCuenta = "Proveedores nacionales", TipoCuenta = "Pasivo", Naturaleza = "C", EsMovimiento = true, Nivel = 5, AceptaTerceros = true, AceptaCentroCosto = false, Activa = true },
+
+                    new() { EmpresaId = empresaId, CodigoCuenta = "3", NombreCuenta = "PATRIMONIO", TipoCuenta = "Patrimonio", Naturaleza = "C", EsMovimiento = false, Nivel = 1, AceptaTerceros = false, AceptaCentroCosto = false, Activa = true },
+                    new() { EmpresaId = empresaId, CodigoCuenta = "3.1", NombreCuenta = "CAPITAL", TipoCuenta = "Patrimonio", Naturaleza = "C", EsMovimiento = false, Nivel = 2, AceptaTerceros = false, AceptaCentroCosto = false, Activa = true },
+                    new() { EmpresaId = empresaId, CodigoCuenta = "3.1.1", NombreCuenta = "Capital social", TipoCuenta = "Patrimonio", Naturaleza = "C", EsMovimiento = true, Nivel = 3, AceptaTerceros = false, AceptaCentroCosto = false, Activa = true },
+
+                    new() { EmpresaId = empresaId, CodigoCuenta = "4", NombreCuenta = "INGRESOS", TipoCuenta = "Ingreso", Naturaleza = "C", EsMovimiento = false, Nivel = 1, AceptaTerceros = false, AceptaCentroCosto = false, Activa = true },
+                    new() { EmpresaId = empresaId, CodigoCuenta = "4.1", NombreCuenta = "INGRESOS OPERACIONALES", TipoCuenta = "Ingreso", Naturaleza = "C", EsMovimiento = false, Nivel = 2, AceptaTerceros = false, AceptaCentroCosto = false, Activa = true },
+                    new() { EmpresaId = empresaId, CodigoCuenta = "4.1.1", NombreCuenta = "Servicios", TipoCuenta = "Ingreso", Naturaleza = "C", EsMovimiento = true, Nivel = 3, AceptaTerceros = true, AceptaCentroCosto = true, Activa = true },
+
+                    new() { EmpresaId = empresaId, CodigoCuenta = "5", NombreCuenta = "COSTOS Y GASTOS", TipoCuenta = "Gasto", Naturaleza = "D", EsMovimiento = false, Nivel = 1, AceptaTerceros = false, AceptaCentroCosto = false, Activa = true },
+                    new() { EmpresaId = empresaId, CodigoCuenta = "5.1", NombreCuenta = "GASTOS", TipoCuenta = "Gasto", Naturaleza = "D", EsMovimiento = false, Nivel = 2, AceptaTerceros = false, AceptaCentroCosto = false, Activa = true },
+                    new() { EmpresaId = empresaId, CodigoCuenta = "5.1.1", NombreCuenta = "Gastos operativos", TipoCuenta = "Gasto", Naturaleza = "D", EsMovimiento = true, Nivel = 3, AceptaTerceros = true, AceptaCentroCosto = true, Activa = true }
+                };
+
+                context.CuentasContables.AddRange(cuentas);
+                context.SaveChanges();
+
+                var mapa = context.CuentasContables
+                    .Where(c => c.EmpresaId == empresaId)
+                    .ToDictionary(c => c.CodigoCuenta, c => c);
+
+                foreach (var cuenta in context.CuentasContables.Where(c => c.EmpresaId == empresaId).ToList())
+                {
+                    var codigoPadre = cuenta.CodigoCuenta.Contains('.')
+                        ? cuenta.CodigoCuenta[..cuenta.CodigoCuenta.LastIndexOf('.')]
+                        : null;
+
+                    if (!string.IsNullOrWhiteSpace(codigoPadre) && mapa.ContainsKey(codigoPadre))
+                    {
+                        cuenta.PadreCuentaId = mapa[codigoPadre].Id;
+                    }
+                }
+
+                context.SaveChanges();
+            }
+
+            // 5. Usuario Admin predefinido (solo para desarrollo)
             // To avoid committing secrets, the admin seed password must be provided
             // via the environment variable `ADMIN_SEED_PASSWORD` when `seedDevelopmentDefaults` is true.
             if (seedDevelopmentDefaults && !context.Usuarios.Any())

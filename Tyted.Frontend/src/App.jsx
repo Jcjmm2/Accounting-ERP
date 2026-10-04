@@ -18,7 +18,7 @@ import Usuarios from './Components/Usuarios';             // UsuariosController
 import ConfiguracionEmpresa from './Components/ConfiguracionEmpresa'; // EmpresaController
 import Clientes from './Components/Clientes'; // ClientesController
 import Pedidos from './Components/Pedidos'; // PedidosController
-import PlanCuentas from './Pages/Contabilidad/PlanCuentas';
+import ModuloContable from './Pages/Contabilidad/ModuloContable'; // Nuevo componente para el módulo contable
 
 function App() {
   const [vista, setVista] = useState('pos');
@@ -71,7 +71,7 @@ function App() {
       case 'usuarios':  return <Usuarios />;
       case 'config':    return <ConfiguracionEmpresa />;
       case 'clientes':    return <Clientes />;
-      case 'contabilidad': return <PlanCuentas />;
+      case 'contabilidad': return <ModuloContable />;
       default:          return <POS />;
     }
   };

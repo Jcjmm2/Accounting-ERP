@@ -18,7 +18,7 @@ public class AsientoContableService
         return await _context.AsientosContables
             .Include(a => a.Detalles)
             .ThenInclude(d => d.CuentaContable)
-            .OrderByDescending(a => a.Fecha)
+            .OrderByDescending(a => a.FechaComprobante)
             .ToListAsync();
     }
 
