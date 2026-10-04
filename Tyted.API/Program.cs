@@ -55,6 +55,10 @@ builder.Services.AddScoped<PedidoService>();
 builder.Services.AddScoped<NotaEntregaService>();
 builder.Services.AddScoped<IReportService, ReportService>();
 builder.Services.AddScoped<EstadisticasService>();
+builder.Services.AddScoped<PlanCuentasService>();
+builder.Services.AddScoped<AsientoContableService>();
+builder.Services.AddScoped<PeriodoContableService>();
+builder.Services.AddScoped<ReportesContablesService>();
 
 // =========================================================================
 // 4. CONFIGURACIÓN CORS (Actualizada)

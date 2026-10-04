@@ -26,7 +26,7 @@ namespace Tyted.API.Services
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {
-                if (venta.ClienteId == 0 || venta.ClienteId == null) 
+                if (venta.ClienteId == 0) 
                 {
                 venta.ClienteId = 1; // ID del cliente "CLIENTE EVENTUAL";
                 }

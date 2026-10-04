@@ -41,6 +41,13 @@ namespace Tyted.API.Data
         public DbSet<NotaEntregaCompra> NotasEntregaCompra { get; set; } = default!;
         public DbSet<NotaEntregaCompraDetalle> NotasEntregaCompraDetalle { get; set; } = default!;
 
+        // --- CONTABILIDAD ---
+        public DbSet<CuentaContable> CuentasContables { get; set; } = default!;
+        public DbSet<PeriodoContable> PeriodosContables { get; set; } = default!;
+        public DbSet<AsientoContable> AsientosContables { get; set; } = default!;
+        public DbSet<AsientoDetalle> AsientosDetalles { get; set; } = default!;
+        public DbSet<AuditoriaContable> AuditoriasContables { get; set; } = default!;
+
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
@@ -83,6 +90,30 @@ namespace Tyted.API.Data
             modelBuilder.Entity<Cliente>()
                 .HasIndex(c => c.Rif)
                 .IsUnique();
+
+            modelBuilder.Entity<CuentaContable>()
+                .HasOne(c => c.Padre)
+                .WithMany(c => c.Hijos)
+                .HasForeignKey(c => c.PadreId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<AsientoDetalle>()
+                .HasOne(d => d.CuentaContable)
+                .WithMany()
+                .HasForeignKey(d => d.CuentaContableId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<AsientoDetalle>()
+                .HasOne(d => d.AsientoContable)
+                .WithMany(a => a.Detalles)
+                .HasForeignKey(d => d.AsientoContableId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            modelBuilder.Entity<AsientoContable>()
+                .HasOne(a => a.PeriodoContable)
+                .WithMany(p => p.Asientos)
+                .HasForeignKey(a => a.PeriodoContableId)
+                .OnDelete(DeleteBehavior.Restrict);
 
             // 3. CONFIGURACIÓN DE RELACIONES Y SEEDING (Omitido para brevedad, mantener igual)
             // ... (Tus relaciones y DataSeed de Usuario, Empresa, etc.)

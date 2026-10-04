@@ -18,6 +18,7 @@ import Usuarios from './Components/Usuarios';             // UsuariosController
 import ConfiguracionEmpresa from './Components/ConfiguracionEmpresa'; // EmpresaController
 import Clientes from './Components/Clientes'; // ClientesController
 import Pedidos from './Components/Pedidos'; // PedidosController
+import PlanCuentas from './Pages/Contabilidad/PlanCuentas';
 
 function App() {
   const [vista, setVista] = useState('pos');
@@ -70,6 +71,7 @@ function App() {
       case 'usuarios':  return <Usuarios />;
       case 'config':    return <ConfiguracionEmpresa />;
       case 'clientes':    return <Clientes />;
+      case 'contabilidad': return <PlanCuentas />;
       default:          return <POS />;
     }
   };
@@ -181,6 +183,9 @@ function App() {
           <small className="nav-label">COMPRAS</small>
           <button className={`nav-button ${vista === 'compras' ? 'active' : ''}`} onClick={() => cambiarVista('compras')}>🧾 Compras / Notas</button>
           <button className={`nav-button ${vista === 'proveedores' ? 'active' : ''}`} onClick={() => cambiarVista('proveedores')}>🤝 Proveedores</button>
+
+          <small className="nav-label">CONTABILIDAD</small>
+          <button className={`nav-button ${vista === 'contabilidad' ? 'active' : ''}`} onClick={() => cambiarVista('contabilidad')}>📒 Contabilidad</button>
 
           <small className="nav-label">SISTEMA</small>
           <button className={`nav-button ${vista === 'reportes' ? 'active' : ''}`} onClick={() => cambiarVista('reportes')}>📈 Reportes</button>
