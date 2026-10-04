@@ -23,7 +23,6 @@ api.interceptors.request.use((config) => {
 }, (error) => Promise.reject(error));
 
 export const contabilidadApi = {
-  // El backend expone /api/contabilidad/cuentas
   getCuentas: async () => {
     try {
       const response = await api.get('/cuentas');
@@ -50,7 +49,6 @@ export const contabilidadApi = {
     }
   },
 
-  // Asientos Contables
   getAsientos: async () => {
     const response = await api.get('/asientos');
     return response.data;
@@ -61,15 +59,37 @@ export const contabilidadApi = {
     return response.data;
   },
 
-  // Periodos Fiscales
   getPeriodos: async () => {
-    const response = await api.get('/periodoscontables');
+    const response = await api.get('/periodos');
     return response.data;
   },
 
-  // Resumen / Dashboard Contable
+  crearPeriodo: async (periodo) => {
+    const response = await api.post('/periodos', periodo);
+    return response.data;
+  },
+
+  cerrarPeriodo: async (periodoId, usuario = 'Sistema') => {
+    const response = await api.post(`/periodos/${periodoId}/cerrar`, { usuario });
+    return response.data;
+  },
+
   getResumen: async () => {
     const response = await api.get('/reportescontables/resumen');
+    return response.data;
+  },
+
+  getBalanceComprobacion: async (periodoId) => {
+    const response = await api.get('/reportescontables/balance-comprobacion', {
+      params: { periodoId }
+    });
+    return response.data;
+  },
+
+  getLibroMayor: async (cuentaId, fechaInicio, fechaFin) => {
+    const response = await api.get('/reportescontables/libro-mayor', {
+      params: { cuentaId, fechaInicio, fechaFin }
+    });
     return response.data;
   }
 };
