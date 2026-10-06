@@ -139,5 +139,23 @@ namespace Tyted.API.Controllers
             await _context.SaveChangesAsync();
             return Ok(new { message = $"Ajuste '{clave}' actualizado a '{config.Valor}'" });
         }
+        // --- NUEVO MÉTODO PARA CREAR EMPRESAS ---
+    [HttpPost]
+    [Authorize(Roles = "AdministradorSistema,Administrador")]
+    public async Task<ActionResult<Empresa>> CreateEmpresa([FromBody] Empresa empresa)
+    {
+        if (empresa == null)
+            return BadRequest("La información de la empresa es requerida.");
+
+        // Opcional: Validar si ya existe un RIF igual
+        var existeRif = await _context.Empresa.AnyAsync(e => e.RIF == empresa.RIF);
+        if (existeRif)
+            return BadRequest("Ya existe una empresa registrada con ese RIF.");
+
+        _context.Empresa.Add(empresa);
+        await _context.SaveChangesAsync();
+
+        return Ok(empresa);
+    }
     }
 }

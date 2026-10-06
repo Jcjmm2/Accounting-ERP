@@ -54,8 +54,14 @@ export const contabilidadApi = {
     }
   },
 
-  getAsientos: async () => {
-    const response = await api.get('/asientos');
+  // ---------------------------------------------------------------------------
+  // GESTIÓN DE ASIENTOS (COMPROBANTES)
+  // ---------------------------------------------------------------------------
+  
+  // Ahora permite recibir el periodoId para filtrar los asientos de ese mes/año
+  getAsientos: async (periodoId) => {
+    const config = periodoId ? { params: { periodoContableId: periodoId } } : {};
+    const response = await api.get('/asientos', config);
     return response.data;
   },
 
@@ -64,6 +70,15 @@ export const contabilidadApi = {
     return response.data;
   },
 
+  // NUEVO: Función para actualizar un asiento (comprobante) existente
+  actualizarAsiento: async (id, asiento) => {
+    const response = await api.put(`/asientos/${id}`, asiento);
+    return response.data;
+  },
+
+  // ---------------------------------------------------------------------------
+  // GESTIÓN DE PERIODOS
+  // ---------------------------------------------------------------------------
   getPeriodos: async () => {
     const response = await api.get('/periodos');
     return response.data;
@@ -79,9 +94,6 @@ export const contabilidadApi = {
     return response.data;
   },
 
-  // ---------------------------------------------------------------------------
-  // NUEVAS FUNCIONES DE MODIFICACIÓN Y VALIDACIÓN DE PERIODOS
-  // ---------------------------------------------------------------------------
   verificarMovimientosPeriodo: async (periodoId) => {
     const response = await api.get(`/periodos/${periodoId}/tiene-movimientos`);
     return response.data;
@@ -91,8 +103,10 @@ export const contabilidadApi = {
     const response = await api.put(`/periodos/${periodoId}`, periodoData);
     return response.data;
   },
-  // ---------------------------------------------------------------------------
 
+  // ---------------------------------------------------------------------------
+  // REPORTES CONTABLES
+  // ---------------------------------------------------------------------------
   getResumen: async () => {
     const response = await api.get('/reportescontables/resumen');
     return response.data;

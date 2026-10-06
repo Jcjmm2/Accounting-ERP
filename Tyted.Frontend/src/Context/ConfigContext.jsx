@@ -75,40 +75,49 @@ export const ConfigProvider = ({ children }) => {
   const [periodoActivo, setPeriodoActivo] = useState(buildDefaultPeriodo());
   const [contextoCargado, setContextoCargado] = useState(false);
 
+  // Generador de cabeceras seguras con JWT para endpoints protegidos
+  const getAuthHeaders = useCallback(() => ({
+    'Content-Type': 'application/json',
+    'Authorization': `Bearer ${localStorage.getItem('token')}`
+  }), []);
+
   const guardarSeleccionLocal = useCallback((empresaId, periodoId) => {
     if (empresaId) localStorage.setItem('empresaActivaId', String(empresaId));
     if (periodoId) localStorage.setItem('periodoActivoId', String(periodoId));
   }, []);
 
+  // Carga y aplana los ejercicios anuales y subperiodos mensuales filtrados por empresa[cite: 23]
+  const cargarPeriodosDeEmpresa = useCallback(async (empresaId) => {
+    try {
+      const res = await fetch(`${API_URL}/contabilidad/periodos?empresaId=${empresaId}`, { headers: getAuthHeaders() });
+      if (!res.ok) return [];
+      const data = await res.json();
+      const lista = Array.isArray(data) ? data : (data?.$values || []);
+      return lista.flatMap(p => [p, ...(p.subPeriodos?.$values || p.subPeriodos || [])]);
+    } catch {
+      return [];
+    }
+  }, [API_URL, getAuthHeaders]);
+
   const seleccionarEmpresa = useCallback(async (empresaId) => {
     const id = Number(empresaId);
-    const empresa = empresas.find((e) => Number(e.id) === id) || buildDefaultEmpresa();
+    const empresa = empresas.find(e => Number(e.id) === id) || buildDefaultEmpresa();
 
     setEmpresaActiva(normalizarEmpresa(empresa));
     guardarSeleccionLocal(id, null);
 
-    try {
-      const res = await fetch(`${API_URL}/contabilidad/periodos?empresaId=${id}`);
-      const data = await res.json();
-      const lista = Array.isArray(data) ? data : (data?.$values || []);
-      const listaAplanada = lista.flatMap((p) => {
-        const hijos = p.subPeriodos?.$values || p.subPeriodos || [];
-        return [p, ...hijos];
-      });
-      setPeriodos(listaAplanada);
+    const listaAplanada = await cargarPeriodosDeEmpresa(id);
+    setPeriodos(listaAplanada);
 
-      const periodoElegido = listaAplanada.find((p) => Number(p.id) === Number(localStorage.getItem('periodoActivoId'))) ?? listaAplanada[0] ?? buildDefaultPeriodo();
-      if (periodoElegido) {
-        setPeriodoActivo(normalizarPeriodo(periodoElegido));
-        guardarSeleccionLocal(id, periodoElegido.id);
-      }
-    } catch (error) {
-      console.error('Error seleccionando empresa:', error);
+    const periodoElegido = listaAplanada.find(p => Number(p.id) === Number(localStorage.getItem('periodoActivoId'))) ?? listaAplanada[0] ?? buildDefaultPeriodo();
+    if (periodoElegido) {
+      setPeriodoActivo(normalizarPeriodo(periodoElegido));
+      guardarSeleccionLocal(id, periodoElegido.id);
     }
-  }, [API_URL, empresas, guardarSeleccionLocal]);
+  }, [empresas, cargarPeriodosDeEmpresa, guardarSeleccionLocal]);
 
   const seleccionarPeriodo = useCallback((periodoId) => {
-    const periodo = periodos.find((p) => Number(p.id) === Number(periodoId));
+    const periodo = periodos.find(p => Number(p.id) === Number(periodoId));
     if (!periodo) return;
 
     setPeriodoActivo(normalizarPeriodo(periodo));
@@ -133,36 +142,32 @@ export const ConfigProvider = ({ children }) => {
     setContextoCargado(false);
 
     try {
-      const empresasRes = await fetch(`${API_URL}/Empresa`);
-      const empresasData = empresasRes.ok ? await empresasRes.json() : [];
+      const empresasRes = await fetch(`${API_URL}/Empresa`, { headers: getAuthHeaders() });
+      if (!empresasRes.ok) throw new Error("No autenticado o sin permisos");
+
+      const empresasData = await empresasRes.json();
       const listaEmpresas = Array.isArray(empresasData) ? empresasData : (empresasData?.$values || []);
       setEmpresas(listaEmpresas);
 
-      const empresaSeleccionadaId = Number(localStorage.getItem('empresaActivaId') || listaEmpresas[0]?.id || 1);
-      const empresaSeleccionada = listaEmpresas.find((e) => Number(e.id) === empresaSeleccionadaId) || listaEmpresas[0] || buildDefaultEmpresa();
+      const empresaIdGuardada = Number(localStorage.getItem('empresaActivaId') || listaEmpresas[0]?.id || 1);
+      const empresaSel = listaEmpresas.find(e => Number(e.id) === empresaIdGuardada) || listaEmpresas[0] || buildDefaultEmpresa();
 
-      if (empresaSeleccionada) {
-        setEmpresaActiva(normalizarEmpresa(empresaSeleccionada));
-        guardarSeleccionLocal(Number(empresaSeleccionada.id), null);
+      if (empresaSel) {
+        setEmpresaActiva(normalizarEmpresa(empresaSel));
+        guardarSeleccionLocal(Number(empresaSel.id), null);
       } else {
         setEmpresaActiva(buildDefaultEmpresa());
       }
 
-      const periodosRes = await fetch(`${API_URL}/contabilidad/periodos?empresaId=${Number(empresaSeleccionada?.id ?? 1)}`);
-      const periodosData = periodosRes.ok ? await periodosRes.json() : [];
-      const listaPeriodos = Array.isArray(periodosData) ? periodosData : (periodosData?.$values || []);
-      const listaAplanada = listaPeriodos.flatMap((p) => {
-        const hijos = p.subPeriodos?.$values || p.subPeriodos || [];
-        return [p, ...hijos];
-      });
+      const listaAplanada = await cargarPeriodosDeEmpresa(empresaSel.id);
       setPeriodos(listaAplanada);
 
-      const periodoSeleccionadoId = Number(localStorage.getItem('periodoActivoId') || listaAplanada[0]?.id || 1);
-      const periodoSeleccionado = listaAplanada.find((p) => Number(p.id) === periodoSeleccionadoId) || listaAplanada[0] || buildDefaultPeriodo();
+      const periodoIdGuardado = Number(localStorage.getItem('periodoActivoId'));
+      const periodoSel = listaAplanada.find(p => Number(p.id) === periodoIdGuardado) || listaAplanada[0] || buildDefaultPeriodo();
 
-      if (periodoSeleccionado) {
-        setPeriodoActivo(normalizarPeriodo(periodoSeleccionado));
-        guardarSeleccionLocal(Number(empresaSeleccionada?.id ?? 1), Number(periodoSeleccionado.id));
+      if (periodoSel) {
+        setPeriodoActivo(normalizarPeriodo(periodoSel));
+        guardarSeleccionLocal(Number(empresaSel?.id ?? 1), Number(periodoSel.id));
       } else {
         setPeriodoActivo(buildDefaultPeriodo());
       }
@@ -173,12 +178,15 @@ export const ConfigProvider = ({ children }) => {
     } finally {
       setContextoCargado(true);
     }
-  }, [API_URL, guardarSeleccionLocal]);
+  }, [API_URL, getAuthHeaders, cargarPeriodosDeEmpresa, guardarSeleccionLocal]);
 
   useEffect(() => {
-    cargarContextoContable();
+    if (localStorage.getItem('token')) {
+      cargarContextoContable();
+    }
   }, [cargarContextoContable]);
 
+  // Sincronización de la Tasa de Cambio Actual del sistema[cite: 25]
   useEffect(() => {
     const cargarTasaActual = async () => {
       try {
@@ -204,6 +212,7 @@ export const ConfigProvider = ({ children }) => {
       token: userData.token,
       rol: userData.rol
     });
+    cargarContextoContable();
   };
 
   const logout = () => {
