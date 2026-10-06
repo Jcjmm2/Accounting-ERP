@@ -1,4 +1,4 @@
-# Prerequisites
+﻿# Prerequisites
 *.d
 
 # Compiled Object files
@@ -45,7 +45,11 @@ obj/
 .fake
 node_modules/
 Tyted.Frontend/node_modules/
-package-lock.json
 .env.local
 .env.*.local
 .local
+
+# Logs locales de build/migracion (no van al repo)
+buildlog.txt
+update_db_log.txt
+*.log

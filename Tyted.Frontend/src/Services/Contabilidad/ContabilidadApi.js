@@ -23,6 +23,11 @@ api.interceptors.request.use((config) => {
 }, (error) => Promise.reject(error));
 
 export const contabilidadApi = {
+  getContexto: async () => {
+    const response = await axios.get(`${API_BASE_URL.replace(/\/api$/, '')}/Empresa/contexto`);
+    return response.data;
+  },
+
   getCuentas: async () => {
     try {
       const response = await api.get('/cuentas');
@@ -74,6 +79,20 @@ export const contabilidadApi = {
     return response.data;
   },
 
+  // ---------------------------------------------------------------------------
+  // NUEVAS FUNCIONES DE MODIFICACIÓN Y VALIDACIÓN DE PERIODOS
+  // ---------------------------------------------------------------------------
+  verificarMovimientosPeriodo: async (periodoId) => {
+    const response = await api.get(`/periodos/${periodoId}/tiene-movimientos`);
+    return response.data;
+  },
+
+  modificarPeriodo: async (periodoId, periodoData) => {
+    const response = await api.put(`/periodos/${periodoId}`, periodoData);
+    return response.data;
+  },
+  // ---------------------------------------------------------------------------
+
   getResumen: async () => {
     const response = await api.get('/reportescontables/resumen');
     return response.data;
@@ -89,6 +108,44 @@ export const contabilidadApi = {
   getLibroMayor: async (cuentaId, fechaInicio, fechaFin) => {
     const response = await api.get('/reportescontables/libro-mayor', {
       params: { cuentaId, fechaInicio, fechaFin }
+    });
+    return response.data;
+  },
+
+  crearAperturaSaldosIniciales: async (empresaId, periodoId, saldosIniciales, usuarioId = 1) => {
+    const response = await api.post('/reportescontables/apertura-saldos-iniciales', {
+      empresaId,
+      periodoId,
+      usuarioId,
+      saldosIniciales
+    });
+    return response.data;
+  },
+
+  getBalanceGeneral: async (periodoId) => {
+    const response = await api.get('/reportescontables/balance-general', {
+      params: { periodoId }
+    });
+    return response.data;
+  },
+
+  getEstadoResultados: async (periodoId) => {
+    const response = await api.get('/reportescontables/estado-resultados', {
+      params: { periodoId }
+    });
+    return response.data;
+  },
+
+  getFlujoEfectivo: async (periodoId) => {
+    const response = await api.get('/reportescontables/flujo-efectivo', {
+      params: { periodoId }
+    });
+    return response.data;
+  },
+
+  getCierrePeriodo: async (periodoId) => {
+    const response = await api.get('/reportescontables/cierre-periodo', {
+      params: { periodoId }
     });
     return response.data;
   }

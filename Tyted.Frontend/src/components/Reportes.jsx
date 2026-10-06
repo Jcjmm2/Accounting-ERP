@@ -324,7 +324,7 @@ const Reportes = () => {
                 <div className="fade-in">
                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                         <h3>🏷️ Listado General de Precios</h3>
-                        <input type="text" placeholder="Filtrar..." style={{padding: '5px'}} onChange={(e) => {
+                        <input type="text" placeholder="Filtrar..." style={{padding: '5px'}} onChange={() => {
                             // Implementación simple de filtro visual si se desea
                         }}/>
                      </div>

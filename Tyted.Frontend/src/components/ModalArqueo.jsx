@@ -137,7 +137,7 @@ const getAuthHeaders = () => ({
                 setCierreRealizado(true);
                 alert("✅ Caja cerrada exitosamente.");
             }
-        } catch (e) { alert("Error de conexión."); } 
+        } catch { alert("Error de conexión."); } 
         finally { setCargando(false); }
     };
 

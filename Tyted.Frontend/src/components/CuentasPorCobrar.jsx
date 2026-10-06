@@ -73,7 +73,7 @@ const cargarCuentas = async () => {
                 const errorMsg = await res.text();
                 alert("Error: " + errorMsg);
             }
-        } catch (error) {
+        } catch {
             alert("Error de conexión");
         }
     };

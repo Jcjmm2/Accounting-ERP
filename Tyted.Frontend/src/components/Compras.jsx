@@ -140,7 +140,7 @@ const Compras = () => {
             } else {
                 alert("Error: " + data.message);
             }
-        } catch (error) { alert("Error de conexión"); } 
+        } catch { alert("Error de conexión"); } 
         finally { setGuardando(false); }
     };
 
@@ -341,7 +341,7 @@ const Compras = () => {
                 await cargarHistorialCompras();
                 reiniciarFormulario();
             }
-        } catch (e) { alert("Error de servidor"); } 
+        } catch { alert("Error de servidor"); } 
         finally { setGuardando(false); }
     };
     // Cálculo de totales en tiempo real para el resumen
@@ -366,7 +366,7 @@ const Compras = () => {
     }, { exento: 0, baseImponible: 0, iva: 0 });
 
     // Calculamos el Total General sumando los tres pilares
-    const totalGeneralCalculado = totalesFactura.exento + totalesFactura.baseImponible + totalesFactura.iva;
+    const _totalGeneralCalculado = totalesFactura.exento + totalesFactura.baseImponible + totalesFactura.iva;
 
     // Estados para el buscador de productos
     const [busquedaTexto, setBusquedaTexto] = useState("");

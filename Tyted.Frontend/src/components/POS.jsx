@@ -28,7 +28,7 @@ const POS = () => {
   const [busqueda, setBusqueda] = useState("");
   const [resultadosBusqueda, setResultadosBusqueda] = useState([]);
   const [indexSeleccionado, setIndexSeleccionado] = useState(-1);
-  const [pagoCliente, setPagoCliente] = useState(0);
+  const [_pagoCliente, _setPagoCliente] = useState(0);
   const [cliente, setCliente] = useState(CLIENTE_DEFECTO);
   const [mostrarModalCliente, setMostrarModalCliente] = useState(false);
   const [productoEnPesaje, setProductoEnPesaje] = useState(null);
@@ -368,7 +368,7 @@ const obtenerPedidosPendientes = async () => {
             const data = await response.json();
             // Si tienes un estado para los pedidos en el POS, lo actualizas aquí
             // setPedidos(data); 
-            console.log("Lista de pedidos actualizada");
+            console.log("Lista de pedidos actualizada", data);
         }
     } catch (error) {
         console.error("Error al refrescar pedidos:", error);
@@ -702,7 +702,7 @@ useEffect(() => {
 
 
   // Agrega esta función antes de tus cálculos de totales
-  const manejarCambioPago = (e) => {
+  const _manejarCambioPago = (e) => {
     const { name, value } = e.target;
     // Solo permitimos números y punto decimal
     if (value === '' || /^[0-9]*\.?[0-9]*$/.test(value)) {
@@ -743,7 +743,7 @@ const cambiarCantidadManual = (item) => {
 };
 
 const puedeFinalizar = carrito.length > 0 && (esCredito || totalPagadoUSD >= (totalUSD - 0.01));
-const diferencia = totalUSD - totalPagadoUSD;
+const _diferencia = totalUSD - totalPagadoUSD;
 
 
 
@@ -850,7 +850,7 @@ const diferencia = totalUSD - totalPagadoUSD;
   }, [cajaAbierta]);
 
   const verificarEstadoCaja = async () => {
-      const token = localStorage.getItem("token");
+      const _token = localStorage.getItem("token");
       try {
           const res = await fetch(`${API_URL}/Ventas/estado-caja`, {
               method: 'GET',
@@ -1403,16 +1403,16 @@ const ModalHistorialVentas = ({ isOpen, onClose, API_URL, notificar }) => {
     const [ventas, setVentas] = useState([]);
     const [busqueda, setBusqueda] = useState("");
 
-    useEffect(() => {
-        if (isOpen) cargarVentas();
-    }, [isOpen]);
-
     const cargarVentas = async () => {
         try {
             const res = await fetch(`${API_URL}/Ventas`, { headers: getAuthHeaders() });
             if (res.ok) setVentas(await res.json());
         } catch (err) { console.error("Error cargando historial:", err); }
     };
+
+    useEffect(() => {
+        if (isOpen) cargarVentas();
+    }, [isOpen]);
 
     const handleAnular = async (id, numero) => {
         const clave = prompt(`⚠️ SEGURIDAD: Ingrese clave de ADMINISTRADOR para anular la factura #${numero}:`);
@@ -1436,7 +1436,7 @@ const ModalHistorialVentas = ({ isOpen, onClose, API_URL, notificar }) => {
                 const msg = await res.text();
                 notificar("Error: " + msg, "error");
             }
-        } catch (err) { notificar("Error de conexión al intentar anular.", "error"); }
+        } catch { notificar("Error de conexión al intentar anular.", "error"); }
     };
 
     if (!isOpen) return null;

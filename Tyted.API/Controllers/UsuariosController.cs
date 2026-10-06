@@ -13,7 +13,7 @@ namespace Tyted.API.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
-    [AllowAnonymous]
+    [Authorize(Roles = "AdministradorSistema,Administrador")]
     public class UsuariosController : ControllerBase
     {
         private readonly TytedContext _context;
@@ -27,7 +27,6 @@ namespace Tyted.API.Controllers
 
         // 1. OBTENER LISTA DE USUARIOS (READ)
         [HttpGet]
-        [AllowAnonymous]
         public async Task<ActionResult<IEnumerable<Usuario>>> GetUsuarios()
         {
             return await _context.Usuarios.ToListAsync();
@@ -35,9 +34,21 @@ namespace Tyted.API.Controllers
 
         // 2. REGISTRO DE USUARIOS (CREATE) - Ahora usa DTO para seguridad
         [HttpPost("registrar")]
-        [AllowAnonymous]
+        [AllowAnonymous] // Solo admite crear el PRIMER usuario; después exige admin (ver lógica interna)
         public async Task<IActionResult> Registrar([FromBody] RegistroUsuarioDto dto)
         {
+            var hayUsuarios = await _context.Usuarios.AnyAsync();
+
+            // Bootstrap: sin usuarios en la BD se permite crear la primera cuenta sin token,
+            // y siempre como administrador. En adelante el alta exige un administrador
+            // autenticado (evita que cualquiera cree cuentas con privilegios).
+            if (hayUsuarios)
+            {
+                var esAdmin = User?.Identity?.IsAuthenticated == true &&
+                              (User.IsInRole("AdministradorSistema") || User.IsInRole("Administrador"));
+                if (!esAdmin) return Forbid();
+            }
+
             if (await _context.Usuarios.AnyAsync(u => u.Username == dto.Username))
                 return BadRequest("El nombre de usuario ya existe.");
 
@@ -45,7 +56,7 @@ namespace Tyted.API.Controllers
             {
                 Username = dto.Username,
                 NombreCompleto = dto.NombreCompleto,
-                Rol = dto.Rol,
+                Rol = hayUsuarios ? dto.Rol : "AdministradorSistema", // 1er usuario siempre admin
                 Activo = dto.Activo,
                 PasswordHash = BCrypt.Net.BCrypt.HashPassword(dto.Password)
             };
@@ -58,7 +69,6 @@ namespace Tyted.API.Controllers
 
         // 3. EDITAR USUARIO (UPDATE)
         [HttpPut("{id}")]
-        [AllowAnonymous]
         public async Task<IActionResult> UpdateUsuario(int id, [FromBody] UpdateUsuarioDto dto)
         {
             var usuario = await _context.Usuarios.FindAsync(id);
@@ -83,7 +93,6 @@ namespace Tyted.API.Controllers
 
         // 4. ELIMINAR USUARIO (DELETE)
         [HttpDelete("{id}")]
-        [AllowAnonymous]
         public async Task<IActionResult> DeleteUsuario(int id)
         {
             var usuario = await _context.Usuarios.FindAsync(id);

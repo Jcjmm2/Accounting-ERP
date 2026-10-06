@@ -224,6 +224,15 @@ const Productos = () => {
         setProductoForm({ ...productoForm, unidades: nuevasUnidades });
     };
 
+    // Elimina la presentación (fila de unidades) en la posición indicada
+    const eliminarUnidadVenta = (index) => {
+        if (!window.confirm('¿Eliminar esta presentación del producto?')) return;
+        setProductoForm(prev => ({
+            ...prev,
+            unidades: prev.unidades.filter((_, i) => i !== index)
+        }));
+    };
+
     const guardarCambios = async () => {
         // Validación básica
         if (!productoForm.idCategoria || productoForm.idCategoria === "0") {
@@ -285,7 +294,7 @@ const Productos = () => {
             }
 
         } catch (error) {
-            console.error("No se pudo parsear el JSON:", text);
+            console.error("Error al guardar el producto:", error.message);
             alert("❌ Falló la conexión o el servidor envió una respuesta inválida.");
         } finally {
             setGuardando(false);

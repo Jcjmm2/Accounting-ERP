@@ -8,7 +8,7 @@ namespace Tyted.API.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
-    [AllowAnonymous]
+    [Authorize]
     public class EmpresaController : ControllerBase
     {
         private readonly TytedContext _context;
@@ -20,21 +20,75 @@ namespace Tyted.API.Controllers
 
         // --- MÉTODOS PARA DATOS DE LA EMPRESA (Encabezado) ---
 
-        [HttpGet("configuracion")]
-        [AllowAnonymous]
-        public async Task<ActionResult<Empresa>> GetEmpresa()
+        [HttpGet]
+        public async Task<ActionResult<IEnumerable<Empresa>>> GetEmpresas()
         {
-            var empresa = await _context.Empresa.FirstOrDefaultAsync();
+            var empresas = await _context.Empresa
+                .OrderBy(e => e.RazonSocial)
+                .ToListAsync();
+
+            return Ok(empresas);
+        }
+
+        [HttpGet("configuracion")]
+        public async Task<ActionResult<Empresa>> GetEmpresa([FromQuery] int? id)
+        {
+            var empresa = id.HasValue
+                ? await _context.Empresa.FirstOrDefaultAsync(e => e.Id == id.Value)
+                : await _context.Empresa.FirstOrDefaultAsync();
+
             if (empresa == null) return NotFound("No se han configurado los datos de la empresa.");
             return empresa;
         }
 
-        [HttpPut("configuracion")]
-        [AllowAnonymous]
-        public async Task<IActionResult> UpdateEmpresa(Empresa empresa)
+        [HttpGet("contexto")]
+        public async Task<ActionResult<object>> GetContexto([FromQuery] int? empresaId)
         {
-            empresa.Id = 1; // Forzamos el ID 1 para que siempre sea el único registro
-            _context.Entry(empresa).State = EntityState.Modified;
+            var empresa = empresaId.HasValue
+                ? await _context.Empresa.FirstOrDefaultAsync(e => e.Id == empresaId.Value)
+                : await _context.Empresa.FirstOrDefaultAsync();
+
+            if (empresa == null)
+            {
+                return NotFound(new { message = "No hay empresas definidas." });
+            }
+
+            var periodo = await _context.PeriodosContables
+                .Where(p => p.EmpresaId == empresa.Id)
+                .OrderByDescending(p => p.FechaFin)
+                .FirstOrDefaultAsync();
+
+            return Ok(new
+            {
+                empresa,
+                periodo
+            });
+        }
+
+        [HttpPut("configuracion")]
+        [Authorize(Roles = "AdministradorSistema,Administrador")]
+        public async Task<IActionResult> UpdateEmpresa([FromBody] Empresa empresa)
+        {
+            if (empresa == null)
+                return BadRequest("La información de la empresa es requerida.");
+
+            var empresaExistente = await _context.Empresa.FindAsync(empresa.Id);
+
+            if (empresaExistente == null)
+            {
+                if (empresa.Id <= 0)
+                {
+                    _context.Empresa.Add(empresa);
+                }
+                else
+                {
+                    _context.Empresa.Add(empresa);
+                }
+            }
+            else
+            {
+                _context.Entry(empresaExistente).CurrentValues.SetValues(empresa);
+            }
 
             try
             {
@@ -51,7 +105,6 @@ namespace Tyted.API.Controllers
 
         // Obtener todas las configuraciones (útil para una pantalla de ajustes)
         [HttpGet("ajustes")]
-        [AllowAnonymous]
         public async Task<ActionResult<IEnumerable<EmpresaConfig>>> GetAjustes()
         {
             return await _context.EmpresaConfigs.ToListAsync();
@@ -59,7 +112,7 @@ namespace Tyted.API.Controllers
 
         // Actualizar una configuración específica por su Clave
         [HttpPut("ajustes/{clave}")]
-        [AllowAnonymous]
+        [Authorize(Roles = "AdministradorSistema,Administrador")]
         public async Task<IActionResult> UpdateAjuste(string clave, [FromBody] string nuevoValor)
         {
             var config = await _context.EmpresaConfigs

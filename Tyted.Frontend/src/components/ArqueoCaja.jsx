@@ -5,6 +5,7 @@ const ArqueoCaja = () => {
     const { API_URL } = useContext(ConfigContext);
     const [declarado, setDeclarado] = useState({ usd: 0, ves: 0 });
     const [resultado, setResultado] = useState(null);
+    const [error, setError] = useState(null);
     // --- FUNCIÓN PARA OBTENER HEADERS CON TOKEN ---
     const getAuthHeaders = () => {
         const token = localStorage.getItem('token');
@@ -87,6 +88,13 @@ const procesarArqueo = async () => {
                         </button>
                     </div>
                 </div>
+
+                {/* Mensaje de error de conexión/autorización */}
+                {error && (
+                    <div style={{ gridColumn: '1 / -1', background: '#fee2e2', border: '1px solid #f87171', color: '#b91c1c', padding: '12px 16px', borderRadius: '12px', fontWeight: 'bold' }}>
+                        ⚠️ {error}
+                    </div>
+                )}
 
                 {/* Resultado del Sistema */}
                 {resultado && (

@@ -1,7 +1,11 @@
-import { useState } from 'react';
+import { useState, useContext } from 'react';
+import { ConfigContext } from '../../Context/ConfigContext';
 import { contabilidadApi } from '../../Services/Contabilidad/ContabilidadApi';
 
 export default function PlanCuentas() {
+  const { empresaActiva } = useContext(ConfigContext);
+  const empresaId = Number(empresaActiva?.id ?? 1);
+
   // Estados de control de vista: 'menu' | 'crear' | 'editar' | 'listar'
   const [vista, setVista] = useState('menu');
   
@@ -49,7 +53,7 @@ export default function PlanCuentas() {
         naturaleza: formData.naturaleza,
         tipoCuenta: 'Activo', // Puedes hacerlo dinámico si lo deseas
         activa: true,
-        empresaId: 1,
+        empresaId: empresaId,
         esMovimiento: true,
         nivel: 5,
         aceptaTerceros: false,

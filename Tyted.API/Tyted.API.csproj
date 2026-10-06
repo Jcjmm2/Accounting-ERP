@@ -4,6 +4,8 @@
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>disable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <!-- Claves locales (Jwt:Key) fuera de git: ver README > Configuración inicial -->
+    <UserSecretsId>tyted-api-4c7e9b21-5d38-4f6a-9e2b-8a1f3d6c5e90</UserSecretsId>
   </PropertyGroup>
 
   <ItemGroup>

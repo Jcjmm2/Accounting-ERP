@@ -68,7 +68,7 @@ const TasaDeCambio = () => {
             
             // Limpiar campos
             setTasaUSDT(""); setTasaEfectivo(""); setTasaBCV("");
-        } catch (error) {
+        } catch {
             alert("Error al sincronizar con el servidor");
         } finally {
             setLoading(false);

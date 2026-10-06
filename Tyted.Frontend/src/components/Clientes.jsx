@@ -5,7 +5,7 @@ const Clientes = () => {
     const { API_URL } = useContext(ConfigContext);
     const [clientes, setClientes] = useState([]);
     const [busqueda, setBusqueda] = useState('');
-    const [loading, setLoading] = useState(false);
+    const [_loading, setLoading] = useState(false);
     const [mostrarModal, setMostrarModal] = useState(false);
     const [editandoId, setEditandoId] = useState(null); // Para saber si creamos o editamos
 
@@ -123,7 +123,6 @@ const Clientes = () => {
     if (!window.confirm("¿Estás seguro de eliminar este cliente? Esta acción no se puede deshacer.")) return;
 
     try {
-        const token = localStorage.getItem('token');
         const res = await fetch(`${API_URL}/Clientes/${id}`, {
             method: 'DELETE',
             headers: getAuthHeaders(false)

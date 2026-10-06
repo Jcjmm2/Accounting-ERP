@@ -32,7 +32,7 @@ const Categorias = () => {
             } else if (res.status === 401) {
             setError("Sesión expirada o no autorizada");
             }
-            } catch (err) {
+            } catch {
             setError("Error al conectar con el servidor");
         } finally {
             setLoading(false);
@@ -76,7 +76,7 @@ const Categorias = () => {
                 const errorData = await res.json();
                 alert("Error: " + JSON.stringify(errorData));
             }
-        } catch (err) {
+        } catch {
             alert("Error en la operación");
         }
     };
@@ -97,7 +97,7 @@ const Categorias = () => {
                 const msg = await res.text();
                 alert(msg || "No se pudo eliminar la categoría");
             }
-        } catch (err) {
+        } catch {
             alert("Error de conexión");
         }
     };

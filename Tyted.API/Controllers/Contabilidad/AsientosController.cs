@@ -7,7 +7,7 @@ namespace Tyted.API.Controllers.Contabilidad;
 
 [Route("api/contabilidad")]
 [ApiController]
-[AllowAnonymous]
+[Authorize(Roles = "AdministradorSistema,Administrador,Analista")]
 public class AsientosController : ControllerBase
 {
     private readonly AsientoContableService _service;

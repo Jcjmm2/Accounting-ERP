@@ -9,7 +9,8 @@ namespace Tyted.API.Controllers
 {
     [Route("api/[controller]")]
     [ApiController]
-    [AllowAnonymous]
+    // Sin AllowAnonymous a nivel de clase: este atributo anularía el [Authorize] de los POST.
+    // Los GET de consulta se marcan [AllowAnonymous] de forma explícita.
     public class TasaDeCambioController : ControllerBase
     {
         private readonly TytedContext _context;
@@ -28,12 +29,14 @@ namespace Tyted.API.Controllers
         }
 
         [HttpGet]
+        [AllowAnonymous]
         public async Task<ActionResult<IEnumerable<TasaDeCambio>>> GetHistorial()
         {
             return await _context.TasaDeCambio.OrderByDescending(t => t.FechaVigencia).ToListAsync();
         }
 
         [HttpPost("registrar-nueva-tasa")]
+        [Authorize] // Escritura solo para usuarios autenticados; las lecturas GET siguen públicas
         public async Task<IActionResult> RegistrarTasa([FromBody] TasaRegistroDTO modelo)
         {
             // Validación de entrada para evitar registros en cero
@@ -69,6 +72,7 @@ namespace Tyted.API.Controllers
         }
 
         [HttpGet("ultima")]
+        [AllowAnonymous]
         public async Task<IActionResult> GetUltimaTasa()
         {
             var tasaActual = await _context.TasaDeCambio
@@ -82,6 +86,7 @@ namespace Tyted.API.Controllers
         }
 
         [HttpGet("comparativa-compras")]
+        [AllowAnonymous]
         public async Task<IActionResult> GetComparativa()
         {
             try 

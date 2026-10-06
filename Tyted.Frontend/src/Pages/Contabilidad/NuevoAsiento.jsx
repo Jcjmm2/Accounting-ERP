@@ -1,7 +1,12 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useContext } from 'react';
+import { ConfigContext } from '../../Context/ConfigContext';
 import { contabilidadApi } from '../../Services/Contabilidad/ContabilidadApi';
 
-export default function NuevoAsiento({ empresaActiva, periodoActivo }) {
+export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodoActivo: periodoActivoProp }) {
+  const { empresaActiva: empresaActivaContext, periodoActivo: periodoActivoContext, user } = useContext(ConfigContext);
+  const empresaActiva = empresaActivaProp ?? empresaActivaContext;
+  const periodoActivo = periodoActivoProp ?? periodoActivoContext;
+
   const [fecha, setFecha] = useState(new Date().toISOString().split('T')[0]);
   const [concepto, setConcepto] = useState('');
   
@@ -55,9 +60,9 @@ export default function NuevoAsiento({ empresaActiva, periodoActivo }) {
     e.preventDefault();
     if (!cuadrado) return alert('⚠️ El asiento no está cuadrado. El Debe debe ser igual al Haber.');
 
-    // ✅ CORRECCIÓN 2: Manejo seguro por si las props no llegan (fallback a 1)
-    const empId = empresaActiva?.id ?? 1;
-    const perId = periodoActivo?.id ?? 1;
+    const empId = Number(empresaActiva?.id ?? empresaActivaContext?.id ?? 1);
+    const perId = Number(periodoActivo?.id ?? periodoActivoContext?.id ?? 1);
+    const usuarioId = Number(user?.id ?? 1);
 
     const asiento = {
       concepto,
@@ -65,7 +70,7 @@ export default function NuevoAsiento({ empresaActiva, periodoActivo }) {
       estado: 'Aprobado',
       periodoContableId: perId, 
       empresaId: empId,         
-      usuarioId: 1, 
+      usuarioId,
       tipoComprobante: 'Diario',
       numeroComprobante: `A-${Date.now()}`,
       detalles: lineas

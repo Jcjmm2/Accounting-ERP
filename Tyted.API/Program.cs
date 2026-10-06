@@ -23,7 +23,15 @@ builder.Services.AddDbContext<TytedContext>(options =>
 // =========================================================================
 // 2. CONFIGURACIÓN DE AUTENTICACIÓN JWT
 // =========================================================================
-var jwtKey = builder.Configuration["Jwt:Key"] ?? throw new InvalidOperationException("JWT Key no configurada en appsettings.json");
+var jwtKey = builder.Configuration["Jwt:Key"];
+if (string.IsNullOrWhiteSpace(jwtKey) || jwtKey.Length < 32)
+{
+    throw new InvalidOperationException(
+        "Falta 'Jwt:Key' o es demasiado corta (mínimo 32 caracteres). " +
+        "Por seguridad NO se guarda en appsettings.json (ese archivo va en git). " +
+        "Configúrala con: dotnet user-secrets set \"Jwt:Key\" \"<clave aleatoria de 48+ caracteres>\" " +
+        "o con la variable de entorno Jwt__Key.");
+}
 var keyBytes = Encoding.UTF8.GetBytes(jwtKey);
 
 builder.Services.AddAuthentication(options =>
@@ -92,14 +100,24 @@ builder.Services.AddOpenApi(options =>
     });
 });
 
+// Orígenes permitidos leídos de la configuración (appsettings.json o variables de entorno:
+// AllowedOrigins__0, AllowedOrigins__1, ...). Nunca se combina un origen abierto con
+// AllowCredentials: eso permitiría a cualquier sitio hacer peticiones autenticadas.
+var allowedOrigins = builder.Configuration.GetSection("AllowedOrigins").Get<string[]>() ?? Array.Empty<string>();
+if (allowedOrigins.Length == 0)
+{
+    throw new InvalidOperationException(
+        "No hay orígenes CORS configurados. Define la sección 'AllowedOrigins' en appsettings.json " +
+        "o usa variables de entorno (ej: AllowedOrigins__0=http://localhost:5173).");
+}
+
 builder.Services.AddCors(options =>
 {
     options.AddPolicy("TytedPolicy", policy =>
     {
-        policy.SetIsOriginAllowed(origin => true) // Permite cualquier origen (localhost, 127.0.0.1, IPs de red local)
+        policy.WithOrigins(allowedOrigins)
               .AllowAnyMethod()
               .AllowAnyHeader()
-              .AllowCredentials()
               .SetPreflightMaxAge(TimeSpan.FromMinutes(10));
     });
 });

@@ -398,7 +398,7 @@ const Pedidos = () => {
             } else {
                 alert("Error al facturar");
             }
-        } catch (e) { alert("Error de conexión"); }
+        } catch { alert("Error de conexión"); }
     };
 
     // ========================================================================
