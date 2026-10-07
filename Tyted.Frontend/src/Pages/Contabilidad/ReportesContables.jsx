@@ -125,7 +125,7 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
         ...b,
         codigo: field(cuenta, 'codigoCuenta', 'CodigoCuenta') || field(b, 'codigoCuenta', 'CodigoCuenta') || '',
         nombre: field(cuenta, 'nombreCuenta', 'NombreCuenta') || field(b, 'nombreCuenta', 'NombreCuenta') || '',
-        tipo: String(field(cuenta, 'tipoCuenta', 'TipoCuenta') || '').toUpperCase(),
+        tipo: String(field(cuenta, 'tipoCuenta', 'TipoCuenta') || field(b, 'tipoCuenta', 'TipoCuenta') || '').toUpperCase(),
         saldoInicial: Number(field(b, 'saldoInicial', 'SaldoInicial') ?? 0),
         debe: Number(field(b, 'movimientoDebe', 'MovimientoDebe') ?? 0),
         haber: Number(field(b, 'movimientoHaber', 'MovimientoHaber') ?? 0),
@@ -369,6 +369,17 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
                📄 Descargar PDF
              </button>
           </div>
+
+          {/* AVISO CUANDO EL PERIODO NO TIENE MOVIMIENTOS REGISTRADOS */}
+          {reporteData.filas.length === 0 && (
+            <div style={{
+              background: '#1e293b', border: '1px solid #f59e0b', color: '#fcd34d',
+              padding: '12px 16px', borderRadius: '8px', marginBottom: '20px', fontSize: '0.9rem'
+            }}>
+              ℹ️ No se encontraron movimientos contables para «{periodoSeleccionadoData?.nombre || 'este periodo'}».
+              Verifique que los asientos se hayan registrado en este periodo y que la empresa activa sea la correcta.
+            </div>
+          )}
 
           {/* HOJA DE PAPEL ESTILO PDF */}
           <div style={{ 

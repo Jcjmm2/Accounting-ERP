@@ -297,7 +297,7 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 2fr', gap: '16px', marginBottom: '20px' }}>
               <div>
                 <label style={labelStyle}>N° Comprobante</label>
-                <input type="text" value={modo === 'crear' ? 'Autogenerado por BD' : numeroComprobante} disabled style={{...inputStyle, background: '#0f172a', color: '#64748b', fontStyle: 'italic'}} />
+                <input type="text" value={modo === 'crear' ? 'Autogenerado (formato YYMM0000001)' : numeroComprobante} disabled style={{...inputStyle, background: '#0f172a', color: '#64748b', fontStyle: 'italic'}} />
               </div>
               <div>
                 <label style={labelStyle}>Fecha</label>

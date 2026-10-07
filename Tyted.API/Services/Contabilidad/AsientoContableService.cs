@@ -3,6 +3,7 @@ using Tyted.API.Data;
 using Tyted.API.Models;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -94,9 +95,11 @@ public class AsientoContableService
             NormalizarDetalle(detalle);
         }
 
-        // AsientoDetalle.Referencia tiene un máximo de 100 caracteres en la BD
+        // Autogeneración del consecutivo del comprobante con formato YYMM0000001
+        // (ej: 26100000001 = primer comprobante de octubre/2026). El frontend envía
+        // la cadena vacía en modo creación y conserva el número al editar.
         if (string.IsNullOrWhiteSpace(asiento.NumeroComprobante))
-            asiento.NumeroComprobante = $"COMP-{DateTime.Now:yyMMddHHmmss}";
+            asiento.NumeroComprobante = await GenerarNumeroComprobanteAsync(asiento.EmpresaId, asiento.FechaComprobante);
 
         asiento.TotalDebe = totalDebe;
         asiento.TotalHaber = totalHaber;
@@ -191,6 +194,47 @@ public class AsientoContableService
 
         await _context.SaveChangesAsync();
         return asientoExistente;
+    }
+
+    /// <summary>
+    /// Genera el consecutivo del comprobante con el formato solicitado YYMM0000001:
+    /// 2 dígitos de año + 2 de mes + secuencia de 7 dígitos (ej: 26100000001).
+    /// La secuencia se reinicia cada mes y es independiente por empresa, de modo que
+    /// cada compañía mantiene su propia serie contable.
+    /// Los comprobantes legados (ej: COMP-261007143055) no alteran la secuencia porque
+    /// su sufijo no es numérico.
+    /// </summary>
+    private async Task<string> GenerarNumeroComprobanteAsync(int empresaId, DateTime fechaComprobante)
+    {
+        var prefijo = fechaComprobante.ToString("yyMM", CultureInfo.InvariantCulture);
+
+        var existentes = await _context.AsientosContables
+            .AsNoTracking()
+            .Where(a => a.EmpresaId == empresaId && a.NumeroComprobante.StartsWith(prefijo))
+            .Select(a => a.NumeroComprobante)
+            .ToListAsync();
+
+        var siguiente = 1;
+        foreach (var numero in existentes)
+        {
+            if (numero.Length <= prefijo.Length) continue;
+
+            if (int.TryParse(numero.AsSpan(prefijo.Length), out var secuencia) && secuencia >= siguiente)
+                siguiente = secuencia + 1;
+        }
+
+        // Reintento básico ante una condición de carrera (dos usuarios creando en el mismo
+        // mes al mismo tiempo): si el candidato ya existe se incrementa la secuencia.
+        for (var intento = 0; intento < 50; intento++)
+        {
+            var candidato = string.Format(CultureInfo.InvariantCulture, "{0}{1:D7}", prefijo, siguiente++);
+            var ocupado = await _context.AsientosContables
+                .AnyAsync(a => a.EmpresaId == empresaId && a.NumeroComprobante == candidato);
+            if (!ocupado) return candidato;
+        }
+
+        // Último recurso si el bucle se agota: se devuelve el siguiente número calculado.
+        return string.Format(CultureInfo.InvariantCulture, "{0}{1:D7}", prefijo, siguiente);
     }
 
     /// <summary>

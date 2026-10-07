@@ -5,6 +5,9 @@ using Tyted.API.Services;
 namespace Tyted.API.Controllers.Contabilidad;
 
 [Route("api/contabilidad")]
+// Ruta alias: el frontend consume los reportes bajo /api/contabilidad/reportescontables/*
+// (si no se expone, todas las llamadas devolvían 404 y la página los convertía en listas vacías).
+[Route("api/contabilidad/reportescontables")]
 [ApiController]
 [Authorize(Roles = "AdministradorSistema,Administrador,Analista")]
 public class ReportesContablesController : ControllerBase
@@ -26,8 +29,15 @@ public class ReportesContablesController : ControllerBase
     [HttpGet("balance-comprobacion")]
     public async Task<ActionResult<List<BalanceComprobacionDto>>> GetBalanceComprobacion([FromQuery] int periodoId)
     {
-        var data = await _service.GetBalanceComprobacionAsync(periodoId);
-        return Ok(data);
+        try
+        {
+            var data = await _service.GetBalanceComprobacionAsync(periodoId);
+            return Ok(data);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
     }
 
     [HttpGet("libro-mayor")]
