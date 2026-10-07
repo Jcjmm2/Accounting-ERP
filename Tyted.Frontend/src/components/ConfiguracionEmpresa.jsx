@@ -46,6 +46,12 @@ const ConfiguracionEmpresa = () => {
     const [fechaFin, setFechaFin] = useState(`${new Date().getFullYear()}-12-31`);
     const [guardandoPeriodo, setGuardandoPeriodo] = useState(false);
 
+    // --- Validación del Plan de Cuentas de la empresa activa ---
+    const [cuentasTodas, setCuentasTodas] = useState([]); // Plan completo (todas las empresas)
+    const [cargandoPlan, setCargandoPlan] = useState(true);
+    const [empresaOrigenPlanId, setEmpresaOrigenPlanId] = useState('');
+    const [importandoPlan, setImportandoPlan] = useState(false);
+
     // Sincronizar el formulario con la empresa activa global
     useEffect(() => {
         if (empresaActiva) {
@@ -63,6 +69,118 @@ const ConfiguracionEmpresa = () => {
     useEffect(() => {
         cargarAjustesSistemas();
     }, []);
+
+    // Normaliza la respuesta de la API de cuentas (array o $values de .NET)
+    const normalizarCuentas = (data) => Array.isArray(data) ? data : (data?.$values || []);
+
+    // Carga el plan de cuentas completo para validar si la empresa activa posee cuentas
+    const validarPlanCuentas = async () => {
+        try {
+            setCargandoPlan(true);
+            const data = await contabilidadApi.getCuentas();
+            setCuentasTodas(normalizarCuentas(data));
+        } catch (error) {
+            console.error('Error validando el plan de cuentas:', error);
+            setCuentasTodas([]);
+        } finally {
+            setCargandoPlan(false);
+        }
+    };
+
+    // Se re-valida cada vez que cambia la empresa activa (empresa recién creada o seleccionada)
+    useEffect(() => {
+        validarPlanCuentas();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [empresaActiva?.id]);
+
+    // Cuentas que pertenecen estrictamente a la empresa activa
+    const cuentasEmpresaActiva = useMemo(() => {
+        const idActiva = Number(empresaActiva?.id ?? 0);
+        return cuentasTodas.filter(c => Number(c.empresaId ?? c.EmpresaId ?? 0) === idActiva);
+    }, [cuentasTodas, empresaActiva]);
+
+    const planVacio = !cargandoPlan && cuentasEmpresaActiva.length === 0;
+
+    // Empresas distintas a la activa que SÍ tienen plan de cuentas (candidatas a origen)
+    const empresasConPlan = useMemo(() => {
+        const idsConPlan = new Set(cuentasTodas.map(c => Number(c.empresaId ?? c.EmpresaId ?? 0)));
+        const idActiva = Number(empresaActiva?.id ?? 0);
+        return empresas.filter(e => idsConPlan.has(Number(e.id)) && Number(e.id) !== idActiva);
+    }, [cuentasTodas, empresas, empresaActiva]);
+
+    // Importa (copia) el plan de cuentas de otra empresa hacia la empresa activa.
+    // Se crean las cuentas por nivel/código para conservar la jerarquía y se
+    // remapea PadreCuentaId a los IDs recién creados en la empresa destino.
+    const importarPlanCuentas = async () => {
+        const origenId = Number(empresaOrigenPlanId);
+        const destinoId = Number(empresaActiva?.id);
+        if (!origenId) {
+            alert('⚠️ Seleccione la empresa origen desde la cual importar el plan de cuentas.');
+            return;
+        }
+
+        const origen = cuentasTodas
+            .filter(c => Number(c.empresaId ?? c.EmpresaId ?? 0) === origenId)
+            .sort((a, b) => (Number(a.nivel ?? 0) - Number(b.nivel ?? 0))
+                || String(a.codigoCuenta ?? '').localeCompare(String(b.codigoCuenta ?? '')));
+
+        if (origen.length === 0) {
+            alert('⚠️ La empresa origen no tiene cuentas registradas.');
+            return;
+        }
+
+        const confirmar = window.confirm(
+            `Se importarán ${origen.length} cuentas de la empresa origen a "${empresaActiva.razonSocial || empresaActiva.nombre}". ¿Desea continuar?`
+        );
+        if (!confirmar) return;
+
+        setImportandoPlan(true);
+        const mapaIds = new Map(); // ID origen -> ID creado en el destino
+        let creadas = 0;
+        let fallidas = 0;
+
+        try {
+            for (const c of origen) {
+                const padreOrigenId = c.padreCuentaId ?? c.PadreCuentaId ?? null;
+                try {
+                    const creada = await contabilidadApi.crearCuenta({
+                        empresaId: destinoId,
+                        codigoCuenta: c.codigoCuenta ?? c.CodigoCuenta,
+                        nombreCuenta: c.nombreCuenta ?? c.NombreCuenta,
+                        tipoCuenta: c.tipoCuenta ?? c.TipoCuenta ?? 'Activo',
+                        naturaleza: c.naturaleza ?? c.Naturaleza ?? 'D',
+                        esMovimiento: c.esMovimiento ?? c.EsMovimiento ?? true,
+                        nivel: Number(c.nivel ?? c.Nivel ?? 1),
+                        aceptaTerceros: c.aceptaTerceros ?? c.AceptaTerceros ?? false,
+                        aceptaCentroCosto: c.aceptaCentroCosto ?? c.AceptaCentroCosto ?? false,
+                        activa: c.activa ?? c.Activa ?? true,
+                        // Si el padre aún no se creó, se crea como raíz (no referenciar otra empresa)
+                        padreCuentaId: padreOrigenId && mapaIds.has(Number(padreOrigenId))
+                            ? mapaIds.get(Number(padreOrigenId))
+                            : null
+                    });
+                    const nuevoId = Number(creada?.id ?? creada?.Id);
+                    if (Number.isFinite(nuevoId) && nuevoId > 0) {
+                        mapaIds.set(Number(c.id ?? c.Id), nuevoId);
+                    }
+                    creadas++;
+                } catch (errorCuenta) {
+                    console.error(`No se pudo importar la cuenta ${c.codigoCuenta}:`, errorCuenta);
+                    fallidas++;
+                }
+            }
+
+            if (fallidas === 0) {
+                alert(`✅ Plan de cuentas importado con éxito: ${creadas} cuentas creadas.`);
+            } else {
+                alert(`⚠️ Importación parcial: ${creadas} cuentas creadas, ${fallidas} fallaron (posibles códigos duplicados).`);
+            }
+        } finally {
+            setImportandoPlan(false);
+            setEmpresaOrigenPlanId('');
+            await validarPlanCuentas();
+        }
+    };
 
     const handleAnioChange = (e) => {
         const anio = e.target.value;
@@ -134,11 +252,17 @@ const ConfiguracionEmpresa = () => {
                 body: JSON.stringify(nuevaEmpresa)
             });
             if (res.ok) {
+                const creada = await res.json().catch(() => null);
                 alert("✅ Nueva empresa registrada con éxito.");
                 setNuevaEmpresa({ razonSocial: '', rif: '', direccion: '', telefono: '', email: '' });
+                // Seleccionamos la nueva empresa para que el panel valide de inmediato
+                // si posee plan de cuentas (recién creada, siempre estará vacía).
+                if (creada?.id) localStorage.setItem('empresaActivaId', String(creada.id));
                 await refrescarContextoContable();
+                await validarPlanCuentas();
             } else {
-                alert("❌ Error al registrar la nueva empresa.");
+                const detalle = await res.json().catch(() => null);
+                alert(`❌ ${detalle?.message || 'Error al registrar la nueva empresa.'}`);
             }
         } catch (error) {
             console.error("Error al crear empresa:", error);
@@ -284,6 +408,67 @@ const ConfiguracionEmpresa = () => {
                     </div>
                 </div>
             </div>
+
+            {/* =========================================================
+                VALIDACIÓN DE PLAN DE CUENTAS DE LA EMPRESA ACTIVA
+            ========================================================= */}
+            {cargandoPlan ? (
+                <div style={{ background: '#1e293b', padding: '14px 20px', borderRadius: '10px', border: '1px solid #334155', marginBottom: '32px', color: '#94a3b8', fontSize: '0.9rem' }}>
+                    ⏳ Verificando el plan de cuentas de la empresa activa...
+                </div>
+            ) : planVacio ? (
+                <div style={{ background: '#422006', padding: '20px 24px', borderRadius: '12px', border: '1px solid #f59e0b', marginBottom: '32px' }}>
+                    <h3 style={{ margin: '0 0 8px 0', color: '#fbbf24', fontSize: '1.05rem' }}>
+                        ⚠️ La empresa «{empresaActiva.razonSocial || empresaActiva.nombre}» no tiene plan de cuentas
+                    </h3>
+                    <p style={{ margin: '0 0 14px 0', color: '#fde68a', fontSize: '0.85rem' }}>
+                        Esta empresa fue recién creada o aún no registra cuentas contables. Para operar, cree las cuentas
+                        manualmente en <strong>Contabilidad → Plan de Cuentas</strong> o importe el plan de cuentas
+                        existente en otra empresa:
+                    </p>
+
+                    {empresasConPlan.length === 0 ? (
+                        <p style={{ margin: 0, color: '#fcd34d', fontSize: '0.85rem' }}>
+                            ℹ️ Ninguna otra empresa del sistema tiene plan de cuentas disponible para importar.
+                        </p>
+                    ) : (
+                        <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', minWidth: '300px' }}>
+                                <label style={{ color: '#fde68a', fontSize: '0.8rem', fontWeight: 'bold' }}>
+                                    📄 Empresa origen del plan de cuentas
+                                </label>
+                                <select
+                                    value={empresaOrigenPlanId}
+                                    onChange={(e) => setEmpresaOrigenPlanId(e.target.value)}
+                                    style={{ padding: '10px', borderRadius: '8px', background: '#0f172a', border: '1px solid #92400e', color: '#fff' }}
+                                >
+                                    <option value="">Seleccione la empresa origen...</option>
+                                    {empresasConPlan.map(emp => (
+                                        <option key={emp.id} value={emp.id}>
+                                            🏢 {emp.razonSocial || emp.nombre} (RIF: {emp.rif || 'S/N'})
+                                        </option>
+                                    ))}
+                                </select>
+                            </div>
+                            <button
+                                onClick={importarPlanCuentas}
+                                disabled={importandoPlan || !empresaOrigenPlanId}
+                                style={{
+                                    padding: '10px 18px', background: importandoPlan ? '#475569' : '#059669',
+                                    color: '#fff', border: 'none', borderRadius: '8px', cursor: importandoPlan ? 'wait' : 'pointer',
+                                    fontWeight: 'bold', opacity: empresaOrigenPlanId ? 1 : 0.6
+                                }}
+                            >
+                                {importandoPlan ? '⏳ Importando cuentas...' : '📥 Importar plan de cuentas'}
+                            </button>
+                        </div>
+                    )}
+                </div>
+            ) : (
+                <div style={{ background: '#052e16', padding: '10px 20px', borderRadius: '10px', border: '1px solid #16a34a', marginBottom: '32px', color: '#86efac', fontSize: '0.85rem' }}>
+                    ✅ Plan de cuentas válido: la empresa <strong>{empresaActiva.razonSocial || empresaActiva.nombre}</strong> tiene <strong>{cuentasEmpresaActiva.length}</strong> cuenta(s) registradas.
+                </div>
+            )}
 
             {/* =========================================================
                 SECCIONES DE GESTIÓN CORPORATIVA Y PERIODOS 

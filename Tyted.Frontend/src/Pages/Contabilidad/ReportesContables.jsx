@@ -44,12 +44,104 @@ const formatearFecha = (fechaStr) => {
   }
 };
 
+// ---------------------------------------------------------------------------
+// JERARQUÍA PADRE / HIJO DEL PLAN DE CUENTAS (para subtotalizar reportes)
+// ---------------------------------------------------------------------------
+
+// Sangría visual con espacios no separables (se conserva en HTML, PDF y Excel)
+const sangria = (profundidad) => '\u00A0'.repeat(profundidad * 3);
+
+// Construye el árbol padre/hijo de una lista de cuentas ya enriquecidas.
+// Usa PadreCuentaId cuando existe y, si no, infiere el padre por prefijo de
+// código (ej.: "1.1.01" bajo "1.1", o "1101" bajo "110").
+const construirArbol = (lista) => {
+  const ordenadas = [...lista].sort((a, b) =>
+    String(a.codigo ?? '').localeCompare(String(b.codigo ?? ''), undefined, { numeric: true })
+  );
+
+  const porId = new Map();
+  const porCodigo = new Map();
+  ordenadas.forEach(c => {
+    porId.set(Number(c.idCuenta), c);
+    if (c.codigo) porCodigo.set(String(c.codigo), c);
+  });
+
+  const inferirPadreId = (c) => {
+    const codigo = String(c.codigo ?? '');
+    if (!codigo) return null;
+    let mejorCodigo = null;
+    for (const candidato of porCodigo.keys()) {
+      if (candidato === codigo || codigo.length <= candidato.length) continue;
+      if (!codigo.startsWith(candidato)) continue;
+      // En esquemas con punto, el hijo debe separarse del padre por "." ("1.10"
+      // no es hijo de "1.1"). En esquemas de dígitos puros gana el prefijo más largo.
+      if (codigo.includes('.') && codigo[candidato.length] !== '.') continue;
+      if (mejorCodigo === null || candidato.length > mejorCodigo.length) mejorCodigo = candidato;
+    }
+    return mejorCodigo !== null ? Number(porCodigo.get(mejorCodigo).idCuenta) : null;
+  };
+
+  const hijosMap = new Map();
+  const raices = [];
+  ordenadas.forEach(c => {
+    const propioId = Number(c.idCuenta);
+    const explicito = c.padreCuentaId !== null && c.padreCuentaId !== undefined ? Number(c.padreCuentaId) : null;
+    let padreId = null;
+    if (explicito !== null && explicito !== propioId && porId.has(explicito)) {
+      padreId = explicito;
+    } else {
+      padreId = inferirPadreId(c);
+    }
+    if (padreId !== null && padreId !== propioId && porId.has(padreId)) {
+      if (!hijosMap.has(padreId)) hijosMap.set(padreId, []);
+      hijosMap.get(padreId).push(c);
+    } else {
+      raices.push(c);
+    }
+  });
+
+  return { raices, hijosMap };
+};
+
+// Suma un campo de la cuenta y de todos sus descendientes (evita ciclos).
+const sumarSubarbol = (cuenta, hijosMap, selector) => {
+  const visitados = new Set();
+  const recorrer = (c) => {
+    const id = Number(c.idCuenta);
+    if (visitados.has(id)) return 0;
+    visitados.add(id);
+    let total = Number(selector(c) ?? 0);
+    (hijosMap.get(id) || []).forEach(hijo => { total += recorrer(hijo); });
+    return total;
+  };
+  return recorrer(cuenta);
+};
+
+// Aplana el árbol en filas con profundidad para poder dibujar sangrías y
+// subtotales. `obtenerValores` recibe (cuenta, esPadre, hijosMap) y debe
+// devolver los montos a mostrar (consolidados para los padres).
+const filasJerarquicas = (lista, obtenerValores) => {
+  const { raices, hijosMap } = construirArbol(lista);
+  const filas = [];
+  const emitir = (cuenta, profundidad) => {
+    const hijos = hijosMap.get(Number(cuenta.idCuenta)) || [];
+    const esPadre = hijos.length > 0;
+    filas.push({ cuenta, profundidad, esPadre, valores: obtenerValores(cuenta, esPadre, hijosMap) });
+    hijos.forEach(hijo => emitir(hijo, profundidad + 1));
+  };
+  raices.forEach(raiz => emitir(raiz, 0));
+  return filas;
+};
+
 export default function ReportesContables({ empresaActiva, periodoActivo }) {
   const [balance, setBalance] = useState([]);
   const [cuentas, setCuentas] = useState([]);
   const [selectedReporte, setSelectedReporte] = useState(null);
   const [loading, setLoading] = useState(false);
-  
+
+  // Periodo por el cual se CONSULTARON los datos (el usuario lo solicita con el botón)
+  const [periodoConsultadoId, setPeriodoConsultadoId] = useState(null);
+
   // Jerarquía de periodos
   const [periodos, setPeriodos] = useState([]);
   const [periodoSeleccionadoId, setPeriodoSeleccionadoId] = useState(Number(periodoActivo?.id ?? 1));
@@ -87,26 +179,45 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
     return listaPeriodosJerarquia.find(p => Number(p.id) === periodoSeleccionadoId) || periodoActivo;
   }, [listaPeriodosJerarquia, periodoSeleccionadoId, periodoActivo]);
 
-  // Carga de datos contables formales según el periodo seleccionado
+  // Periodo efectivamente consultado (el que originó los datos en pantalla)
+  const periodoConsultadoData = useMemo(() => {
+    if (periodoConsultadoId === null) return null;
+    return listaPeriodosJerarquia.find(p => Number(p.id) === Number(periodoConsultadoId)) || periodoActivo;
+  }, [listaPeriodosJerarquia, periodoConsultadoId, periodoActivo]);
+
+  // TRUE cuando el periodo elegido en el selector difiere del consultado:
+  // en ese caso los datos en pantalla están desactualizados y hay que volver
+  // a pulsar "🔍 Consultar" para regenerar el reporte de ese periodo.
+  const pendienteConsulta = periodoConsultadoId === null ||
+    Number(periodoSeleccionadoId) !== Number(periodoConsultadoId);
+
+  // Carga de datos contables bajo demanda: el usuario decide cuándo consultar
+  // el reporte del periodo seleccionado mediante el botón "🔍 Consultar".
+  const consultar = async (periodoId) => {
+    const id = Number(periodoId);
+    if (!id) return;
+    try {
+      setLoading(true);
+      const [dataBalance, dataCuentas] = await Promise.all([
+        contabilidadApi.getBalanceComprobacion(id).catch(() => []),
+        contabilidadApi.getCuentas().catch(() => []),
+      ]);
+      setBalance(Array.isArray(dataBalance) ? dataBalance : (dataBalance?.$values || []));
+      setCuentas(Array.isArray(dataCuentas) ? dataCuentas : (dataCuentas?.$values || []));
+      setPeriodoConsultadoId(id);
+    } catch (error) {
+      console.error('Error cargando reportes:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Consulta inicial con el periodo activo al montar el componente;
+  // a partir de ahí, cada nueva consulta se dispara con el botón.
   useEffect(() => {
-    const cargar = async () => {
-      try {
-        setLoading(true);
-        setSelectedReporte(null); // Ocultar reporte previo al cambiar periodo
-        const [dataBalance, dataCuentas] = await Promise.all([
-          contabilidadApi.getBalanceComprobacion(periodoSeleccionadoId).catch(() => []),
-          contabilidadApi.getCuentas().catch(() => []),
-        ]);
-        setBalance(Array.isArray(dataBalance) ? dataBalance : (dataBalance?.$values || []));
-        setCuentas(Array.isArray(dataCuentas) ? dataCuentas : (dataCuentas?.$values || []));
-      } catch (error) {
-        console.error('Error cargando reportes:', error);
-      } finally {
-        setLoading(false);
-      }
-    };
-    cargar();
-  }, [periodoSeleccionadoId]);
+    consultar(Number(periodoActivo?.id ?? 1));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Mapeo unificado para agrupar cuentas (Activo, Pasivo, Capital, Ingreso, Egreso)
   const cuentaMap = useMemo(() => {
@@ -123,6 +234,11 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
       const cuenta = cuentaMap.get(Number(field(b, 'cuentaId', 'CuentaId')));
       return {
         ...b,
+        idCuenta: Number(field(b, 'cuentaId', 'CuentaId') ?? field(cuenta, 'id', 'Id') ?? 0),
+        padreCuentaId: (() => {
+          const padre = field(cuenta, 'padreCuentaId', 'PadreCuentaId');
+          return padre !== undefined && padre !== null ? Number(padre) : null;
+        })(),
         codigo: field(cuenta, 'codigoCuenta', 'CodigoCuenta') || field(b, 'codigoCuenta', 'CodigoCuenta') || '',
         nombre: field(cuenta, 'nombreCuenta', 'NombreCuenta') || field(b, 'nombreCuenta', 'NombreCuenta') || '',
         tipo: String(field(cuenta, 'tipoCuenta', 'TipoCuenta') || field(b, 'tipoCuenta', 'TipoCuenta') || '').toUpperCase(),
@@ -145,30 +261,65 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
           final: acc.final + c.saldoFinal
         }), { inicial: 0, debe: 0, haber: 0, final: 0 });
 
+        // Cada fila (padre o hijo) consolida su subárbol; la suma de las raíces
+        // equivale al total general, de modo que no hay doble conteo.
+        const filasArbol = filasJerarquicas(cuentasEnriquecidas, (c, esPadre, hijosMap) => ({
+          inicial: sumarSubarbol(c, hijosMap, x => x.saldoInicial),
+          debe: sumarSubarbol(c, hijosMap, x => x.debe),
+          haber: sumarSubarbol(c, hijosMap, x => x.haber),
+          final: sumarSubarbol(c, hijosMap, x => x.saldoFinal),
+        }));
+
         return {
           titulo: 'Balance de Comprobación',
           columnas: ['Nombre de La Cuenta', 'Saldo Inicial', 'Monto Debe', 'Monto Haber', 'Saldo Actual'],
-          filas: cuentasEnriquecidas.map(c => [
-            `${c.codigo} - ${c.nombre}`, formatMoney(c.saldoInicial), formatMoney(c.debe), formatMoney(c.haber), formatMoney(c.saldoFinal)
-          ]),
+          filas: filasArbol.map(r => {
+            const estilo = r.esPadre ? { fontStyle: 'bold' } : {};
+            return [
+              { content: `${sangria(r.profundidad)}${r.cuenta.codigo} - ${r.cuenta.nombre}`, styles: estilo },
+              { content: formatMoney(r.valores.inicial), styles: estilo },
+              { content: formatMoney(r.valores.debe), styles: estilo },
+              { content: formatMoney(r.valores.haber), styles: estilo },
+              { content: formatMoney(r.valores.final), styles: estilo },
+            ];
+          }),
           totales: ['TOTALES..', formatMoney(totales.inicial), formatMoney(totales.debe), formatMoney(totales.haber), formatMoney(totales.final)]
         };
       }
       case 'estado-resultados': {
         const ingresos = cuentasEnriquecidas.filter(c => c.tipo.includes('INGRESO'));
         const egresos = cuentasEnriquecidas.filter(c => c.tipo.includes('GASTO') || c.tipo.includes('COSTO'));
-        
+
         const totalIngresos = ingresos.reduce((sum, c) => sum + Math.abs(c.saldoFinal), 0);
         const totalEgresos = egresos.reduce((sum, c) => sum + Math.abs(c.saldoFinal), 0);
         const utilidad = totalIngresos - totalEgresos;
 
+        // Subárbol consolidado por partida: los padres subtotalizan la suma de
+        // sus hijos (valores absolutos), sin alterar los totales existentes.
+        const consolidarSeccion = (lista) =>
+          filasJerarquicas(lista, (c, esPadre, hijosMap) => ({
+            monto: sumarSubarbol(c, hijosMap, x => Math.abs(x.saldoFinal)),
+          }));
+
+        const filasIngresos = consolidarSeccion(ingresos);
+        const filasEgresos = consolidarSeccion(egresos);
+
+        const pintarSeccion = (etiqueta, filasSeccion) => [
+          [{ content: etiqueta, styles: { fontStyle: 'bold' } }, ''],
+          ...filasSeccion.map(r => {
+            const estilo = r.esPadre ? { fontStyle: 'bold' } : {};
+            return [
+              { content: `${sangria(r.profundidad)}${r.cuenta.nombre}`, styles: estilo },
+              { content: formatMoney(r.valores.monto), styles: estilo },
+            ];
+          }),
+        ];
+
         const filas = [
-          [{ content: 'INGRESOS', styles: { fontStyle: 'bold' } }, ''],
-          ...ingresos.map(c => [c.nombre, formatMoney(Math.abs(c.saldoFinal))]),
+          ...pintarSeccion('INGRESOS', filasIngresos),
           [{ content: 'TOTAL INGRESOS', styles: { fontStyle: 'bold' } }, { content: formatMoney(totalIngresos), styles: { fontStyle: 'bold' } }],
           [{ content: '', styles: { minCellHeight: 10 } }, ''],
-          [{ content: 'EGRESOS', styles: { fontStyle: 'bold' } }, ''],
-          ...egresos.map(c => [c.nombre, formatMoney(Math.abs(c.saldoFinal))]),
+          ...pintarSeccion('EGRESOS', filasEgresos),
           [{ content: 'TOTAL EGRESOS', styles: { fontStyle: 'bold' } }, { content: formatMoney(totalEgresos), styles: { fontStyle: 'bold' } }],
         ];
 
@@ -188,17 +339,34 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
         const totalPasivos = pasivos.reduce((sum, c) => sum + Math.abs(c.saldoFinal), 0);
         const totalPatrimonio = patrimonio.reduce((sum, c) => sum + Math.abs(c.saldoFinal), 0);
 
+        const consolidarSeccion = (lista) =>
+          filasJerarquicas(lista, (c, esPadre, hijosMap) => ({
+            monto: sumarSubarbol(c, hijosMap, x => Math.abs(x.saldoFinal)),
+          }));
+
+        const filasActivos = consolidarSeccion(activos);
+        const filasPasivos = consolidarSeccion(pasivos);
+        const filasPatrimonio = consolidarSeccion(patrimonio);
+
+        const pintarSeccion = (etiqueta, filasSeccion) => [
+          [{ content: etiqueta, styles: { fontStyle: 'bold' } }, ''],
+          ...filasSeccion.map(r => {
+            const estilo = r.esPadre ? { fontStyle: 'bold' } : {};
+            return [
+              { content: `${sangria(r.profundidad)}${r.cuenta.nombre}`, styles: estilo },
+              { content: formatMoney(r.valores.monto), styles: estilo },
+            ];
+          }),
+        ];
+
         const filas = [
-          [{ content: 'ACTIVO', styles: { fontStyle: 'bold' } }, ''],
-          ...activos.map(c => [c.nombre, formatMoney(Math.abs(c.saldoFinal))]),
+          ...pintarSeccion('ACTIVO', filasActivos),
           [{ content: 'TOTAL ACTIVO', styles: { fontStyle: 'bold' } }, { content: formatMoney(totalActivos), styles: { fontStyle: 'bold' } }],
           [{ content: '', styles: { minCellHeight: 10 } }, ''],
-          [{ content: 'PASIVO', styles: { fontStyle: 'bold' } }, ''],
-          ...pasivos.map(c => [c.nombre, formatMoney(Math.abs(c.saldoFinal))]),
+          ...pintarSeccion('PASIVO', filasPasivos),
           [{ content: 'TOTAL PASIVO', styles: { fontStyle: 'bold' } }, { content: formatMoney(totalPasivos), styles: { fontStyle: 'bold' } }],
           [{ content: '', styles: { minCellHeight: 10 } }, ''],
-          [{ content: 'PATRIMONIO', styles: { fontStyle: 'bold' } }, ''],
-          ...patrimonio.map(c => [c.nombre, formatMoney(Math.abs(c.saldoFinal))]),
+          ...pintarSeccion('PATRIMONIO', filasPatrimonio),
           [{ content: 'TOTAL PATRIMONIO', styles: { fontStyle: 'bold' } }, { content: formatMoney(totalPatrimonio), styles: { fontStyle: 'bold' } }],
         ];
 
@@ -235,20 +403,29 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
     if (!estructura) return;
 
     const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'letter' });
-    const fechaEmision = new Date();
-    
-    // Encabezado según formato PDF
+
+    // Encabezado según formato PDF (usa el periodo realmente consultado)
+    const periodoInfo = periodoConsultadoData || periodoSeleccionadoData;
     pdf.setFontSize(10);
     pdf.setFont('helvetica', 'bold');
     pdf.text(`${empresaActiva?.nombre?.toUpperCase() || 'EMPRESA PRINCIPAL'}`, 40, 40);
     pdf.text(`RIF ${empresaActiva?.rif || 'J-000000000'}`, 40, 52);
-    pdf.text(`${estructura.titulo} DEL ${periodoSeleccionadoData?.fechaInicio || ''} AL ${periodoSeleccionadoData?.fechaFin || ''}`, 40, 64);
+    pdf.text(`${estructura.titulo} DEL ${periodoInfo?.fechaInicio || ''} AL ${periodoInfo?.fechaFin || ''}`, 40, 64);
     pdf.setFont('helvetica', 'normal');
     pdf.text('Expresado en Bolívar', 40, 76);
-    pdf.text(`${estructura.titulo} del ${formatearFecha(periodoSeleccionadoData?.fechaInicio)} al ${formatearFecha(periodoSeleccionadoData?.fechaFin)}`, 40, 64);
+    pdf.text(`${estructura.titulo} del ${formatearFecha(periodoInfo?.fechaInicio)} al ${formatearFecha(periodoInfo?.fechaFin)}`, 40, 64);
 
-    // Preparar filas eliminando configuraciones de objetos que usa HTML/jsPDF-autotable mezclado
-    const cleanFilas = estructura.filas.map(fila => fila.map(celda => typeof celda === 'object' && celda !== null ? celda.content : celda));
+    // Preparar filas: se conserva el contenido y la negrita de los subtotales
+    // (padres) para que autotable los resalte igual que en la vista previa.
+    const cleanFilas = estructura.filas.map(fila => fila.map(celda => {
+      if (typeof celda === 'object' && celda !== null) {
+        return {
+          content: celda.content ?? '',
+          styles: { fontStyle: celda.styles?.fontStyle === 'bold' ? 'bold' : 'normal' }
+        };
+      }
+      return celda;
+    }));
     const cleanTotales = estructura.totales.map(celda => typeof celda === 'object' && celda !== null ? celda.content : celda);
 
     autoTable(pdf, {
@@ -262,11 +439,10 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
       margin: { left: 40, right: 40 },
     });
 
-    pdf.save(`${estructura.titulo.replace(/\s+/g, '')}_${periodoSeleccionadoData?.nombre || 'Reporte'}.pdf`);
+    pdf.save(`${estructura.titulo.replace(/\s+/g, '')}_${periodoInfo?.nombre || 'Reporte'}.pdf`);
   };
 
   const reporteData = getEstructuraReporte();
-  const fechaActualObj = new Date();
 
   const exportarExcel = () => {
     const estructura = getEstructuraReporte();
@@ -281,10 +457,12 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
     );
 
     // Estructurar los datos con el mismo membrete formal del PDF
+    // (usa el periodo realmente consultado)
+    const periodoInfo = periodoConsultadoData || periodoSeleccionadoData;
     const datosExcel = [
       [empresaActiva?.nombre?.toUpperCase() || 'EMPRESA PRINCIPAL, C.A'],
       [`RIF ${empresaActiva?.rif || 'J-000000000'}`],
-      [`${estructura.titulo} del ${formatearFecha(periodoSeleccionadoData?.fechaInicio)} al ${formatearFecha(periodoSeleccionadoData?.fechaFin)}`],
+      [`${estructura.titulo} del ${formatearFecha(periodoInfo?.fechaInicio)} al ${formatearFecha(periodoInfo?.fechaFin)}`],
       ['Expresado en Bolívar'],
       [], // Fila en blanco de separación
       estructura.columnas,
@@ -298,34 +476,73 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Reporte Financiero');
 
     // Descargar archivo
-    XLSX.writeFile(workbook, `${estructura.titulo.replace(/\s+/g, '')}_${periodoSeleccionadoData?.nombre || 'Reporte'}.xlsx`);
+    XLSX.writeFile(workbook, `${estructura.titulo.replace(/\s+/g, '')}_${periodoInfo?.nombre || 'Reporte'}.xlsx`);
   };
 
   return (
     <div style={{ padding: '24px', color: '#e2e8f0', minHeight: '80vh' }}>
       
-      {/* 1. ZONA SUPERIOR: Selector de Periodo Padre/Hijo */}
+      {/* 1. ZONA SUPERIOR: Selector de Periodo Padre/Hijo + Botón de Consulta */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: '#1e293b', padding: '16px 20px', borderRadius: '12px', marginBottom: '24px', border: '1px solid #334155', flexWrap: 'wrap', gap: '16px' }}>
         <div>
           <h2 style={{ margin: '0 0 4px 0', color: '#60a5fa', fontSize: '1.2rem' }}>Generador de Documentos Financieros</h2>
-          <span style={{ color: '#94a3b8', fontSize: '0.85rem' }}>Seleccione el rango operativo y el reporte a previsualizar.</span>
+          <span style={{ color: '#94a3b8', fontSize: '0.85rem' }}>Seleccione el periodo y pulse «🔍 Consultar» para generar el reporte.</span>
         </div>
-        
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', width: '300px' }}>
-          <label style={{ color: '#cbd5e1', fontSize: '0.8rem', fontWeight: 600 }}>Periodo de Emisión (Padre / Hijo)</label>
-          <select
-            value={periodoSeleccionadoId}
-            onChange={(e) => setPeriodoSeleccionadoId(Number(e.target.value))}
-            style={{ width: '100%', background: '#0f172a', color: '#fff', border: '1px solid #475569', borderRadius: '8px', padding: '10px' }}
+
+        <div style={{ display: 'flex', alignItems: 'flex-end', gap: '10px', flexWrap: 'wrap' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', width: '300px' }}>
+            <label style={{ color: '#cbd5e1', fontSize: '0.8rem', fontWeight: 600 }}>Periodo de Emisión (Padre / Hijo)</label>
+            <select
+              value={periodoSeleccionadoId}
+              onChange={(e) => setPeriodoSeleccionadoId(Number(e.target.value))}
+              style={{ width: '100%', background: '#0f172a', color: '#fff', border: '1px solid #475569', borderRadius: '8px', padding: '10px' }}
+            >
+              {listaPeriodosJerarquia.map((p) => (
+                <option key={p.id} value={p.id} style={{ fontWeight: p.isPadre ? 'bold' : 'normal' }}>
+                  {p.label}
+                </option>
+              ))}
+            </select>
+          </div>
+
+          {/* Botón explícito de consulta: el reporte sólo se genera cuando el usuario lo pide */}
+          <button
+            onClick={() => consultar(periodoSeleccionadoId)}
+            disabled={loading}
+            title="Consultar el reporte del periodo seleccionado"
+            style={{
+              display: 'flex', alignItems: 'center', gap: '8px',
+              background: pendienteConsulta ? '#f59e0b' : '#2563eb',
+              color: pendienteConsulta ? '#1e293b' : '#fff',
+              border: 'none', borderRadius: '8px', padding: '10px 18px',
+              cursor: loading ? 'wait' : 'pointer', fontWeight: 'bold', fontSize: '0.9rem',
+              opacity: loading ? 0.7 : 1, transition: 'background 0.2s ease'
+            }}
           >
-            {listaPeriodosJerarquia.map((p) => (
-              <option key={p.id} value={p.id} style={{ fontWeight: p.isPadre ? 'bold' : 'normal' }}>
-                {p.label}
-              </option>
-            ))}
-          </select>
+            {loading ? '⏳ Consultando...' : '🔍 Consultar'}
+          </button>
         </div>
       </div>
+
+      {/* Aviso: el periodo elegido aún no ha sido consultado */}
+      {pendienteConsulta && !loading && (
+        <div style={{
+          background: '#1e293b', border: '1px solid #f59e0b', color: '#fcd34d',
+          padding: '12px 16px', borderRadius: '8px', marginBottom: '24px', fontSize: '0.9rem',
+          display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px', flexWrap: 'wrap'
+        }}>
+          <span>
+            ⏳ El periodo <strong>«{periodoSeleccionadoData?.nombre || 'seleccionado'}»</strong> está pendiente de consulta.
+            {periodoConsultadoId !== null && ' Los datos en pantalla corresponden a otro periodo.'}
+          </span>
+          <button
+            onClick={() => consultar(periodoSeleccionadoId)}
+            style={{ background: '#f59e0b', color: '#1e293b', border: 'none', borderRadius: '6px', padding: '8px 14px', cursor: 'pointer', fontWeight: 'bold' }}
+          >
+            🔍 Consultar ahora
+          </button>
+        </div>
+      )}
 
       {/* 2. ZONA MEDIA: Selector de Reportes (Iconos) */}
       <div style={{ display: 'flex', gap: '12px', overflowX: 'auto', paddingBottom: '16px', marginBottom: '10px' }}>
@@ -351,6 +568,10 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
       {/* 3. ZONA INFERIOR: Previsualización de la "Hoja de Papel" */}
       {loading ? (
         <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>⏳ Consolidando datos del periodo...</div>
+      ) : pendienteConsulta && selectedReporte ? (
+        <div style={{ textAlign: 'center', padding: '40px', color: '#fcd34d', border: '2px dashed #f59e0b', borderRadius: '12px' }}>
+          ⏳ El reporte corresponde al periodo consultado previamente. Pulse «🔍 Consultar» para generarlo con el periodo seleccionado.
+        </div>
       ) : selectedReporte && reporteData ? (
         <div style={{ background: '#0f172a', padding: '24px', borderRadius: '12px', border: '1px solid #334155' }}>
           
@@ -376,7 +597,7 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
               background: '#1e293b', border: '1px solid #f59e0b', color: '#fcd34d',
               padding: '12px 16px', borderRadius: '8px', marginBottom: '20px', fontSize: '0.9rem'
             }}>
-              ℹ️ No se encontraron movimientos contables para «{periodoSeleccionadoData?.nombre || 'este periodo'}».
+              ℹ️ No se encontraron movimientos contables para «{periodoConsultadoData?.nombre || periodoSeleccionadoData?.nombre || 'este periodo'}».
               Verifique que los asientos se hayan registrado en este periodo y que la empresa activa sea la correcta.
             </div>
           )}
@@ -392,7 +613,7 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
                 <div style={{ fontWeight: 'bold', fontSize: '14px' }}>{empresaActiva?.nombre?.toUpperCase() || 'EMPRESA PRINCIPAL, C.A'}</div>
                 <div>RIF {empresaActiva?.rif || 'J-000000000'}</div>
                 <div style={{ fontWeight: 'bold' }}>
-                  {reporteData.titulo} del {formatearFecha(periodoSeleccionadoData?.fechaInicio)} al {formatearFecha(periodoSeleccionadoData?.fechaFin)}
+                  {reporteData.titulo} del {formatearFecha((periodoConsultadoData || periodoSeleccionadoData)?.fechaInicio)} al {formatearFecha((periodoConsultadoData || periodoSeleccionadoData)?.fechaFin)}
                 </div>
                 <div>Expresado en Bolívar</div>
               </div>
