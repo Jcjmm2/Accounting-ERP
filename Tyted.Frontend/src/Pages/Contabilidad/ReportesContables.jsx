@@ -133,6 +133,31 @@ const filasJerarquicas = (lista, obtenerValores) => {
   return filas;
 };
 
+// Inserta tras cada subárbol jerárquico una fila SUBTOTAL de cierre para los
+// padres de profundidad ≥ 1 (p. ej. 1.1 CORRIENTE, 1.1.1 CAJA, 1.1.1.1
+// Cajas de operación). Los padres de profundidad 0 los cubre el SUBTOTAL
+// del título de sección. Recibe la salida en pre-orden de filasJerarquicas.
+const insertarSubtotalesJerarquia = (filas) => {
+  const salida = [];
+  const recorrer = (desde, nivel) => {
+    let i = desde;
+    while (i < filas.length && filas[i].profundidad >= nivel) {
+      const fila = filas[i];
+      salida.push(fila);
+      i += 1;
+      if (fila.esPadre) {
+        i = recorrer(i, fila.profundidad + 1);
+        if (fila.profundidad > 0) {
+          salida.push({ ...fila, esSubtotalCierre: true });
+        }
+      }
+    }
+    return i;
+  };
+  recorrer(0, 0);
+  return salida;
+};
+
 export default function ReportesContables({ empresaActiva, periodoActivo }) {
   const [balance, setBalance] = useState([]);
   const [cuentas, setCuentas] = useState([]);
@@ -250,40 +275,237 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
     }).sort((a, b) => a.codigo.localeCompare(b.codigo));
   }, [balance, cuentaMap]);
 
+  // Plan completo de la empresa activa fusionado con el balance.
+  // El backend (GetBalanceComprobacionAsync) OMITE las cuentas sin saldo ni
+  // movimiento, por lo que los títulos y subtítulos nunca llegan y no es
+  // posible subtotalizar la estructura. Se complementa con el plan de cuentas
+  // completo: las cuentas ausentes del balance se incorporan con valores en
+  // cero (son exactamente las que el backend descartó por tener todo en cero,
+  // por lo que los totales del reporte no cambian).
+  const cuentasBalancePlan = useMemo(() => {
+    const idActiva = Number(empresaActiva?.id ?? 0);
+    const planEmpresa = cuentas.filter(cu => Number(field(cu, 'empresaId', 'EmpresaId') ?? 0) === idActiva);
+
+    // Sin plan identificado se usa el balance tal cual (comportamiento previo)
+    if (planEmpresa.length === 0) return cuentasEnriquecidas;
+
+    const enBalance = new Map(cuentasEnriquecidas.map(c => [c.idCuenta, c]));
+
+    const filas = planEmpresa.map(cu => {
+      const id = Number(field(cu, 'id', 'Id') ?? 0);
+      const b = enBalance.get(id);
+      const padre = field(cu, 'padreCuentaId', 'PadreCuentaId');
+      return {
+        idCuenta: id,
+        padreCuentaId: padre !== undefined && padre !== null ? Number(padre) : null,
+        codigo: field(cu, 'codigoCuenta', 'CodigoCuenta') || b?.codigo || '',
+        nombre: field(cu, 'nombreCuenta', 'NombreCuenta') || b?.nombre || '',
+        tipo: String(field(cu, 'tipoCuenta', 'TipoCuenta') || b?.tipo || '').toUpperCase(),
+        saldoInicial: b?.saldoInicial ?? 0,
+        debe: b?.debe ?? 0,
+        haber: b?.haber ?? 0,
+        saldoFinal: b?.saldoFinal ?? 0,
+      };
+    });
+
+    // Defensa: filas del balance que no aparezcan en el plan no se descartan
+    const ids = new Set(filas.map(f => f.idCuenta));
+    cuentasEnriquecidas.forEach(c => { if (!ids.has(c.idCuenta)) filas.push(c); });
+
+    return filas.sort((a, b) => a.codigo.localeCompare(b.codigo));
+  }, [cuentas, cuentasEnriquecidas, empresaActiva]);
+
   // Generadores de estructuras (Basados en los PDFs adjuntos)
   const getEstructuraReporte = () => {
     switch (selectedReporte) {
       case 'balance-comprobacion': {
-        const totales = cuentasEnriquecidas.reduce((acc, c) => ({
+        // ---------------------------------------------------------------
+        // FILTRADO: se muestran SÓLO las cuentas con saldo o movimiento y,
+        // como excepción, los títulos/subtítulos ancestros que las contienen.
+        // Los títulos sin movimiento en toda su rama se OCULTAN (no se lista
+        // el plan completo, sólo la estructura operativa del periodo).
+        // ---------------------------------------------------------------
+        const conValores = (c) => c.saldoInicial !== 0 || c.debe !== 0 || c.haber !== 0 || c.saldoFinal !== 0;
+
+        const arbolPlan = construirArbol(cuentasBalancePlan);
+        const visibles = new Set();
+        const visitados = new Set();
+
+        // Post-orden: una cuenta se conserva si tiene movimiento O si su árbol
+        // descendiente contiene alguna cuenta con movimiento.
+        const marcarRama = (c) => {
+          const id = c.idCuenta;
+          if (visitados.has(id)) return visibles.has(id);
+          visitados.add(id);
+          let hayMovimiento = conValores(c);
+          (arbolPlan.hijosMap.get(id) || []).forEach(hijo => {
+            if (marcarRama(hijo)) hayMovimiento = true;
+          });
+          if (hayMovimiento) visibles.add(id);
+          return hayMovimiento;
+        };
+        arbolPlan.raices.forEach(raiz => marcarRama(raiz));
+        // Cuentas no alcanzadas desde las raíces (p. ej. por ciclos): si tienen
+        // movimiento no se descartan.
+        cuentasBalancePlan.forEach(c => {
+          if (!visitados.has(c.idCuenta) && conValores(c)) visibles.add(c.idCuenta);
+        });
+
+        const planBalance = cuentasBalancePlan.filter(c => visibles.has(c.idCuenta));
+
+        const totales = planBalance.reduce((acc, c) => ({
           inicial: acc.inicial + c.saldoInicial,
           debe: acc.debe + c.debe,
           haber: acc.haber + c.haber,
           final: acc.final + c.saldoFinal
         }), { inicial: 0, debe: 0, haber: 0, final: 0 });
 
-        // Cada fila (padre o hijo) consolida su subárbol; la suma de las raíces
-        // equivale al total general, de modo que no hay doble conteo.
-        const filasArbol = filasJerarquicas(cuentasEnriquecidas, (c, esPadre, hijosMap) => ({
-          inicial: sumarSubarbol(c, hijosMap, x => x.saldoInicial),
-          debe: sumarSubarbol(c, hijosMap, x => x.debe),
-          haber: sumarSubarbol(c, hijosMap, x => x.haber),
-          final: sumarSubarbol(c, hijosMap, x => x.saldoFinal),
-        }));
+        // Cuentas títulos del balance (grupos del plan). Cada título se muestra
+        // con su detalle (jerarquía padre/hijo consolidada) y su respectivo
+        // SUBTOTAL; la suma de los subtotales equivale al total general.
+        const tituloSecciones = [
+          { etiqueta: 'ACTIVO', test: t => t.includes('ACTIVO') },
+          { etiqueta: 'PASIVO', test: t => t.includes('PASIVO') },
+          { etiqueta: 'PATRIMONIO', test: t => t.includes('PATRIMONIO') || t.includes('CAPITAL') },
+          { etiqueta: 'INGRESOS', test: t => t.includes('INGRESO') },
+          { etiqueta: 'EGRESOS', test: t => t.includes('GASTO') || t.includes('COSTO') || t.includes('EGRESO') },
+        ];
 
-        return {
-          titulo: 'Balance de Comprobación',
-          columnas: ['Nombre de La Cuenta', 'Saldo Inicial', 'Monto Debe', 'Monto Haber', 'Saldo Actual'],
-          filas: filasArbol.map(r => {
-            const estilo = r.esPadre ? { fontStyle: 'bold' } : {};
-            return [
-              { content: `${sangria(r.profundidad)}${r.cuenta.codigo} - ${r.cuenta.nombre}`, styles: estilo },
+        const celdaNegrita = (texto) => ({ content: texto, styles: { fontStyle: 'bold' } });
+        const celdaVaciaNegrita = () => ({ content: '', styles: { fontStyle: 'bold' } });
+
+        const asignadas = new Set();
+        const filas = [];
+        // Subtotales firmados por título (para la comprobación de la ecuación)
+        const subtotalesPorTitulo = new Map();
+
+        const pintarTituloBalance = (etiqueta, lista) => {
+          if (lista.length === 0) return;
+
+          // Detalle del título: cada padre consolida su subárbol (sin doble
+          // conteo porque el subtotal de la sección suma los valores propios).
+          const jerarquia = filasJerarquicas(lista, (c, esPadre, hijosMap) => ({
+            inicial: sumarSubarbol(c, hijosMap, x => x.saldoInicial),
+            debe: sumarSubarbol(c, hijosMap, x => x.debe),
+            haber: sumarSubarbol(c, hijosMap, x => x.haber),
+            final: sumarSubarbol(c, hijosMap, x => x.saldoFinal),
+          }));
+
+          const subtotal = lista.reduce((acc, c) => ({
+            inicial: acc.inicial + c.saldoInicial,
+            debe: acc.debe + c.debe,
+            haber: acc.haber + c.haber,
+            final: acc.final + c.saldoFinal
+          }), { inicial: 0, debe: 0, haber: 0, final: 0 });
+          subtotalesPorTitulo.set(etiqueta, subtotal);
+
+          // Encabezado de la cuenta título
+          filas.push([
+            celdaNegrita(`📁 ${etiqueta}`),
+            celdaVaciaNegrita(), celdaVaciaNegrita(), celdaVaciaNegrita(), celdaVaciaNegrita()
+          ]);
+
+          // Detalle: subtítulos y cuentas con sangría según su profundidad.
+          // Tras cada subárbol (profundidad ≥ 1) se cierra con su fila
+          // SUBTOTAL consolidada; los padres raíz los cubre el SUBTOTAL
+          // del título de sección.
+          const jerarquiaConSubtotales = insertarSubtotalesJerarquia(jerarquia);
+          jerarquiaConSubtotales.forEach(r => {
+            const estilo = r.esPadre || r.esSubtotalCierre ? { fontStyle: 'bold' } : {};
+            const etiqueta = r.esSubtotalCierre
+              ? `${sangria(r.profundidad)}SUBTOTAL ${r.cuenta.codigo} - ${r.cuenta.nombre}`
+              : `${sangria(r.profundidad)}${r.cuenta.codigo} - ${r.cuenta.nombre}`;
+            filas.push([
+              { content: etiqueta, styles: estilo },
               { content: formatMoney(r.valores.inicial), styles: estilo },
               { content: formatMoney(r.valores.debe), styles: estilo },
               { content: formatMoney(r.valores.haber), styles: estilo },
               { content: formatMoney(r.valores.final), styles: estilo },
-            ];
-          }),
-          totales: ['TOTALES..', formatMoney(totales.inicial), formatMoney(totales.debe), formatMoney(totales.haber), formatMoney(totales.final)]
+            ]);
+          });
+
+          // Subtotal de la cuenta título
+          filas.push([
+            celdaNegrita(`SUBTOTAL ${etiqueta}`),
+            celdaNegrita(formatMoney(subtotal.inicial)),
+            celdaNegrita(formatMoney(subtotal.debe)),
+            celdaNegrita(formatMoney(subtotal.haber)),
+            celdaNegrita(formatMoney(subtotal.final)),
+          ]);
+
+          // Fila separadora entre títulos
+          filas.push([{ content: '', styles: { minCellHeight: 8 } }, '', '', '', '']);
+        };
+
+        // Cada cuenta se asigna a un solo título para evitar duplicidad de montos
+        tituloSecciones.forEach(sec => {
+          const lista = planBalance.filter(c => !asignadas.has(c.idCuenta) && sec.test(c.tipo));
+          lista.forEach(c => asignadas.add(c.idCuenta));
+          pintarTituloBalance(sec.etiqueta, lista);
+        });
+
+        // Cuentas sin tipo clasificado: no quedan fuera del reporte
+        const resto = planBalance.filter(c => !asignadas.has(c.idCuenta));
+        pintarTituloBalance('OTRAS CUENTAS', resto);
+
+        // Se retira la última fila separadora (quedó al final del listado)
+        if (filas.length > 0) filas.pop();
+
+        // ---------------------------------------------------------------
+        // VERIFICACIÓN DE LA ECUACIÓN CONTABLE usada únicamente en la fila
+        // de TOTALES (no se pintan filas de ecuación en el cuerpo del
+        // reporte). Títulos sin movimiento no aportan (suman 0):
+        //   ACTIVO − (PASIVO + PATRIMONIO + INGRESOS − EGRESOS) = 0,00
+        // ---------------------------------------------------------------
+        const sumarTitulo = (etiqueta) => subtotalesPorTitulo.get(etiqueta)
+          || { inicial: 0, debe: 0, haber: 0, final: 0 };
+
+        // Títulos efectivamente pintados (con cuentas en movimiento)
+        const terminos = [
+          { etiqueta: 'ACTIVO', esIzquierdo: true },
+          { etiqueta: 'PASIVO', esIzquierdo: false, signo: '+' },
+          { etiqueta: 'PATRIMONIO', esIzquierdo: false, signo: '+' },
+          { etiqueta: 'INGRESOS', esIzquierdo: false, signo: '+' },
+          { etiqueta: 'EGRESOS', esIzquierdo: false, signo: '−' },
+        ].filter(t => subtotalesPorTitulo.has(t.etiqueta));
+
+        const acumular = (lista) => lista.reduce((acc, t) => {
+          const v = sumarTitulo(t.etiqueta);
+          acc.inicial += v.inicial;
+          acc.final += v.final;
+          return acc;
+        }, { inicial: 0, final: 0 });
+
+        const terminosIzquierdo = terminos.filter(t => t.esIzquierdo);
+        const terminosDerecho = terminos.filter(t => !t.esIzquierdo);
+        const ladoIzquierdo = acumular(terminosIzquierdo);
+        const derechaSuma = acumular(terminosDerecho.filter(t => t.signo === '+'));
+        const derechaResta = acumular(terminosDerecho.filter(t => t.signo === '−'));
+
+        const ladoDerecho = {
+          inicial: derechaSuma.inicial - derechaResta.inicial,
+          final: derechaSuma.final - derechaResta.final
+        };
+        const difInicial = ladoIzquierdo.inicial - ladoDerecho.inicial;
+        const difFinal = ladoIzquierdo.final - ladoDerecho.final;
+        const formatearDiferencia = (v) => formatMoney(Math.abs(v) < 0.005 ? 0 : v);
+
+        return {
+          titulo: 'Balance de Comprobación',
+          columnas: ['Nombre de La Cuenta', 'Saldo Inicial', 'Monto Debe', 'Monto Haber', 'Saldo Actual'],
+          filas,
+          // Saldo Inicial y Saldo Actual NO totalizan partidas: en esas dos
+          // columnas la fila de totales muestra la VERIFICACIÓN de la ecuación
+          // contable (ACTIVO − (PASIVO + PATRIMONIO + INGRESOS − EGRESOS)),
+          // que debe ser 0,00 cuando el balance está cuadrado. Debe/Haber sí
+          // suman (y deben ser iguales por partida doble).
+          totales: [
+            'TOTALES.. (VERIFICACIÓN ECUACIÓN)',
+            formatearDiferencia(difInicial),
+            formatMoney(totales.debe),
+            formatMoney(totales.haber),
+            formatearDiferencia(difFinal)
+          ]
         };
       }
       case 'estado-resultados': {
