@@ -17,7 +17,9 @@ export default function ModuloContable() {
     periodoActivo, 
     seleccionarEmpresa, 
     seleccionarPeriodo, 
-    contextoCargado 
+    contextoCargado,
+    contextoError,
+    refrescarContextoContable
   } = useContext(ConfigContext);
 
   const [mostrarModal, setMostrarModal] = useState(false);
@@ -51,6 +53,28 @@ export default function ModuloContable() {
 
   return (
     <div style={{ padding: '24px', color: '#e2e8f0', width: '100%' }}>
+      {/* AVISOS DE CONTEXTO: antes los fallos eran silenciosos y el selector de
+          empresa quedaba vacío sin explicación alguna */}
+      {(contextoError || empresas.length === 0) && (
+        <div style={{
+          display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '12px',
+          background: '#7f1d1d', border: '1px solid #dc2626', color: '#fee2e2',
+          padding: '12px 16px', borderRadius: '10px', marginBottom: '16px',
+          fontSize: '0.9rem', flexWrap: 'wrap'
+        }}>
+          <span>
+            ⚠️ {contextoError || 'No se cargó ninguna empresa: revise que la API esté corriendo y que la sesión sea válida.'}
+          </span>
+          <button
+            type="button"
+            onClick={() => refrescarContextoContable && refrescarContextoContable()}
+            style={{ background: '#fff', color: '#7f1d1d', border: 'none', padding: '8px 16px', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}
+          >
+            🔁 Reintentar
+          </button>
+        </div>
+      )}
+
       {/* Banner Superior de Contexto Operativo */}
       <div style={{ 
         display: 'flex', justifyContent: 'space-between', alignItems: 'center', 

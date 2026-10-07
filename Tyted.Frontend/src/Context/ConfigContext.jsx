@@ -64,6 +64,19 @@ const normalizarPeriodo = (periodo = {}) => {
   };
 };
 
+// Lee el Id del usuario desde el JWT (claim "nameid"/"sub") para que la auditoría
+// de asientos registre quién realmente creó el comprobante (antes siempre era 1).
+const extraerIdUsuarioDesdeToken = (token) => {
+  try {
+    const payloadBase64 = token.split('.')[1].replace(/-/g, '+').replace(/_/g, '/');
+    const data = JSON.parse(atob(payloadBase64));
+    const id = Number(data.nameid ?? data.sub ?? 0);
+    return Number.isFinite(id) && id > 0 ? id : null;
+  } catch {
+    return null;
+  }
+};
+
 export const ConfigProvider = ({ children }) => {
   const baseApiUrl = (import.meta.env.VITE_API_URL || 'http://localhost:5077/api').replace(/\/+$/, '');
   const [API_URL] = useState(baseApiUrl);
@@ -74,6 +87,8 @@ export const ConfigProvider = ({ children }) => {
   const [empresaActiva, setEmpresaActiva] = useState(buildDefaultEmpresa());
   const [periodoActivo, setPeriodoActivo] = useState(buildDefaultPeriodo());
   const [contextoCargado, setContextoCargado] = useState(false);
+  // Mensaje visible cuando el contexto contable NO se pudo cargar (API caída, 401, etc.)
+  const [contextoError, setContextoError] = useState(null);
 
   // Generador de cabeceras seguras con JWT para endpoints protegidos
   const getAuthHeaders = useCallback(() => ({
@@ -131,6 +146,7 @@ export const ConfigProvider = ({ children }) => {
 
     if (tokenGuardado && usuarioGuardado) {
       setUser({
+        id: extraerIdUsuarioDesdeToken(tokenGuardado),
         username: usuarioGuardado,
         token: tokenGuardado,
         rol: rolGuardado
@@ -140,14 +156,43 @@ export const ConfigProvider = ({ children }) => {
 
   const cargarContextoContable = useCallback(async () => {
     setContextoCargado(false);
+    setContextoError(null);
+
+    // Sin token no tiene sentido llamar a la API: marcamos el contexto como cargado
+    // para no dejar el módulo contable en "Cargando..." para siempre.
+    if (!localStorage.getItem('token')) {
+      setEmpresas([]);
+      setContextoError('No hay sesión activa. Inicie sesión para cargar la empresa y el periodo contables.');
+      setContextoCargado(true);
+      return;
+    }
 
     try {
       const empresasRes = await fetch(`${API_URL}/Empresa`, { headers: getAuthHeaders() });
-      if (!empresasRes.ok) throw new Error("No autenticado o sin permisos");
+
+      if (empresasRes.status === 401) {
+        // Token caducado / inválido: cerramos la sesión para que se vuelva a entrar
+        // en lugar de quedar la UI con la empresa "por defecto" y sin opciones.
+        localStorage.removeItem('token');
+        localStorage.removeItem('usuario');
+        localStorage.removeItem('rol');
+        setUser(null);
+        setContextoError('La sesión expiró. Vuelva a iniciar sesión para continuar.');
+        return;
+      }
+
+      if (!empresasRes.ok) throw new Error(`GET ${API_URL}/Empresa respondió HTTP ${empresasRes.status}`);
 
       const empresasData = await empresasRes.json();
       const listaEmpresas = Array.isArray(empresasData) ? empresasData : (empresasData?.$values || []);
       setEmpresas(listaEmpresas);
+
+      if (listaEmpresas.length === 0) {
+        setContextoError('No hay empresas registradas. Cree una en Configuración > Empresa.');
+        setEmpresaActiva(buildDefaultEmpresa());
+        setPeriodoActivo(buildDefaultPeriodo());
+        return;
+      }
 
       const empresaIdGuardada = Number(localStorage.getItem('empresaActivaId') || listaEmpresas[0]?.id || 1);
       const empresaSel = listaEmpresas.find(e => Number(e.id) === empresaIdGuardada) || listaEmpresas[0] || buildDefaultEmpresa();
@@ -162,6 +207,10 @@ export const ConfigProvider = ({ children }) => {
       const listaAplanada = await cargarPeriodosDeEmpresa(empresaSel.id);
       setPeriodos(listaAplanada);
 
+      if (listaAplanada.length === 0) {
+        setContextoError(`La empresa "${normalizarEmpresa(empresaSel).nombre}" no tiene periodos fiscales. Cree un ejercicio en "Periodos Fiscales".`);
+      }
+
       const periodoIdGuardado = Number(localStorage.getItem('periodoActivoId'));
       const periodoSel = listaAplanada.find(p => Number(p.id) === periodoIdGuardado) || listaAplanada[0] || buildDefaultPeriodo();
 
@@ -173,8 +222,10 @@ export const ConfigProvider = ({ children }) => {
       }
     } catch (error) {
       console.error('Error cargando contexto contable:', error.message);
+      setEmpresas([]);
       setEmpresaActiva(buildDefaultEmpresa());
       setPeriodoActivo(buildDefaultPeriodo());
+      setContextoError(`No se pudo conectar con la API (${API_URL}). Verifique que el backend esté corriendo. Detalle: ${error.message}`);
     } finally {
       setContextoCargado(true);
     }
@@ -183,6 +234,8 @@ export const ConfigProvider = ({ children }) => {
   useEffect(() => {
     if (localStorage.getItem('token')) {
       cargarContextoContable();
+    } else {
+      setContextoCargado(true);
     }
   }, [cargarContextoContable]);
 
@@ -208,6 +261,8 @@ export const ConfigProvider = ({ children }) => {
     localStorage.setItem('usuario', userData.usuario);
     localStorage.setItem('rol', userData.rol);
     setUser({
+      // Id real del usuario (claim del JWT) para la auditoría de asientos
+      id: extraerIdUsuarioDesdeToken(userData.token),
       username: userData.usuario,
       token: userData.token,
       rol: userData.rol
@@ -237,6 +292,7 @@ export const ConfigProvider = ({ children }) => {
       periodoActivo,
       setPeriodoActivo,
       contextoCargado,
+      contextoError,
       seleccionarEmpresa,
       seleccionarPeriodo,
       refrescarContextoContable: cargarContextoContable

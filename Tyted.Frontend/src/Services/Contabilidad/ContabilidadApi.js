@@ -22,9 +22,44 @@ api.interceptors.request.use((config) => {
   return config;
 }, (error) => Promise.reject(error));
 
+// Si el token caducó (o no es válido) devolvemos al usuario al Login en lugar de
+// dejar la pantalla "muda" con listados vacíos y sin empresa seleccionada.
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const tieneToken = Boolean(localStorage.getItem('token') || sessionStorage.getItem('token'));
+    if (error.response?.status === 401 && tieneToken) {
+      localStorage.removeItem('token');
+      localStorage.removeItem('usuario');
+      localStorage.removeItem('rol');
+      window.location.reload();
+    }
+    return Promise.reject(error);
+  }
+);
+
+// Extrae un mensaje legible de un error de Axios
+export const mensajeErrorApi = (error) => {
+  const status = error?.response?.status;
+  const data = error?.response?.data;
+  const delBackend = typeof data === 'string' ? data : (data?.message || data?.title);
+
+  if (status === 401) return 'Sesión expirada o no válida. Cierre sesión y vuelva a entrar.';
+  if (status === 403) return 'No tiene permisos para esta operación (rol requerido: Administrador/Analista).';
+  if (delBackend) return delBackend;
+  return error?.message || 'No se pudo conectar con la API de contabilidad.';
+};
+
 export const contabilidadApi = {
+  // Nota: este endpoint está protegido con [Authorize], por lo que SIEMPRE
+  // debe llevar el Bearer token (antes usaba axios "pelado" y devolvía 401).
+  // La ruta correcta es /api/Empresa/contexto (antes se quitaba el "/api" y daba 404).
   getContexto: async () => {
-    const response = await axios.get(`${API_BASE_URL.replace(/\/api$/, '')}/Empresa/contexto`);
+    const token = localStorage.getItem('token') || sessionStorage.getItem('token');
+    const response = await axios.get(
+      `${API_BASE_URL}/Empresa/contexto`,
+      { headers: token ? { Authorization: `Bearer ${token}` } : {} }
+    );
     return response.data;
   },
 
@@ -58,10 +93,12 @@ export const contabilidadApi = {
   // GESTIÓN DE ASIENTOS (COMPROBANTES)
   // ---------------------------------------------------------------------------
   
-  // Ahora permite recibir el periodoId para filtrar los asientos de ese mes/año
-  getAsientos: async (periodoId) => {
-    const config = periodoId ? { params: { periodoContableId: periodoId } } : {};
-    const response = await api.get('/asientos', config);
+  // Ahora permite recibir el periodoId y/o el empresaId para filtrar
+  getAsientos: async (periodoId, empresaId) => {
+    const params = {};
+    if (periodoId) params.periodoContableId = periodoId;
+    if (empresaId) params.empresaId = empresaId;
+    const response = await api.get('/asientos', { params });
     return response.data;
   },
 

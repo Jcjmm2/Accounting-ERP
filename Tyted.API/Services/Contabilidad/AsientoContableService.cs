@@ -17,7 +17,7 @@ public class AsientoContableService
         _context = context;
     }
 
-    public async Task<List<AsientoContable>> GetAsientosAsync(int? periodoContableId = null)
+    public async Task<List<AsientoContable>> GetAsientosAsync(int? periodoContableId = null, int? empresaId = null)
     {
         var query = _context.AsientosContables
             .Include(a => a.Detalles)
@@ -27,6 +27,11 @@ public class AsientoContableService
         if (periodoContableId.HasValue)
         {
             query = query.Where(a => a.PeriodoContableId == periodoContableId.Value);
+        }
+
+        if (empresaId.HasValue)
+        {
+            query = query.Where(a => a.EmpresaId == empresaId.Value);
         }
 
         return await query
@@ -39,11 +44,23 @@ public class AsientoContableService
         if (asiento.Detalles == null || !asiento.Detalles.Any())
             throw new InvalidOperationException("El asiento debe incluir al menos un detalle.");
 
+        if (asiento.EmpresaId <= 0)
+            throw new InvalidOperationException("El asiento no tiene una empresa asignada. Seleccione la empresa activa e intente de nuevo.");
+
+        if (asiento.PeriodoContableId <= 0)
+            throw new InvalidOperationException("El asiento no tiene un periodo contable asignado. Seleccione el periodo activo e intente de nuevo.");
+
+        if (string.IsNullOrWhiteSpace(asiento.Concepto))
+            throw new InvalidOperationException("El concepto (glosa) del asiento es obligatorio.");
+
         // 1. Validar existencia y estado del periodo de forma aislada
         var periodo = await _context.PeriodosContables
             .AsNoTracking()
             .FirstOrDefaultAsync(p => p.Id == asiento.PeriodoContableId)
             ?? throw new InvalidOperationException("El periodo contable no existe.");
+
+        if (periodo.EmpresaId != asiento.EmpresaId)
+            throw new InvalidOperationException($"El periodo contable seleccionado pertenece a la empresa {periodo.EmpresaId} y no a la empresa activa ({asiento.EmpresaId}). Cambie el periodo o la empresa.");
 
         if (periodo.Cerrado || string.Equals(periodo.Estado, "Cerrado", StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("No se puede registrar un asiento en un periodo cerrado.");
@@ -58,6 +75,9 @@ public class AsientoContableService
         if (Math.Abs((decimal)(totalDebe - totalHaber)) > 0.01m)
             throw new InvalidOperationException("La suma del debe y el haber no coincide.");
 
+        if (totalDebe <= 0)
+            throw new InvalidOperationException("El asiento debe tener un monto mayor a cero.");
+
         // 3. Validar cada cuenta contable
         foreach (var detalle in asiento.Detalles)
         {
@@ -70,7 +90,13 @@ public class AsientoContableService
 
             if (!cuenta.Activa)
                 throw new InvalidOperationException($"La cuenta {cuenta.CodigoCuenta} está inactiva.");
+
+            NormalizarDetalle(detalle);
         }
+
+        // AsientoDetalle.Referencia tiene un máximo de 100 caracteres en la BD
+        if (string.IsNullOrWhiteSpace(asiento.NumeroComprobante))
+            asiento.NumeroComprobante = $"COMP-{DateTime.Now:yyMMddHHmmss}";
 
         asiento.TotalDebe = totalDebe;
         asiento.TotalHaber = totalHaber;
@@ -110,6 +136,9 @@ public class AsientoContableService
             .FirstOrDefaultAsync(p => p.Id == asientoActualizado.PeriodoContableId)
             ?? throw new InvalidOperationException("El periodo contable asignado no existe.");
 
+        if (periodo.EmpresaId != asientoExistente.EmpresaId)
+            throw new InvalidOperationException("El periodo contable indicado no pertenece a la empresa de este asiento.");
+
         if (periodo.Cerrado || string.Equals(periodo.Estado, "Cerrado", StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("No se puede modificar un asiento que pertenece a un periodo cerrado.");
 
@@ -130,7 +159,8 @@ public class AsientoContableService
 
             if (cuenta == null) throw new InvalidOperationException($"La cuenta {detalle.CuentaContableId} no existe.");
             if (!cuenta.Activa) throw new InvalidOperationException($"La cuenta {cuenta.CodigoCuenta} está inactiva.");
-            
+
+            NormalizarDetalle(detalle);
             detalle.CuentaContable = null;
             detalle.AsientoContable = null;
         }
@@ -161,5 +191,18 @@ public class AsientoContableService
 
         await _context.SaveChangesAsync();
         return asientoExistente;
+    }
+
+    /// <summary>
+    /// AsientoDetalle.Referencia está limitado a 100 caracteres en la BD.
+    /// El frontend envía el concepto completo (hasta 500), así que se recorta
+    /// aquí para evitar un error 400/500 proveniente de SQL Server.
+    /// </summary>
+    private static void NormalizarDetalle(AsientoDetalle detalle)
+    {
+        detalle.Referencia ??= string.Empty;
+
+        if (detalle.Referencia.Length > 100)
+            detalle.Referencia = detalle.Referencia[..100];
     }
 }

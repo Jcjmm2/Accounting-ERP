@@ -1,6 +1,6 @@
 import { useState, useEffect, useContext } from 'react';
 import { ConfigContext } from '../../Context/ConfigContext';
-import { contabilidadApi } from '../../Services/Contabilidad/ContabilidadApi';
+import { contabilidadApi, mensajeErrorApi } from '../../Services/Contabilidad/ContabilidadApi';
 
 export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodoActivo: periodoActivoProp }) {
   const { empresaActiva: empresaActivaContext, periodoActivo: periodoActivoContext, user } = useContext(ConfigContext);
@@ -27,6 +27,7 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
   const [cuentasDisponibles, setCuentasDisponibles] = useState([]);
   const [asientosRegistrados, setAsientosRegistrados] = useState([]);
   const [cargando, setCargando] = useState(true);
+  const [errorCuentas, setErrorCuentas] = useState(null);
 
   // 1. CARGA INICIAL DE CUENTAS
   useEffect(() => {
@@ -35,8 +36,13 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
         const data = await contabilidadApi.getCuentas();
         const lista = Array.isArray(data) ? data : (data?.$values || []);
         setCuentasDisponibles(lista);
+        setErrorCuentas(lista.length === 0
+          ? 'El plan de cuentas está vacío. Cree las cuentas en "Plan de Cuentas" antes de registrar asientos.'
+          : null);
       } catch (err) {
         console.error("Error cargando cuentas:", err);
+        setCuentasDisponibles([]);
+        setErrorCuentas(mensajeErrorApi(err));
       } finally {
         setCargando(false);
       }
@@ -71,10 +77,12 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
     if (!periodoActivo?.id) return;
     try {
       setCargando(true);
-      const data = await contabilidadApi.getAsientos(periodoActivo.id);
+      const data = await contabilidadApi.getAsientos(periodoActivo.id, empresaActiva?.id);
       setAsientosRegistrados(Array.isArray(data) ? data : (data?.$values || []));
     } catch (error) {
       console.error("Error al cargar asientos:", error);
+      setAsientosRegistrados([]);
+      alert(`❌ No se pudieron cargar los asientos:\n${mensajeErrorApi(error)}`);
     } finally {
       setCargando(false);
     }
@@ -170,8 +178,15 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
     const perId = Number(periodoActivo?.id ?? 1);
     const usuarioId = Number(user?.id ?? 1);
 
+    if (!empresaActiva?.id || !periodoActivo?.id) {
+      return alert('⚠️ No hay un contexto contable activo. Seleccione la empresa y el periodo antes de guardar.');
+    }
+
     const payload = {
-      id: asientoIdEditando,
+      // IMPORTANTE: 'id' solo viaja al editar. En modo crear se envía 0, porque
+      // "id": null rompía la deserialización del backend (HTTP 400) y el asiento
+      // nunca llegaba a guardarse.
+      id: modo === 'editar' ? Number(asientoIdEditando) : 0,
       concepto,
       // Corrección de zona horaria: Se envía la cadena con formato local limpio sin 'Z'
       fechaComprobante: `${fecha}T00:00:00`,
@@ -180,14 +195,15 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
       empresaId: empId,         
       usuarioId,
       tipoComprobante: tipoComprobante,
-      numeroComprobante: modo === 'crear' ? `COMP-${Date.now().toString().slice(-6)}` : numeroComprobante, 
+      numeroComprobante: modo === 'editar' ? numeroComprobante : '', // El backend autogenera si viene vacío
       detalles: lineas
         .filter(l => l.cuentaId && (l.debe || l.haber))
         .map(l => ({
           cuentaContableId: Number(l.cuentaId),
           debe: parseFloat(l.debe) || 0,
           haber: parseFloat(l.haber) || 0,
-          referencia: concepto
+          // AsientoDetalle.Referencia admite máximo 100 caracteres en la BD
+          referencia: (concepto || '').substring(0, 100)
         }))
     };
 
@@ -204,9 +220,7 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
       setVista('listado');
     } catch (error) {
       console.error("Error al guardar asiento:", error);
-      const mensajeBackend = error.response?.data?.message || error.response?.data || error.message;
-      const textoFinal = typeof mensajeBackend === 'object' ? JSON.stringify(mensajeBackend) : mensajeBackend;
-      alert(`❌ Error del servidor (400): ${textoFinal}`);
+      alert(`❌ No se pudo guardar el asiento:\n${mensajeErrorApi(error)}`);
     } finally {
       setCargando(false);
     }
@@ -269,6 +283,15 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
               </div>
             </div>
           </div>
+
+          {errorCuentas && (
+            <div style={{
+              background: '#7f1d1d', border: '1px solid #dc2626', color: '#fecaca',
+              padding: '12px 16px', borderRadius: '10px', marginBottom: '20px', fontSize: '0.9rem'
+            }}>
+              ⚠️ {errorCuentas}
+            </div>
+          )}
 
           <form onSubmit={guardar}>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr 2fr', gap: '16px', marginBottom: '20px' }}>

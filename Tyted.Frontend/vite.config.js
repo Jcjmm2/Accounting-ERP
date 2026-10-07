@@ -10,6 +10,17 @@ export default defineConfig({
   ],
   server: {
     host: true,
-    port: 5173
+    port: 5173,
+    // El dev server corre por HTTPS (basicSsl) y la API por HTTP en localhost:5077.
+    // El proxy hace que en desarrollo todas las llamadas a /api/* salgan del mismo
+    // origen (https://localhost:5173) y Vite las reenvíe al backend, eliminando así
+    // cualquier problema de mixed-content o CORS durante el desarrollo.
+    proxy: {
+      '/api': {
+        target: 'http://localhost:5077',
+        changeOrigin: true,
+        secure: false
+      }
+    }
   }
 })

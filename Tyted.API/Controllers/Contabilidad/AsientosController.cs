@@ -19,16 +19,23 @@ public class AsientosController : ControllerBase
 
     // MEJORA 1: Se añade el parámetro opcional para filtrar por el periodo activo
     [HttpGet("asientos")]
-    public async Task<ActionResult<List<AsientoContable>>> GetAsientos([FromQuery] int? periodoContableId)
+    public async Task<ActionResult<List<AsientoContable>>> GetAsientos([FromQuery] int? periodoContableId, [FromQuery] int? empresaId)
     {
-        // Nota: Debes asegurarte que tu servicio acepte este parámetro para hacer el filtro (p. ej: .Where(a => a.PeriodoContableId == periodoContableId))
-        var asientos = await _service.GetAsientosAsync(periodoContableId);
+        // Filtros opcionales: el frontend puede traer los asientos de un periodo y/o de la empresa activa
+        var asientos = await _service.GetAsientosAsync(periodoContableId, empresaId);
         return Ok(asientos);
     }
 
     [HttpPost("asientos")]
     public async Task<ActionResult<AsientoContable>> CrearAsiento([FromBody] AsientoContable asiento)
     {
+        // Si el JSON venía con "id": null la deserialización falla y el parámetro llega en null.
+        // Devolvemos un mensaje claro en vez de una NullReferenceException genérica.
+        if (asiento is null)
+        {
+            return BadRequest(new { message = "El cuerpo de la petición no es un asiento válido. Verifica que 'id' no sea null y que los campos obligatorios estén presentes." });
+        }
+
         try
         {
             var creado = await _service.CrearAsientoAsync(asiento);
@@ -44,6 +51,11 @@ public class AsientosController : ControllerBase
     [HttpPut("asientos/{id}")]
     public async Task<IActionResult> ActualizarAsiento(int id, [FromBody] AsientoContable asiento)
     {
+        if (asiento is null)
+        {
+            return BadRequest(new { message = "El cuerpo de la petición no es un asiento válido. Verifica que 'id' no sea null." });
+        }
+
         // Validación de seguridad básica
         if (asiento.Id != 0 && id != asiento.Id)
         {
