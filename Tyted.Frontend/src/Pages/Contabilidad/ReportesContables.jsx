@@ -676,40 +676,58 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
 
   const reporteData = getEstructuraReporte();
 
-  const exportarExcel = () => {
-    const estructura = getEstructuraReporte();
-    if (!estructura) return;
+    const exportarExcel = () => {
+        const estructura = getEstructuraReporte();
+        if (!estructura) return;
 
-    // Limpiar celdas con estilos (igual que en PDF)
-    const cleanFilas = estructura.filas.map(fila => 
-      fila.map(celda => (typeof celda === 'object' && celda !== null ? celda.content : celda))
-    );
-    const cleanTotales = estructura.totales.map(celda => 
-      typeof celda === 'object' && celda !== null ? celda.content : celda
-    );
+        // Limpiar celdas con estilos (igual que en PDF)
+        const cleanFilas = estructura.filas.map(fila => 
+          fila.map(celda => (typeof celda === 'object' && celda !== null ? celda.content : celda))
+        );
+        const cleanTotales = estructura.totales.map(celda => 
+          typeof celda === 'object' && celda !== null ? celda.content : celda
+        );
 
-    // Estructurar los datos con el mismo membrete formal del PDF
-    // (usa el periodo realmente consultado)
-    const periodoInfo = periodoConsultadoData || periodoSeleccionadoData;
-    const datosExcel = [
-      [empresaActiva?.nombre?.toUpperCase() || 'EMPRESA PRINCIPAL, C.A'],
-      [`RIF ${empresaActiva?.rif || 'J-000000000'}`],
-      [`${estructura.titulo} del ${formatearFecha(periodoInfo?.fechaInicio)} al ${formatearFecha(periodoInfo?.fechaFin)}`],
-      ['Expresado en Bolívar'],
-      [], // Fila en blanco de separación
-      estructura.columnas,
-      ...cleanFilas,
-      cleanTotales
-    ];
+        // Estructurar los datos con el mismo membrete formal del PDF
+        const periodoInfo = periodoConsultadoData || periodoSeleccionadoData;
+        const datosExcel = [
+          [empresaActiva?.nombre?.toUpperCase() || 'EMPRESA PRINCIPAL, C.A'],
+          [`RIF ${empresaActiva?.rif || 'J-000000000'}`],
+          [`${estructura.titulo} del ${formatearFecha(periodoInfo?.fechaInicio)} al ${formatearFecha(periodoInfo?.fechaFin)}`],
+          ['Expresado en Bolívar'],
+          [], // Fila en blanco de separación
+          estructura.columnas,
+          ...cleanFilas,
+          cleanTotales
+        ];
 
-    // Crear la hoja de trabajo y el libro con SheetJS (xlsx)
-    const worksheet = XLSX.utils.aoa_to_sheet(datosExcel);
-    const workbook = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Reporte Financiero');
+        // Crear la hoja de trabajo y el libro con SheetJS (xlsx)
+        const worksheet = XLSX.utils.aoa_to_sheet(datosExcel);
 
-    // Descargar archivo
-    XLSX.writeFile(workbook, `${estructura.titulo.replace(/\s+/g, '')}_${periodoInfo?.nombre || 'Reporte'}.xlsx`);
-  };
+        // ---------------------------------------------------------------------------
+        // ALINEACIÓN A LA DERECHA PARA LAS COLUMNAS NUMÉRICAS EN EXCEL
+        // ---------------------------------------------------------------------------
+        const range = XLSX.utils.decode_range(worksheet['!ref'] || "A1");
+        for (let R = range.s.r; R <= range.e.r; ++R) {
+          for (let C = range.s.c; C <= range.e.c; ++C) {
+            const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
+            if (!worksheet[cellAddress]) continue;
+
+            // A partir de la fila de encabezados de la tabla (índice 5, donde está estructura.columnas) 
+            // y para todas las columnas de montos (índice C > 0), alineamos a la derecha.
+            if (R >= 5 && C > 0) {
+              if (!worksheet[cellAddress].s) worksheet[cellAddress].s = {};
+              worksheet[cellAddress].s.alignment = { horizontal: "right" };
+            }
+          }
+        }
+
+        const workbook = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(workbook, worksheet, 'Reporte Financiero');
+
+        // Descargar archivo
+        XLSX.writeFile(workbook, `${estructura.titulo.replace(/\s+/g, '')}_${periodoInfo?.nombre || 'Reporte'}.xlsx`);
+      };
 
   return (
     <div style={{ padding: '24px', color: '#e2e8f0', minHeight: '80vh' }}>
