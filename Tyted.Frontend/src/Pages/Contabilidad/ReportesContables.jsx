@@ -632,11 +632,10 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
     pdf.setFont('helvetica', 'bold');
     pdf.text(`${empresaActiva?.nombre?.toUpperCase() || 'EMPRESA PRINCIPAL'}`, 40, 40);
     pdf.text(`RIF ${empresaActiva?.rif || 'J-000000000'}`, 40, 52);
-    pdf.text(`${estructura.titulo} DEL ${periodoInfo?.fechaInicio || ''} AL ${periodoInfo?.fechaFin || ''}`, 40, 64);
+    pdf.text(`${estructura.titulo} del ${formatearFecha(periodoInfo?.fechaInicio)} al ${formatearFecha(periodoInfo?.fechaFin)}`, 40, 64);
     pdf.setFont('helvetica', 'normal');
     pdf.text('Expresado en Bolívar', 40, 76);
-    pdf.text(`${estructura.titulo} del ${formatearFecha(periodoInfo?.fechaInicio)} al ${formatearFecha(periodoInfo?.fechaFin)}`, 40, 64);
-
+    
     // Preparar filas: se conserva el contenido y la negrita de los subtotales
     // (padres) para que autotable los resalte igual que en la vista previa.
     const cleanFilas = estructura.filas.map(fila => fila.map(celda => {
