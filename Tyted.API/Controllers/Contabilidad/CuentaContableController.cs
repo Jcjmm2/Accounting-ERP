@@ -18,11 +18,12 @@ public class CuentaContableController : ControllerBase
     }
 
     [HttpGet("cuentas")]
-    public async Task<ActionResult<List<CuentaContable>>> GetCuentas()
-    {
-        var cuentas = await _service.GetCuentasAsync();
-        return Ok(cuentas);
-    }
+        public async Task<ActionResult<List<CuentaContable>>> GetCuentas([FromQuery] int? empresaId)
+        {
+            // Se pasa empresaId al servicio para filtrar las cuentas de la empresa activa
+            var cuentas = await _service.GetCuentasAsync(empresaId);
+            return Ok(cuentas);
+        }
 
     [HttpPost("cuentas")]
     public async Task<ActionResult<CuentaContable>> CrearCuenta([FromBody] CuentaContable cuenta)

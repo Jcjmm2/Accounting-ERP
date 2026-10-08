@@ -63,13 +63,16 @@ export const contabilidadApi = {
     return response.data;
   },
 
-  getCuentas: async () => {
+  getCuentas: async (empresaId) => {
     try {
-      const response = await api.get('/cuentas');
+      // Si se pasa empresaId, Axios genera automáticamente ?empresaId=X
+      const config = empresaId ? { params: { empresaId } } : {};
+      const response = await api.get('/cuentas', config);
       return response.data;
     } catch (error) {
       if (error.response?.status === 404) {
-        const fallbackResponse = await api.get('/plancuentas');
+        const config = empresaId ? { params: { empresaId } } : {};
+        const fallbackResponse = await api.get('/plancuentas', config);
         return fallbackResponse.data;
       }
       throw error;

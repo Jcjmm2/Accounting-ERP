@@ -13,12 +13,17 @@ public class PlanCuentasService
         _context = context;
     }
 
-    public async Task<List<CuentaContable>> GetCuentasAsync()
-    {
-        return await _context.CuentasContables
-            .OrderBy(c => c.CodigoCuenta)
-            .ToListAsync();
-    }
+    public async Task<List<CuentaContable>> GetCuentasAsync(int? empresaId)
+        {
+            var query = _context.CuentasContables.AsQueryable();
+
+            if (empresaId.HasValue)
+            {
+                query = query.Where(c => c.EmpresaId == empresaId.Value);
+            }
+
+            return await query.OrderBy(c => c.CodigoCuenta).ToListAsync();
+        }
 
     public async Task<CuentaContable> CrearCuentaAsync(CuentaContable cuenta)
     {

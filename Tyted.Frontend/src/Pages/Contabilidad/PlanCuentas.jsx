@@ -1,4 +1,4 @@
-import { useState, useContext } from 'react';
+import { useState, useContext, useEffect } from 'react';
 import { ConfigContext } from '../../Context/ConfigContext';
 import { contabilidadApi } from '../../Services/Contabilidad/ContabilidadApi';
 
@@ -22,12 +22,24 @@ export default function PlanCuentas() {
     naturaleza: 'Deudora'
   });
 
+  // --- EFECTO MULTIEMPRESA ---
+  // Reacciona al cambio de empresa seleccionada en el contexto global
+  useEffect(() => {
+    if (vista === 'listar') {
+      cargarTodasLasCuentas();
+    } else {
+      setCuentas([]); // Limpia la lista al cambiar de empresa para evitar cruce de datos
+    }
+  }, [empresaId]);
+
   // --- FUNCIONES DE CARGA ---
   const cargarTodasLasCuentas = async () => {
+    if (!empresaId) return;
     setCargando(true);
     try {
-      const data = await contabilidadApi.getCuentas();
-      setCuentas(data);
+      // Se pasa empresaId a la API para solicitar únicamente las cuentas de la empresa activa
+      const data = await contabilidadApi.getCuentas(empresaId);
+      setCuentas(Array.isArray(data) ? data : []);
       setVista('listar');
     } catch (error) {
       console.error('Error cargando cuentas:', error);
@@ -51,9 +63,9 @@ export default function PlanCuentas() {
         codigoCuenta: formData.codigo,
         nombreCuenta: formData.nombre,
         naturaleza: formData.naturaleza,
-        tipoCuenta: 'Activo', // Puedes hacerlo dinámico si lo deseas
+        tipoCuenta: 'Activo',
         activa: true,
-        empresaId: empresaId,
+        empresaId: empresaId, // Asignación de empresaId al objeto enviado
         esMovimiento: true,
         nivel: 5,
         aceptaTerceros: false,
@@ -61,8 +73,7 @@ export default function PlanCuentas() {
       };
 
       if (formData.id) {
-        // MODO EDICIÓN: Asumimos que tu API tiene un método actualizarCuenta
-        // Si se llama diferente, ajústalo (ej: contabilidadApi.putCuenta)
+        // MODO EDICIÓN
         await contabilidadApi.actualizarCuenta?.(formData.id, datosCuenta) 
           || await contabilidadApi.crearCuenta({ ...datosCuenta, id: formData.id }); 
         alert('✅ Cuenta actualizada correctamente');
@@ -72,11 +83,11 @@ export default function PlanCuentas() {
         alert('✅ Cuenta creada correctamente');
       }
 
-      // Limpiar y volver al menú
+      // Limpiar formulario y volver al menú principal
       setFormData({ id: null, codigo: '', nombre: '', naturaleza: 'Deudora' });
       setVista('menu');
       
-      // Si estábamos en el listado, recargamos para ver los cambios
+      // Si la lista de cuentas estaba cargada en pantalla, recargarla
       if (cuentas.length > 0) {
         await cargarTodasLasCuentas();
       }
@@ -107,7 +118,7 @@ export default function PlanCuentas() {
   const cuentasFiltradas = cuentas.filter(c => {
     const codigo = (c.codigoCuenta ?? c.codigo ?? '').toLowerCase();
     const nombre = (c.nombreCuenta ?? c.nombre ?? '').toLowerCase();
-    const termino = busqueda.toLowerCase();
+    const termino = busqueda.toLowerCase().trim();
     return codigo.includes(termino) || nombre.includes(termino);
   });
 
