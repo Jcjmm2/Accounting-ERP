@@ -727,7 +727,7 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
 
         // Descargar archivo
         XLSX.writeFile(workbook, `${estructura.titulo.replace(/\s+/g, '')}_${periodoInfo?.nombre || 'Reporte'}.xlsx`);
-      };
+    };
 
   return (
     <div style={{ padding: '24px', color: '#e2e8f0', minHeight: '80vh' }}>
