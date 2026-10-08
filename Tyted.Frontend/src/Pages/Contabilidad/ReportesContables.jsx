@@ -401,7 +401,7 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
 
           // Encabezado de la cuenta título
           filas.push([
-            celdaNegrita(`📁 ${etiqueta}`),
+            celdaNegrita(` ${etiqueta}`),
             celdaVaciaNegrita(), celdaVaciaNegrita(), celdaVaciaNegrita(), celdaVaciaNegrita()
           ]);
 
@@ -649,6 +649,17 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
       return celda;
     }));
     const cleanTotales = estructura.totales.map(celda => typeof celda === 'object' && celda !== null ? celda.content : celda);
+
+    const columnStyles = {};
+    estructura.columnas.forEach((_, idx) => {
+      if (estructura.columnas.length === 4) {
+        // Para reportes como Resumen de Diario (Código y Nombre a la izquierda, Debe y Haber a la derecha)
+        columnStyles[idx] = { halign: idx < 2 ? 'left' : 'right' };
+      } else {
+        // Para Balance de Comprobación, Estado de Resultados, etc. (Primera columna izq, resto der)
+        columnStyles[idx] = { halign: idx === 0 ? 'left' : 'right' };
+      }
+    });
 
     autoTable(pdf, {
       startY: 105,
