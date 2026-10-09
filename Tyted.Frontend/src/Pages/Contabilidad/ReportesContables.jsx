@@ -28,6 +28,21 @@ const field = (obj, ...keys) => {
 
 const formatMoney = (value) => moneyFormatter.format(Number(value ?? 0));
 
+// Regla de alineación compartida por la vista previa, el PDF y Excel: la
+// primera columna de texto (o Código y Nombre en los reportes de 4 columnas)
+// va a la izquierda y las columnas de montos a la derecha.
+const esColumnaTexto = (idx, totalColumnas) => (totalColumnas === 4 ? idx < 2 : idx === 0);
+
+// Convierte un monto formateado por formatMoney ("1.023,45", "-102,00") a
+// número. Devuelve null cuando el texto no representa un monto.
+const parseMonto = (texto) => {
+  if (typeof texto !== 'string') return null;
+  const t = texto.trim();
+  if (!/^-?\d{1,3}(?:\.\d{3})*,\d{2}$/.test(t) && !/^-?\d+,\d{2}$/.test(t)) return null;
+  const numero = Number(t.replace(/\./g, '').replace(',', '.'));
+  return Number.isFinite(numero) ? numero : null;
+};
+
 const formatearFecha = (fechaStr) => {
   if (!fechaStr || fechaStr === '---') return '---';
   try {
@@ -647,23 +662,33 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
       }
       return celda;
     }));
-    const cleanTotales = estructura.totales.map(celda => typeof celda === 'object' && celda !== null ? celda.content : celda);
-
+    // Alineación por columna (misma regla que la vista previa): las columnas
+    // de texto a la izquierda y las columnas de montos (Saldo Inicial, Debe,
+    // Haber y Saldo Actual) a la derecha.
     const columnStyles = {};
     estructura.columnas.forEach((_, idx) => {
-      if (estructura.columnas.length === 4) {
-        // Para reportes como Resumen de Diario (Código y Nombre a la izquierda, Debe y Haber a la derecha)
-        columnStyles[idx] = { halign: idx < 2 ? 'left' : 'right' };
-      } else {
-        // Para Balance de Comprobación, Estado de Resultados, etc. (Primera columna izq, resto der)
-        columnStyles[idx] = { halign: idx === 0 ? 'left' : 'right' };
-      }
+      columnStyles[idx] = { halign: esColumnaTexto(idx, estructura.columnas.length) ? 'left' : 'right' };
     });
+
+    // En jspdf-autotable, columnStyles sólo se aplica al cuerpo de la tabla,
+    // por lo que la cabecera se alinea celda a celda con la misma regla.
+    const head = [estructura.columnas.map((col, idx) => ({
+      content: col,
+      styles: { halign: columnStyles[idx].halign }
+    }))];
+
+    // Fila de TOTALES: se pinta en negrita dentro del cuerpo (la alineación
+    // de sus columnas la hereda de columnStyles).
+    const totales = estructura.totales.map(celda => ({
+      content: typeof celda === 'object' && celda !== null ? celda.content : celda,
+      styles: { fontStyle: 'bold' }
+    }));
 
     autoTable(pdf, {
       startY: 105,
-      head: [estructura.columnas],
-      body: [...cleanFilas, cleanTotales],
+      head,
+      body: [...cleanFilas, totales],
+      columnStyles,
       theme: 'plain', // Sin bordes ni colores de fondo, imitando el PDF
       styles: { fontSize: 8, cellPadding: 3, textColor: [0, 0, 0] },
       headStyles: { fontStyle: 'bold', borderBottom: '1px solid #000' },
@@ -705,20 +730,35 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
         const worksheet = XLSX.utils.aoa_to_sheet(datosExcel);
 
         // ---------------------------------------------------------------------------
-        // ALINEACIÓN A LA DERECHA PARA LAS COLUMNAS NUMÉRICAS EN EXCEL
+        // ALINEACIÓN A LA DERECHA DE LAS COLUMNAS DE MONTOS EN EXCEL
+        //
+        // La edición comunitaria de SheetJS (xlsx) NO escribe los estilos de celda
+        // (cell.s: alineación, fuente, ...) al guardar el archivo: get_cell_style()
+        // sólo tiene en cuenta el formato numérico (cell.z), por lo que asignar
+        // cell.s.alignment no produce ningún efecto en el .xlsx resultante.
+        //
+        // Por eso cada monto se guarda como NÚMERO con formato "#,##0.00":
+        // Excel alinea los números a la derecha por defecto y conserva los dos
+        // decimales (mismo formato visible que la vista previa y el PDF).
         // ---------------------------------------------------------------------------
-        const range = XLSX.utils.decode_range(worksheet['!ref'] || "A1");
-        for (let R = range.s.r; R <= range.e.r; ++R) {
-          for (let C = range.s.c; C <= range.e.c; ++C) {
-            const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
-            if (!worksheet[cellAddress]) continue;
+        const columnasMonto = [];
+        estructura.columnas.forEach((_, idx) => {
+          if (!esColumnaTexto(idx, estructura.columnas.length)) columnasMonto.push(idx);
+        });
 
-            // A partir de la fila de encabezados de la tabla (índice 5, donde está estructura.columnas) 
-            // y para todas las columnas de montos (índice C > 0), alineamos a la derecha.
-            if (R >= 5 && C > 0) {
-              if (!worksheet[cellAddress].s) worksheet[cellAddress].s = {};
-              worksheet[cellAddress].s.alignment = { horizontal: "right" };
-            }
+        // Filas: 0-3 membrete, 4 en blanco, 5 títulos de las columnas, 6+ datos
+        const primeraFilaDatos = 6;
+        const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
+        for (let R = Math.max(primeraFilaDatos, range.s.r); R <= range.e.r; ++R) {
+          for (const C of columnasMonto) {
+            const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
+            const celda = worksheet[cellAddress];
+            if (!celda || typeof celda.v !== 'string') continue;
+            const monto = parseMonto(celda.v);
+            if (monto === null) continue;
+            celda.t = 'n';
+            celda.v = monto;
+            celda.z = '#,##0.00';
           }
         }
 
@@ -873,7 +913,7 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
               <thead>
                 <tr style={{ borderBottom: '1.5px solid #000' }}>
                   {reporteData.columnas.map((col, idx) => (
-                    <th key={idx} style={{ textAlign: idx === 0 ? 'left' : 'right', padding: '8px 4px', fontWeight: 'bold' }}>{col}</th>
+                    <th key={idx} style={{ textAlign: esColumnaTexto(idx, reporteData.columnas.length) ? 'left' : 'right', padding: '8px 4px', fontWeight: 'bold' }}>{col}</th>
                   ))}
                 </tr>
               </thead>
@@ -884,7 +924,7 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
                       const isBold = typeof celda === 'object' && celda?.styles?.fontStyle === 'bold';
                       const text = typeof celda === 'object' ? celda.content : celda;
                       return (
-                        <td key={idxCelda} style={{ textAlign: idxCelda === 0 ? 'left' : 'right', padding: '4px', fontWeight: isBold ? 'bold' : 'normal', paddingTop: celda?.styles?.minCellHeight ? '15px' : '4px' }}>
+                        <td key={idxCelda} style={{ textAlign: esColumnaTexto(idxCelda, reporteData.columnas.length) ? 'left' : 'right', padding: '4px', fontWeight: isBold ? 'bold' : 'normal', paddingTop: celda?.styles?.minCellHeight ? '15px' : '4px' }}>
                           {text}
                         </td>
                       );
@@ -895,7 +935,7 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
               <tfoot>
                 <tr style={{ borderTop: '1.5px solid #000', fontWeight: 'bold' }}>
                   {reporteData.totales.map((total, idx) => (
-                    <td key={idx} style={{ textAlign: idx === 0 ? 'left' : 'right', padding: '10px 4px' }}>{total}</td>
+                    <td key={idx} style={{ textAlign: esColumnaTexto(idx, reporteData.totales.length) ? 'left' : 'right', padding: '10px 4px' }}>{total}</td>
                   ))}
                 </tr>
               </tfoot>
