@@ -441,21 +441,25 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
           const jerarquiaConSubtotales = insertarSubtotalesJerarquia(jerarquia);
           jerarquiaConSubtotales.forEach(r => {
             const estilo = r.esPadre || r.esSubtotalCierre ? { fontStyle: 'bold' } : {};
-            const etiqueta = r.esSubtotalCierre
+            const etiquetaFila = r.esSubtotalCierre
               ? `${sangria(r.profundidad)}SUBTOTAL ${r.cuenta.codigo} - ${r.cuenta.nombre}`
               : `${sangria(r.profundidad)}${r.cuenta.codigo} - ${r.cuenta.nombre}`;
+
+            // Si la fila es un padre que NO es un subtotal de cierre, ocultamos sus celdas de monto
+            const mostrarMontos = !r.esPadre || r.esSubtotalCierre;
+
             filas.push([
-              { content: etiqueta, styles: estilo },
-              { content: formatMoney(r.valores.inicial), styles: estilo },
-              { content: formatMoney(r.valores.debe), styles: estilo },
-              { content: formatMoney(r.valores.haber), styles: estilo },
-              { content: formatMoney(r.valores.final), styles: estilo },
+              { content: etiquetaFila, styles: estilo },
+              { content: mostrarMontos ? formatMoney(r.valores.inicial) : '', styles: estilo },
+              { content: mostrarMontos ? formatMoney(r.valores.debe) : '', styles: estilo },
+              { content: mostrarMontos ? formatMoney(r.valores.haber) : '', styles: estilo },
+              { content: mostrarMontos ? formatMoney(r.valores.final) : '', styles: estilo },
             ]);
           });
 
-          // Subtotal de la cuenta título
+          // Subtotal/Total de la cuenta título principal (ACTIVO, PASIVO, etc.)
           filas.push([
-            celdaNegrita(`SUBTOTAL ${etiqueta}`),
+            celdaNegrita(`TOTAL ${etiqueta}`),
             celdaNegrita(formatMoney(subtotal.inicial)),
             celdaNegrita(formatMoney(subtotal.debe)),
             celdaNegrita(formatMoney(subtotal.haber)),
@@ -529,7 +533,7 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
           // que debe ser 0,00 cuando el balance está cuadrado. Debe/Haber sí
           // suman (y deben ser iguales por partida doble).
           totales: [
-            'TOTALES.. (VERIFICACIÓN ECUACIÓN)',
+            'TOTALES...',
             formatearDiferencia(difInicial),
             formatMoney(totales.debe),
             formatMoney(totales.haber),
@@ -575,10 +579,10 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
         ];
 
         return {
-          titulo: 'Estado De Resultado',
+          titulo: 'Estado de Resultado',
           columnas: ['Descripción', 'Monto'],
           filas,
-          totales: ['UTILIDAD O PERDIDA NETA DEL EJERCICIO', formatMoney(utilidad)]
+          totales: ['RESULTADO DEL PERIODO', formatMoney(utilidad)]
         };
       }
       case 'situacion-financiera': {
