@@ -16,7 +16,7 @@ export default function PeriodosContables() {
     setCargando(true);
     
     try {
-      const data = await contabilidadApi.getPeriodos();
+      const data = await contabilidadApi.getPeriodos(empresaActiva.id);
       const lista = Array.isArray(data) ? data : (data?.$values || []);
       
       // 2. CORRECCIÓN: Filtramos estrictamente los periodos para que coincidan con la empresa seleccionada

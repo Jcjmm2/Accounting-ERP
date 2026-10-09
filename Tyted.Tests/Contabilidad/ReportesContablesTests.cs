@@ -221,4 +221,95 @@ public class ReportesContablesTests
 
         Assert.Contains("periodo", excepcion.Message, StringComparison.OrdinalIgnoreCase);
     }
+
+    [Fact]
+    public async Task GetLibroMayor_SinEmpresaId_DevuelveLosMovimientosDeLaCuenta()
+    {
+        await using var context = CrearContexto();
+        var (periodo, caja, capital) = await SembrarPeriodoAsync(context, new DateTime(2026, 10, 1), new DateTime(2026, 10, 31));
+        await SembrarAsientoAsync(context, 1, periodo, caja, capital, new DateTime(2026, 10, 5), 100m);
+
+        var service = new ReportesContablesService(context);
+        var movimientos = await service.GetLibroMayorAsync(caja.Id);
+
+        Assert.Single(movimientos);
+        Assert.Equal(100m, movimientos[0].Debe);
+    }
+
+    [Fact]
+    public async Task GetLibroMayor_CuentaDeOtraEmpresa_SinResultadosCuandoSePideLaEmpresaActiva()
+    {
+        await using var context = CrearContexto();
+        // Empresa 1 y empresa 2, cada una con su propio plan y sus movimientos
+        var (_, caja1, capital1) = await SembrarPeriodoAsync(context, new DateTime(2026, 10, 1), new DateTime(2026, 10, 31), empresaId: 1);
+        var (periodo2, caja2, capital2) = await SembrarPeriodoAsync(context, new DateTime(2026, 10, 1), new DateTime(2026, 10, 31), empresaId: 2);
+        await SembrarAsientoAsync(context, 2, periodo2, caja2, capital2, new DateTime(2026, 10, 6), 900m);
+
+        var service = new ReportesContablesService(context);
+
+        // La cuenta de la empresa 2 NO produce movimientos bajo la empresa 1
+        var comoEmpresa1 = await service.GetLibroMayorAsync(caja2.Id, empresaId: 1);
+        Assert.Empty(comoEmpresa1);
+
+        // Bajo su propia empresa sí (y la cuenta de la empresa 1 no se mezcla)
+        var comoEmpresa2 = await service.GetLibroMayorAsync(caja2.Id, empresaId: 2);
+        var movimiento = Assert.Single(comoEmpresa2);
+        Assert.Equal(900m, movimiento.Debe);
+
+        var caja1Empresa1 = await service.GetLibroMayorAsync(caja1.Id, empresaId: 1);
+        Assert.Empty(caja1Empresa1); // caja1 no tiene movimientos en esta siembra
+    }
+
+    [Fact]
+    public async Task GetBalanceComprobacion_PeriodoDeOtraEmpresa_LanzaErrorControlado()
+    {
+        await using var context = CrearContexto();
+        var (periodo1, caja, capital) = await SembrarPeriodoAsync(context, new DateTime(2026, 10, 1), new DateTime(2026, 10, 31), empresaId: 1);
+        await SembrarAsientoAsync(context, 1, periodo1, caja, capital, new DateTime(2026, 10, 5), 100m);
+
+        var service = new ReportesContablesService(context);
+
+        // El periodo pertenece a la empresa 1: pedirlo bajo la empresa 2 se rechaza
+        var excepcion = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.GetBalanceComprobacionAsync(periodo1.Id, empresaId: 2));
+        Assert.Contains("empresa", excepcion.Message, StringComparison.OrdinalIgnoreCase);
+
+        // Bajo su propia empresa el reporte se genera con normalidad
+        var balance = await service.GetBalanceComprobacionAsync(periodo1.Id, empresaId: 1);
+        Assert.Single(balance, b => b.CuentaId == caja.Id);
+    }
+
+    [Fact]
+    public async Task GetLibroMayor_SaldoAcumulado_AcumulaConElSignoNaturalDeLaCuenta()
+    {
+        await using var context = CrearContexto();
+        var (periodo, caja, capital) = await SembrarPeriodoAsync(context, new DateTime(2026, 10, 1), new DateTime(2026, 10, 31));
+
+        // Un movimiento anterior al rango (compone el saldo inicial) y dos dentro del rango
+        await SembrarAsientoAsync(context, 1, periodo, caja, capital, new DateTime(2026, 9, 20), 30m);
+        await SembrarAsientoAsync(context, 1, periodo, caja, capital, new DateTime(2026, 10, 5), 100m);
+        await SembrarAsientoAsync(context, 1, periodo, caja, capital, new DateTime(2026, 10, 10), 40m);
+
+        var service = new ReportesContablesService(context);
+
+        // Caja (deudora): saldo = Debe − Haber. Con saldo inicial 30: 130 y luego 170.
+        var cajaMovimientos = await service.GetLibroMayorAsync(caja.Id, new DateTime(2026, 10, 1), new DateTime(2026, 10, 31));
+        Assert.Equal(2, cajaMovimientos.Count);
+        Assert.Equal(130m, cajaMovimientos[0].SaldoAcumulado);
+        Assert.Equal(170m, cajaMovimientos[1].SaldoAcumulado);
+
+        // Capital (acreedora): saldo = Haber − Debe. Mismos montos al revés: 30+100=130, luego 170.
+        var capitalMovimientos = await service.GetLibroMayorAsync(capital.Id, new DateTime(2026, 10, 1), new DateTime(2026, 10, 31));
+        Assert.Equal(2, capitalMovimientos.Count);
+        Assert.Equal(130m, capitalMovimientos[0].SaldoAcumulado);
+        Assert.Equal(170m, capitalMovimientos[1].SaldoAcumulado);
+
+        // Sin rango de fechas no hay saldo inicial: la acumulación arranca en 0
+        // y todos los movimientos (incluido el de septiembre) se listan.
+        var cajaSinRango = await service.GetLibroMayorAsync(caja.Id);
+        Assert.Equal(3, cajaSinRango.Count);
+        Assert.Equal(30m, cajaSinRango[0].SaldoAcumulado);
+        Assert.Equal(130m, cajaSinRango[1].SaldoAcumulado);
+        Assert.Equal(170m, cajaSinRango[2].SaldoAcumulado);
+    }
 }

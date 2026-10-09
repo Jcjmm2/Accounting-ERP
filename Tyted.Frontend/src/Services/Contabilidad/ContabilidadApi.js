@@ -64,19 +64,31 @@ export const contabilidadApi = {
   },
 
   getCuentas: async (empresaId) => {
+    let data;
     try {
       // Si se pasa empresaId, Axios genera automáticamente ?empresaId=X
       const config = empresaId ? { params: { empresaId } } : {};
       const response = await api.get('/cuentas', config);
-      return response.data;
+      data = response.data;
     } catch (error) {
       if (error.response?.status === 404) {
         const config = empresaId ? { params: { empresaId } } : {};
         const fallbackResponse = await api.get('/plancuentas', config);
-        return fallbackResponse.data;
+        data = fallbackResponse.data;
+      } else {
+        throw error;
       }
-      throw error;
     }
+
+    const lista = Array.isArray(data) ? data : (data?.$values || []);
+
+    // AISLAMIENTO POR EMPRESA (selector único): aunque el endpoint ya reciba
+    // ?empresaId, se refuerza aquí para que NINGÚN selector muestre cuentas
+    // de otras empresas. Sin empresaId se devuelve todo (uso intencional,
+    // p. ej. copiar el plan completo en Configuración de Empresa).
+    if (!empresaId) return lista;
+    const id = Number(empresaId);
+    return lista.filter(c => Number(c?.empresaId ?? c?.EmpresaId ?? -1) === id);
   },
 
   crearCuenta: async (cuenta) => {
@@ -90,6 +102,14 @@ export const contabilidadApi = {
       }
       throw error;
     }
+  },
+
+  // ACTUALIZACIÓN de cuenta: PUT /cuentas/{id}. En modo edición NUNCA se debe
+  // reutilizar crearCuenta con el Id: un INSERT con Id explícito viola la
+  // columna de identidad de SQL Server (error 544 -> HTTP 400).
+  actualizarCuenta: async (id, cuenta) => {
+    const response = await api.put(`/cuentas/${id}`, cuenta);
+    return response.data;
   },
 
   // ---------------------------------------------------------------------------
@@ -119,8 +139,11 @@ export const contabilidadApi = {
   // ---------------------------------------------------------------------------
   // GESTIÓN DE PERIODOS
   // ---------------------------------------------------------------------------
-  getPeriodos: async () => {
-    const response = await api.get('/periodos');
+  // Si se pasa empresaId, el backend devuelve sólo los ejercicios de esa
+  // empresa (?empresaId=X).
+  getPeriodos: async (empresaId) => {
+    const config = empresaId ? { params: { empresaId } } : {};
+    const response = await api.get('/periodos', config);
     return response.data;
   },
 
@@ -152,17 +175,21 @@ export const contabilidadApi = {
     return response.data;
   },
 
-  getBalanceComprobacion: async (periodoId) => {
-    const response = await api.get('/reportescontables/balance-comprobacion', {
-      params: { periodoId }
-    });
+  // empresaId (opcional): el backend valida que el periodo pertenezca a esa
+  // empresa y responde 400 si se intenta consultar un periodo ajeno.
+  getBalanceComprobacion: async (periodoId, empresaId) => {
+    const params = { periodoId };
+    if (empresaId) params.empresaId = empresaId;
+    const response = await api.get('/reportescontables/balance-comprobacion', { params });
     return response.data;
   },
 
-  getLibroMayor: async (cuentaId, fechaInicio, fechaFin) => {
-    const response = await api.get('/reportescontables/libro-mayor', {
-      params: { cuentaId, fechaInicio, fechaFin }
-    });
+  // empresaId (opcional): acota los movimientos a la empresa activa; si la
+  // cuenta pertenece a otra empresa el backend responde sin movimientos.
+  getLibroMayor: async (cuentaId, fechaInicio, fechaFin, empresaId) => {
+    const params = { cuentaId, fechaInicio, fechaFin };
+    if (empresaId) params.empresaId = empresaId;
+    const response = await api.get('/reportescontables/libro-mayor', { params });
     return response.data;
   },
 

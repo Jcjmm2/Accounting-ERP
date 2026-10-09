@@ -11,17 +11,23 @@ export default function LibroMayor({ empresaActiva, periodoActivo }) {
   const [fechaInicio, setFechaInicio] = useState(periodoActivo?.fechaInicio || '');
   const [fechaFin, setFechaFin] = useState(periodoActivo?.fechaFin || '');
 
+  // Carga las cuentas SÓLO de la empresa activa (selector único) y limpia la
+  // cuenta elegida y los movimientos anteriores al cambiar de empresa para
+  // no dejar en pantalla resultados de la empresa anterior.
   useEffect(() => {
     const cargarCuentas = async () => {
       try {
-        const data = await contabilidadApi.getCuentas();
-        setCuentas(data);
+        const data = await contabilidadApi.getCuentas(empresaActiva?.id);
+        setCuentas(Array.isArray(data) ? data : (data?.$values || []));
       } catch (error) {
         console.error('Error cargando cuentas para libro mayor', error);
+        setCuentas([]);
       }
     };
+    setCuentaId('');
+    setMovimientos([]);
     cargarCuentas();
-  }, []);
+  }, [empresaActiva?.id]);
 
   const buscarLibroMayor = async () => {
     if (!cuentaId) {
@@ -30,11 +36,13 @@ export default function LibroMayor({ empresaActiva, periodoActivo }) {
     }
     setCargando(true);
     try {
-      // Si tu API soporta filtrar por empresa/periodo, puedes agregarlos aquí
+      // Se envía la empresa activa: el backend sólo devuelve movimientos si
+      // la cuenta pertenece a esa empresa (aislamiento por selector único).
       const data = await contabilidadApi.getLibroMayor(
         Number(cuentaId), 
         fechaInicio || undefined, 
-        fechaFin || undefined
+        fechaFin || undefined,
+        empresaActiva?.id || undefined
       );
       setMovimientos(data);
     } catch (error) {

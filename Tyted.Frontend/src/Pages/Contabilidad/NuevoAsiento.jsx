@@ -29,11 +29,12 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
   const [cargando, setCargando] = useState(true);
   const [errorCuentas, setErrorCuentas] = useState(null);
 
-  // 1. CARGA INICIAL DE CUENTAS
+  // 1. CARGA DE CUENTAS DE LA EMPRESA ACTIVA (selector único): se recargan
+  // al cambiar de empresa para no mostrar cuentas de otra compañía.
   useEffect(() => {
     const cargarCuentas = async () => {
       try {
-        const data = await contabilidadApi.getCuentas();
+        const data = await contabilidadApi.getCuentas(empresaActiva?.id);
         const lista = Array.isArray(data) ? data : (data?.$values || []);
         setCuentasDisponibles(lista);
         setErrorCuentas(lista.length === 0
@@ -48,7 +49,7 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
       }
     };
     cargarCuentas();
-  }, []);
+  }, [empresaActiva?.id]);
 
   // 2. SINCRONIZAR FECHA CON EL PERIODO ACTIVO
   useEffect(() => {

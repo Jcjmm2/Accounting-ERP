@@ -1,6 +1,6 @@
 import { useState, useContext, useEffect } from 'react';
 import { ConfigContext } from '../../Context/ConfigContext';
-import { contabilidadApi } from '../../Services/Contabilidad/ContabilidadApi';
+import { contabilidadApi, mensajeErrorApi } from '../../Services/Contabilidad/ContabilidadApi';
 
 export default function PlanCuentas() {
   const { empresaActiva } = useContext(ConfigContext);
@@ -19,7 +19,10 @@ export default function PlanCuentas() {
     id: null,
     codigo: '',
     nombre: '',
-    naturaleza: 'Deudora'
+    naturaleza: 'Deudora',
+    // Copia de la cuenta original: en modo edición se conservan los campos
+    // que el formulario no muestra (nivel, tipo, padre, etc.)
+    original: null
   });
 
   // --- EFECTO MULTIEMPRESA ---
@@ -59,32 +62,49 @@ export default function PlanCuentas() {
     e.preventDefault();
     setCargando(true);
     try {
-      const datosCuenta = {
-        codigoCuenta: formData.codigo,
-        nombreCuenta: formData.nombre,
-        naturaleza: formData.naturaleza,
-        tipoCuenta: 'Activo',
-        activa: true,
-        empresaId: empresaId, // Asignación de empresaId al objeto enviado
-        esMovimiento: true,
-        nivel: 5,
-        aceptaTerceros: false,
-        aceptaCentroCosto: false
-      };
-
       if (formData.id) {
-        // MODO EDICIÓN
-        await contabilidadApi.actualizarCuenta?.(formData.id, datosCuenta) 
-          || await contabilidadApi.crearCuenta({ ...datosCuenta, id: formData.id }); 
+        // MODO EDICIÓN: PUT /cuentas/{id}. NUNCA se reutiliza crearCuenta con
+        // el Id: el INSERT con Id explícito viola la columna de identidad de
+        // SQL Server y el backend responde HTTP 400.
+        const original = formData.original ?? {};
+        const datosCuenta = {
+          codigoCuenta: formData.codigo,
+          nombreCuenta: formData.nombre,
+          naturaleza: formData.naturaleza,
+          // Campos que el formulario no muestra: se conservan tal como venían
+          // para no alterar la estructura de la cuenta (nivel, tipo, padre,
+          // movimiento, flags) ni su pertenencia a la empresa.
+          empresaId: original.empresaId ?? original.EmpresaId ?? empresaId,
+          tipoCuenta: original.tipoCuenta ?? original.TipoCuenta ?? 'Activo',
+          esMovimiento: original.esMovimiento ?? original.EsMovimiento ?? true,
+          nivel: original.nivel ?? original.Nivel ?? 5,
+          padreCuentaId: original.padreCuentaId ?? original.PadreCuentaId ?? null,
+          aceptaTerceros: original.aceptaTerceros ?? original.AceptaTerceros ?? false,
+          aceptaCentroCosto: original.aceptaCentroCosto ?? original.AceptaCentroCosto ?? false,
+          activa: original.activa ?? original.Activa ?? true
+        };
+        await contabilidadApi.actualizarCuenta(formData.id, datosCuenta);
         alert('✅ Cuenta actualizada correctamente');
       } else {
-        // MODO CREACIÓN
+        // MODO CREACIÓN: sin Id, la columna de identidad lo genera en el INSERT
+        const datosCuenta = {
+          codigoCuenta: formData.codigo,
+          nombreCuenta: formData.nombre,
+          naturaleza: formData.naturaleza,
+          tipoCuenta: 'Activo',
+          activa: true,
+          empresaId, // Asignación de empresaId al objeto enviado
+          esMovimiento: true,
+          nivel: 5,
+          aceptaTerceros: false,
+          aceptaCentroCosto: false
+        };
         await contabilidadApi.crearCuenta(datosCuenta);
         alert('✅ Cuenta creada correctamente');
       }
 
       // Limpiar formulario y volver al menú principal
-      setFormData({ id: null, codigo: '', nombre: '', naturaleza: 'Deudora' });
+      setFormData({ id: null, codigo: '', nombre: '', naturaleza: 'Deudora', original: null });
       setVista('menu');
       
       // Si la lista de cuentas estaba cargada en pantalla, recargarla
@@ -93,7 +113,8 @@ export default function PlanCuentas() {
       }
     } catch (error) {
       console.error('Error guardando cuenta:', error);
-      alert('❌ Error al guardar la cuenta');
+      // Muestra el mensaje real devuelto por la API (p. ej. código duplicado)
+      alert(`❌ ${mensajeErrorApi(error)}`);
     } finally {
       setCargando(false);
     }
@@ -104,13 +125,16 @@ export default function PlanCuentas() {
       id: cuenta.id ?? cuenta.cuentaId,
       codigo: cuenta.codigoCuenta ?? cuenta.codigo ?? '',
       nombre: cuenta.nombreCuenta ?? cuenta.nombre ?? '',
-      naturaleza: cuenta.naturaleza ?? 'Deudora'
+      naturaleza: cuenta.naturaleza ?? 'Deudora',
+      // Se conserva la cuenta original para no perder en la edición los
+      // campos que el formulario no muestra (nivel, tipo, padre, flags, etc.)
+      original: cuenta
     });
     setVista('editar');
   };
 
   const cancelarFormulario = () => {
-    setFormData({ id: null, codigo: '', nombre: '', naturaleza: 'Deudora' });
+    setFormData({ id: null, codigo: '', nombre: '', naturaleza: 'Deudora', original: null });
     setVista('menu');
   };
 

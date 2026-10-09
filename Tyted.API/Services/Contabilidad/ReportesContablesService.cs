@@ -40,21 +40,27 @@ public class ReportesContablesService
     /// - Saldo inicial = movimientos anteriores al inicio del periodo.
     /// - Saldo final se expresa con el signo natural de la cuenta (D:Debe-Haber, C:Haber-Debe).
     /// </summary>
-    public async Task<List<BalanceComprobacionDto>> GetBalanceComprobacionAsync(int periodoId)
+    public async Task<List<BalanceComprobacionDto>> GetBalanceComprobacionAsync(int periodoId, int? empresaId = null)
     {
         var periodo = await _context.PeriodosContables
             .AsNoTracking()
             .FirstOrDefaultAsync(p => p.Id == periodoId)
             ?? throw new InvalidOperationException("El periodo contable no existe.");
 
-        var empresaId = periodo.EmpresaId;
+        // Aislamiento por empresa: cuando el cliente indica la empresa activa
+        // (selector único), un periodo perteneciente a otra empresa se rechaza
+        // para no mostrar un reporte cruzado.
+        if (empresaId.HasValue && periodo.EmpresaId != empresaId.Value)
+            throw new InvalidOperationException("El periodo solicitado no pertenece a la empresa activa.");
+
+        var empresaDelPeriodo = periodo.EmpresaId;
         var fechaInicio = periodo.FechaInicio.Date;
         // Se suma un día para cubrir asientos con hora dentro del último día del periodo.
         var fechaFinExclusiva = periodo.FechaFin.Date.AddDays(1);
 
         var movimientosAnteriores = await _context.AsientosDetalles
             .AsNoTracking()
-            .Where(d => d.AsientoContable!.EmpresaId == empresaId
+            .Where(d => d.AsientoContable!.EmpresaId == empresaDelPeriodo
                         && d.AsientoContable.FechaComprobante < fechaInicio)
             .GroupBy(d => d.CuentaContableId)
             .Select(g => new { CuentaId = g.Key, Debe = g.Sum(x => x.Debe), Haber = g.Sum(x => x.Haber) })
@@ -62,7 +68,7 @@ public class ReportesContablesService
 
         var movimientosPeriodo = await _context.AsientosDetalles
             .AsNoTracking()
-            .Where(d => d.AsientoContable!.EmpresaId == empresaId
+            .Where(d => d.AsientoContable!.EmpresaId == empresaDelPeriodo
                         && d.AsientoContable.FechaComprobante >= fechaInicio
                         && d.AsientoContable.FechaComprobante < fechaFinExclusiva)
             .GroupBy(d => d.CuentaContableId)
@@ -71,7 +77,7 @@ public class ReportesContablesService
 
         var cuentas = await _context.CuentasContables
             .AsNoTracking()
-            .Where(c => c.EmpresaId == empresaId)
+            .Where(c => c.EmpresaId == empresaDelPeriodo)
             .ToListAsync();
 
         var anterioresPorCuenta = movimientosAnteriores.ToDictionary(x => x.CuentaId, x => x);
@@ -120,12 +126,39 @@ public class ReportesContablesService
         return resultado;
     }
 
-    public async Task<List<LibroMayorDto>> GetLibroMayorAsync(int cuentaId, DateTime? fechaInicio = null, DateTime? fechaFin = null)
+    public async Task<List<LibroMayorDto>> GetLibroMayorAsync(int cuentaId, DateTime? fechaInicio = null, DateTime? fechaFin = null, int? empresaId = null)
     {
         var query = _context.AsientosDetalles
             .Include(d => d.AsientoContable)
             .Include(d => d.CuentaContable)
             .Where(d => d.CuentaContableId == cuentaId);
+
+        // Aislamiento por empresa: si el cliente indica la empresa activa
+        // (selector único) y la cuenta pertenece a otra empresa, no se
+        // devuelve ningún movimiento.
+        if (empresaId.HasValue)
+            query = query.Where(d => d.CuentaContable!.EmpresaId == empresaId.Value);
+
+        // Signo natural de la cuenta: Deudora (D/Deudora) acumula Debe − Haber
+        // y Acreedora (C/Acreedora) acumula Haber − Debe.
+        var cuenta = await _context.CuentasContables
+            .AsNoTracking()
+            .FirstOrDefaultAsync(c => c.Id == cuentaId);
+        var naturaleza = (cuenta?.Naturaleza ?? string.Empty).Trim();
+        var esAcreedora = naturaleza.StartsWith("A", StringComparison.OrdinalIgnoreCase)
+                          || naturaleza.StartsWith("C", StringComparison.OrdinalIgnoreCase);
+        var factor = esAcreedora ? -1 : 1;
+
+        // Saldo inicial: movimientos de la cuenta anteriores al inicio del
+        // rango consultado (0 cuando no se indica fecha de inicio).
+        var saldoAcumulado = 0m;
+        if (fechaInicio.HasValue)
+        {
+            var sumaAnteriores = await query
+                .Where(d => d.AsientoContable!.FechaComprobante < fechaInicio.Value)
+                .SumAsync(d => (decimal?)(d.Debe - d.Haber)) ?? 0m;
+            saldoAcumulado = sumaAnteriores * factor;
+        }
 
         if (fechaInicio.HasValue)
             query = query.Where(d => d.AsientoContable!.FechaComprobante >= fechaInicio.Value);
@@ -133,7 +166,7 @@ public class ReportesContablesService
         if (fechaFin.HasValue)
             query = query.Where(d => d.AsientoContable!.FechaComprobante <= fechaFin.Value);
 
-        return await query
+        var movimientos = await query
             .OrderBy(d => d.AsientoContable!.FechaComprobante)
             .ThenBy(d => d.Id)
             .Select(d => new LibroMayorDto
@@ -149,6 +182,16 @@ public class ReportesContablesService
                 Haber = d.Haber
             })
             .ToListAsync();
+
+        // Saldo acumulado corrido: saldo inicial del rango más cada movimiento
+        // en orden cronológico (fecha de comprobante y luego Id).
+        foreach (var movimiento in movimientos)
+        {
+            saldoAcumulado += factor * (movimiento.Debe - movimiento.Haber);
+            movimiento.SaldoAcumulado = saldoAcumulado;
+        }
+
+        return movimientos;
     }
 }
 
@@ -185,4 +228,11 @@ public class LibroMayorDto
     public string NombreCuenta { get; set; } = string.Empty;
     public decimal Debe { get; set; }
     public decimal Haber { get; set; }
+    /// <summary>
+    /// Saldo acumulado de la cuenta: saldo inicial del rango consultado
+    /// (movimientos anteriores a FechaInicio) más cada movimiento en orden
+    /// cronológico, expresado con el signo natural de la cuenta
+    /// (Deudora: Debe − Haber; Acreedora: Haber − Debe).
+    /// </summary>
+    public decimal SaldoAcumulado { get; set; }
 }

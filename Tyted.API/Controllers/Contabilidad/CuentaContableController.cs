@@ -38,4 +38,25 @@ public class CuentaContableController : ControllerBase
             return BadRequest(new { message = ex.Message });
         }
     }
+
+    // Actualización de una cuenta existente. El servicio trabaja sobre la
+    // entidad rastreada (UPDATE); si la cuenta no existe responde 404 y si la
+    // validación falla responde 400 con el mensaje, igual que CrearCuenta.
+    [HttpPut("cuentas/{id:int}")]
+    public async Task<ActionResult<CuentaContable>> ActualizarCuenta(int id, [FromBody] CuentaContable cuenta)
+    {
+        try
+        {
+            var actualizada = await _service.ActualizarCuentaAsync(id, cuenta);
+            return Ok(actualizada);
+        }
+        catch (KeyNotFoundException ex)
+        {
+            return NotFound(new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
 }

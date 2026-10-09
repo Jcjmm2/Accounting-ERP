@@ -27,11 +27,14 @@ public class ReportesContablesController : ControllerBase
     }
 
     [HttpGet("balance-comprobacion")]
-    public async Task<ActionResult<List<BalanceComprobacionDto>>> GetBalanceComprobacion([FromQuery] int periodoId)
+    public async Task<ActionResult<List<BalanceComprobacionDto>>> GetBalanceComprobacion(
+        [FromQuery] int periodoId,
+        [FromQuery] int? empresaId = null)
     {
         try
         {
-            var data = await _service.GetBalanceComprobacionAsync(periodoId);
+            // empresaId (opcional) valida que el periodo pertenezca a la empresa activa
+            var data = await _service.GetBalanceComprobacionAsync(periodoId, empresaId);
             return Ok(data);
         }
         catch (InvalidOperationException ex)
@@ -44,9 +47,11 @@ public class ReportesContablesController : ControllerBase
     public async Task<ActionResult<List<LibroMayorDto>>> GetLibroMayor(
         [FromQuery] int cuentaId,
         [FromQuery] DateTime? fechaInicio = null,
-        [FromQuery] DateTime? fechaFin = null)
+        [FromQuery] DateTime? fechaFin = null,
+        [FromQuery] int? empresaId = null)
     {
-        var data = await _service.GetLibroMayorAsync(cuentaId, fechaInicio, fechaFin);
+        // empresaId (opcional) acota los movimientos a la empresa activa
+        var data = await _service.GetLibroMayorAsync(cuentaId, fechaInicio, fechaFin, empresaId);
         return Ok(data);
     }
 }

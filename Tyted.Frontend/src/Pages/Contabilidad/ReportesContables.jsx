@@ -190,22 +190,32 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
     setPeriodoSeleccionadoId(Number(periodoActivo?.id ?? 1));
   }, [periodoActivo?.id]);
 
+  // Los periodos se cargan SÓLO para la empresa activa (selector único) y se
+  // recargan al cambiar de empresa. Al cambiar, además se invalidan los datos
+  // consultados: nunca se muestra un reporte mezclando la empresa anterior
+  // con la nueva (el botón «🔍 Consultar» regenera el reporte).
   useEffect(() => {
     const cargarPeriodos = async () => {
       try {
-        const data = await contabilidadApi.getPeriodos();
+        const data = await contabilidadApi.getPeriodos(empresaActiva?.id);
         setPeriodos(Array.isArray(data) ? data : (data?.$values || []));
       } catch (error) {
         console.error('Error cargando periodos:', error);
       }
     };
     cargarPeriodos();
-  }, []);
+    setBalance([]);
+    setCuentas([]);
+    setPeriodoConsultadoId(null);
+  }, [empresaActiva?.id]);
 
   // Aplanar la jerarquía Padre/Hijo para el selector
   const listaPeriodosJerarquia = useMemo(() => {
+    const idActiva = Number(empresaActiva?.id ?? 0);
     const lista = [];
     periodos.forEach(p => {
+      // Aislamiento por empresa: sólo se listan ejercicios de la empresa activa
+      if (idActiva && p.empresaId !== undefined && p.empresaId !== null && Number(p.empresaId) !== idActiva) return;
       lista.push({ ...p, isPadre: true, label: `📁 [AÑO] ${p.nombre || p.anio}` });
       const subs = p.subPeriodos?.$values || p.subPeriodos || [];
       subs.forEach(sub => {
@@ -213,7 +223,7 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
       });
     });
     return lista;
-  }, [periodos]);
+  }, [periodos, empresaActiva?.id]);
 
   const periodoSeleccionadoData = useMemo(() => {
     return listaPeriodosJerarquia.find(p => Number(p.id) === periodoSeleccionadoId) || periodoActivo;
@@ -238,9 +248,13 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
     if (!id) return;
     try {
       setLoading(true);
+      // Ambas llamadas se acotan a la empresa activa del selector único: el
+      // backend valida que el periodo pertenezca a esa empresa y getCuentas
+      // refuerza el filtro de cuentas también en el cliente.
+      const empresaId = Number(empresaActiva?.id ?? 0) || undefined;
       const [dataBalance, dataCuentas] = await Promise.all([
-        contabilidadApi.getBalanceComprobacion(id).catch(() => []),
-        contabilidadApi.getCuentas().catch(() => []),
+        contabilidadApi.getBalanceComprobacion(id, empresaId).catch(() => []),
+        contabilidadApi.getCuentas(empresaId).catch(() => []),
       ]);
       setBalance(Array.isArray(dataBalance) ? dataBalance : (dataBalance?.$values || []));
       setCuentas(Array.isArray(dataCuentas) ? dataCuentas : (dataCuentas?.$values || []));
