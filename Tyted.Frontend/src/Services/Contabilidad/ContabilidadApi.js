@@ -167,8 +167,27 @@ export const contabilidadApi = {
     return response.data;
   },
 
-  cerrarPeriodo: async (periodoId, usuario = 'Sistema') => {
-    const response = await api.post(`/periodos/${periodoId}/cerrar`, { usuario });
+  cerrarPeriodo: async (periodoId, usuario = 'Sistema', usuarioId = 1, trasladarSaldos = true) => {
+    // El cierre genera el asiento «APERTURA DE BALANCE» con los saldos de
+    // activo, pasivo y patrimonio en el periodo siguiente (trasladarSaldos) y
+    // exige previamente el Cierre de Resultados del periodo.
+    const response = await api.post(`/periodos/${periodoId}/cerrar`, { usuario, usuarioId, trasladarSaldos });
+    return response.data;
+  },
+
+  abrirPeriodo: async (periodoId, usuario = 'Sistema') => {
+    // El backend rechaza reabrir un periodo si ya existen asientos de
+    // apertura de balance en periodos posteriores (traslados basados en su cierre).
+    const response = await api.post(`/periodos/${periodoId}/abrir`, { usuario });
+    return response.data;
+  },
+
+  // Elimina un periodo VACÍO (sin asientos en él ni en sus subperiodos); los
+  // ejercicios anuales vacíos se eliminan en cascada con sus meses. Permite
+  // corregir en la aplicación periodos antiguos erróneos (p. ej. un mal
+  // periodo de apertura) sin intervención manual en la base de datos.
+  eliminarPeriodo: async (periodoId, usuario = 'Sistema') => {
+    const response = await api.delete(`/periodos/${periodoId}`, { params: { usuario } });
     return response.data;
   },
 
@@ -217,16 +236,6 @@ export const contabilidadApi = {
     const params = { cuentaId, fechaInicio, fechaFin };
     if (empresaId) params.empresaId = empresaId;
     const response = await api.get('/reportescontables/libro-mayor', { params });
-    return response.data;
-  },
-
-  crearAperturaSaldosIniciales: async (empresaId, periodoId, saldosIniciales, usuarioId = 1) => {
-    const response = await api.post('/reportescontables/apertura-saldos-iniciales', {
-      empresaId,
-      periodoId,
-      usuarioId,
-      saldosIniciales
-    });
     return response.data;
   },
 

@@ -216,6 +216,14 @@ const ConfiguracionEmpresa = () => {
         }));
     }, [periodos]);
 
+    // Año del PERIODO DE APERTURA de la empresa activa: el periodo más antiguo
+    // (menor fecha de inicio). No se pueden crear periodos anteriores a ese
+    // año (el backend también lo valida como fuente de verdad).
+    const anioApertura = useMemo(() => {
+        const fechas = periodos.map(p => p.fechaInicio).filter(Boolean).sort();
+        return fechas.length ? new Date(fechas[0]).getFullYear() : null;
+    }, [periodos]);
+
     // Guardar modificaciones de la empresa activa
     const guardarDatosEmpresa = async (e) => {
         e.preventDefault();
@@ -286,6 +294,18 @@ const ConfiguracionEmpresa = () => {
     // Crear Nuevo Periodo (Padre o Hijo)
     const crearPeriodoFiscal = async (e) => {
         e.preventDefault();
+
+        // Seguridad financiera: sin periodos anteriores al periodo de apertura
+        if (anioApertura !== null && Number(anioFiscal) < anioApertura) {
+            alert(`⚠️ No se permiten periodos anteriores al periodo de apertura (${anioApertura}).\nLa contabilidad de la empresa arranca en ese periodo.`);
+            return;
+        }
+        // Coherencia de fechas (el backend vuelve a validar todo)
+        if (fechaFin <= fechaInicio) {
+            alert('⚠️ La fecha de fin debe ser posterior a la fecha de inicio.');
+            return;
+        }
+
         try {
             setGuardandoPeriodo(true);
 
@@ -560,6 +580,8 @@ const ConfiguracionEmpresa = () => {
                                     type="number" 
                                     value={anioFiscal} 
                                     onChange={handleAnioChange} 
+                                    min={anioApertura ?? undefined}
+                                    title={anioApertura !== null ? `No se permiten años anteriores al periodo de apertura (${anioApertura})` : undefined}
                                     style={{ width: '100%', padding: '6px', borderRadius: '6px', background: '#1e293b', border: '1px solid #475569', color: '#fff', fontSize: '0.85rem' }}
                                 />
                             </div>
@@ -655,8 +677,17 @@ const ConfiguracionEmpresa = () => {
                                     </div>
                                     <button 
                                         onClick={() => seleccionarParaEditarPeriodo(p)}
-                                        title="Verifica si tiene asientos antes de permitir modificar"
-                                        style={{ background: '#3b82f6', color: '#fff', border: 'none', padding: '4px 8px', borderRadius: '4px', cursor: 'pointer', fontSize: '0.7rem', fontWeight: 'bold' }}
+                                        disabled={p.estado === 'Cerrado'}
+                                        title={p.estado === 'Cerrado'
+                                            ? 'Periodo cerrado: no puede modificarse (sus fechas sustentan los saldos trasladados)'
+                                            : 'Verifica si tiene asientos antes de permitir modificar'}
+                                        style={{
+                                            background: p.estado === 'Cerrado' ? '#475569' : '#3b82f6',
+                                            color: '#fff', border: 'none', padding: '4px 8px', borderRadius: '4px',
+                                            cursor: p.estado === 'Cerrado' ? 'not-allowed' : 'pointer',
+                                            fontSize: '0.7rem', fontWeight: 'bold',
+                                            opacity: p.estado === 'Cerrado' ? 0.6 : 1
+                                        }}
                                     >
                                         ✏️ Editar
                                     </button>

@@ -17,8 +17,17 @@ public class ReportesContablesService
     {
         var cuentas = await _context.CuentasContables.CountAsync();
         var asientos = await _context.AsientosContables.CountAsync();
-        var totalDebe = await _context.AsientosDetalles.SumAsync(d => (decimal?)d.Debe) ?? 0m;
-        var totalHaber = await _context.AsientosDetalles.SumAsync(d => (decimal?)d.Haber) ?? 0m;
+        // Los traspasos de apertura de balance (generados al cerrar periodos)
+        // se excluyen de las sumatorias: el saldo ya viene del histórico y
+        // sumarlos duplicaría los totales (modelo de exclusión simple).
+        var totalDebe = await _context.AsientosDetalles
+            .AsNoTracking()
+            .Where(d => !d.AsientoContable!.Concepto.StartsWith(AsientoContableService.PrefijoAperturaBalance))
+            .SumAsync(d => (decimal?)d.Debe) ?? 0m;
+        var totalHaber = await _context.AsientosDetalles
+            .AsNoTracking()
+            .Where(d => !d.AsientoContable!.Concepto.StartsWith(AsientoContableService.PrefijoAperturaBalance))
+            .SumAsync(d => (decimal?)d.Haber) ?? 0m;
 
         return new
         {
@@ -61,7 +70,10 @@ public class ReportesContablesService
         var movimientosAnteriores = await _context.AsientosDetalles
             .AsNoTracking()
             .Where(d => d.AsientoContable!.EmpresaId == empresaDelPeriodo
-                        && d.AsientoContable.FechaComprobante < fechaInicio)
+                        && d.AsientoContable.FechaComprobante < fechaInicio
+                        // Excluye los traspasos de apertura de balance: el saldo
+                        // se arrastra por histórico (modelo de exclusión simple).
+                        && !d.AsientoContable.Concepto.StartsWith(AsientoContableService.PrefijoAperturaBalance))
             .GroupBy(d => d.CuentaContableId)
             .Select(g => new { CuentaId = g.Key, Debe = g.Sum(x => x.Debe), Haber = g.Sum(x => x.Haber) })
             .ToListAsync();
@@ -70,7 +82,8 @@ public class ReportesContablesService
             .AsNoTracking()
             .Where(d => d.AsientoContable!.EmpresaId == empresaDelPeriodo
                         && d.AsientoContable.FechaComprobante >= fechaInicio
-                        && d.AsientoContable.FechaComprobante < fechaFinExclusiva)
+                        && d.AsientoContable.FechaComprobante < fechaFinExclusiva
+                        && !d.AsientoContable.Concepto.StartsWith(AsientoContableService.PrefijoAperturaBalance))
             .GroupBy(d => d.CuentaContableId)
             .Select(g => new { CuentaId = g.Key, Debe = g.Sum(x => x.Debe), Haber = g.Sum(x => x.Haber) })
             .ToListAsync();
@@ -298,12 +311,14 @@ public class ReportesContablesService
         var factor = esAcreedora ? -1 : 1;
 
         // Saldo inicial: movimientos de la cuenta anteriores al inicio del
-        // rango consultado (0 cuando no se indica fecha de inicio).
+        // rango consultado (0 cuando no se indica fecha de inicio). Se excluyen
+        // los traspasos de apertura de balance (no alteran el saldo real).
         var saldoAcumulado = 0m;
         if (fechaInicio.HasValue)
         {
             var sumaAnteriores = await query
-                .Where(d => d.AsientoContable!.FechaComprobante < fechaInicio.Value)
+                .Where(d => d.AsientoContable!.FechaComprobante < fechaInicio.Value
+                            && !d.AsientoContable.Concepto.StartsWith(AsientoContableService.PrefijoAperturaBalance))
                 .SumAsync(d => (decimal?)(d.Debe - d.Haber)) ?? 0m;
             saldoAcumulado = sumaAnteriores * factor;
         }
@@ -332,10 +347,13 @@ public class ReportesContablesService
             .ToListAsync();
 
         // Saldo acumulado corrido: saldo inicial del rango más cada movimiento
-        // en orden cronológico (fecha de comprobante y luego Id).
+        // en orden cronológico (fecha de comprobante y luego Id). El traspaso de
+        // apertura de balance se MUESTRA (es auditable) pero no acumula: el
+        // saldo que traslada ya está incluido en el saldo inicial/histórico.
         foreach (var movimiento in movimientos)
         {
-            saldoAcumulado += factor * (movimiento.Debe - movimiento.Haber);
+            if (!AsientoContableService.EsTraspasoApertura(movimiento.Concepto))
+                saldoAcumulado += factor * (movimiento.Debe - movimiento.Haber);
             movimiento.SaldoAcumulado = saldoAcumulado;
         }
 

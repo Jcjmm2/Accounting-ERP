@@ -56,13 +56,17 @@ public class PeriodosContablesController : ControllerBase
     }
 
     [HttpPost("periodos/{periodoId}/cerrar")]
-    public async Task<ActionResult<PeriodoContable>> CerrarPeriodo(int periodoId, [FromBody] PeriodoCierreRequest? request)
+    public async Task<ActionResult<CierrePeriodoResponse>> CerrarPeriodo(int periodoId, [FromBody] PeriodoCierreRequest? request)
     {
         try
         {
             var usuario = request?.Usuario ?? "Sistema";
-            var periodo = await _service.CerrarPeriodoAsync(periodoId, usuario);
-            return Ok(periodo);
+            var usuarioId = request?.UsuarioId ?? 1;
+            // Por defecto el cierre TRASLADA los saldos de activo, pasivo y
+            // patrimonio al periodo siguiente (asiento de apertura de balance).
+            var trasladar = request?.TrasladarSaldos ?? true;
+            var respuesta = await _service.CerrarPeriodoAsync(periodoId, usuario, trasladar, usuarioId);
+            return Ok(respuesta);
         }
         catch (Exception ex)
         {
@@ -112,9 +116,43 @@ public class PeriodosContablesController : ControllerBase
             return BadRequest(new { message = ex.Message });
         }
     }
+
+    /// <summary>
+    /// Elimina un periodo SIN asientos (ni él ni sus subperiodos; los ejercicios
+    /// anuales vacíos se eliminan en cascada con sus meses). Permite corregir
+    /// en la aplicación periodos antiguos erróneos (p. ej. un mal periodo de
+    /// apertura) sin intervención manual en la base de datos. Los periodos con
+    /// asientos se rechazan con un mensaje claro.
+    /// </summary>
+    [HttpDelete("periodos/{periodoId}")]
+    public async Task<ActionResult<EliminacionPeriodoResponse>> EliminarPeriodo(
+        int periodoId,
+        [FromQuery] string? usuario = null)
+    {
+        try
+        {
+            var resultado = await _service.EliminarPeriodoAsync(periodoId, usuario ?? "Sistema");
+            return Ok(resultado);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = $"No se pudo eliminar el periodo: {ex.Message}" });
+        }
+    }
 }
 
 public class PeriodoCierreRequest
 {
     public string Usuario { get; set; } = "Sistema";
+    /// <summary>Id del usuario que ejecuta el cierre (auditoría y comprobantes).</summary>
+    public int UsuarioId { get; set; } = 1;
+    /// <summary>
+    /// Genera el asiento de apertura de balance con los saldos de activo,
+    /// pasivo y patrimonio en el periodo siguiente (por defecto TRUE).
+    /// </summary>
+    public bool TrasladarSaldos { get; set; } = true;
 }

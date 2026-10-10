@@ -39,7 +39,7 @@ public class ReportesContablesServiceTests
     public async Task PeriodoContableService_CreaEjercicioFiscalCompletoCon12Meses()
     {
         await using var context = CreateContext();
-        var service = new PeriodoContableService(context);
+        var service = new PeriodoContableService(context, new AsientoContableService(context));
 
         var ejercicio = await service.CrearEjercicioFiscalCompletoAsync(1, 2026);
 
@@ -61,7 +61,7 @@ public class ReportesContablesServiceTests
     public async Task PeriodoContableService_FiltraPorEmpresaActiva()
     {
         await using var context = CreateContext();
-        var service = new PeriodoContableService(context);
+        var service = new PeriodoContableService(context, new AsientoContableService(context));
 
         await service.CrearEjercicioFiscalCompletoAsync(1, 2026);
         await service.CrearEjercicioFiscalCompletoAsync(2, 2027);

@@ -208,6 +208,26 @@ public class AsientoContableService
     public const string PrefijoCierreResultados = "CIERRE DE RESULTADOS";
 
     /// <summary>
+    /// Prefijo del concepto de los asientos de APERTURA DE BALANCE que genera
+    /// el sistema al cerrar un periodo: trasladan los saldos de las cuentas
+    /// reales (activo, pasivo y patrimonio) al periodo siguiente.
+    ///
+    /// MODELO DE EXCLUSIÓN SIMPLE: estos asientos DOCUMENTAN el traslado pero
+    /// NO suman en los cálculos de saldo (balance, libro mayor, resumen): el
+    /// saldo ya se arrastra por histórico, por lo que incluirlos DUPLICARÍA
+    /// los saldos. La apertura inicial manual del primer periodo (concepto
+    /// libre) sí sigue contando.
+    /// </summary>
+    public const string PrefijoAperturaBalance = "APERTURA DE BALANCE";
+
+    /// <summary>
+    /// TRUE cuando el concepto de un asiento corresponde a un traspaso de
+    /// apertura de balance generado por el sistema (excluir de las sumatorias).
+    /// </summary>
+    public static bool EsTraspasoApertura(string? concepto) =>
+        (concepto ?? string.Empty).StartsWith(PrefijoAperturaBalance, StringComparison.Ordinal);
+
+    /// <summary>
     /// Genera el asiento de cierre que traslada el resultado del periodo
     /// (utilidad o pérdida) a una cuenta de patrimonio ("Resultados del
     /// ejercicio"), cumpliendo la ecuación contable del estado de situación
