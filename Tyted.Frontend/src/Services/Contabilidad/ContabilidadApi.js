@@ -199,6 +199,18 @@ export const contabilidadApi = {
     return response.data;
   },
 
+  // Asiento temporal (en memoria, NO persistido) que genera el backend al
+  // consultar el Estado de Situación Financiera: traslada el resultado del
+  // periodo a la cuenta 3.1.3.1.02 de la empresa para presentarlo como un
+  // procedimiento contable en lugar de una resta en el cliente. Si la empresa
+  // no tiene esa cuenta, el backend responde con cuentaResultadosEncontrada=false.
+  getAsientoTemporalSituacion: async (periodoId, empresaId) => {
+    const params = { periodoId };
+    if (empresaId) params.empresaId = empresaId;
+    const response = await api.get('/reportescontables/asiento-temporal-situacion', { params });
+    return response.data;
+  },
+
   // empresaId (opcional): acota los movimientos a la empresa activa; si la
   // cuenta pertenece a otra empresa el backend responde sin movimientos.
   getLibroMayor: async (cuentaId, fechaInicio, fechaFin, empresaId) => {

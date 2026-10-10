@@ -2,6 +2,13 @@ import { useState, useContext, useEffect } from 'react';
 import { ConfigContext } from '../../Context/ConfigContext';
 import { contabilidadApi, mensajeErrorApi } from '../../Services/Contabilidad/ContabilidadApi';
 
+// Cuenta de patrimonio que refleja el resultado del ejercicio en el Estado de
+// Situación Financiera: al consultar ese estado el backend genera un asiento
+// temporal con destino a esta cuenta (por código, para cada empresa). Se
+// resalta en el listado y se valida al cargarlo para facilitar su verificación
+// y su creación con el tipo de cuenta correcto (Patrimonio).
+const CUENTA_RESULTADO_SITUACION = '3.1.3.1.02';
+
 export default function PlanCuentas() {
   const { empresaActiva } = useContext(ConfigContext);
   const empresaId = Number(empresaActiva?.id ?? 1);
@@ -20,8 +27,11 @@ export default function PlanCuentas() {
     codigo: '',
     nombre: '',
     naturaleza: 'Deudora',
+    // Tipo de cuenta editable: determina la sección del estado financiero a
+    // la que pertenece la cuenta (p. ej. 3.1.3.1.02 debe ser Patrimonio)
+    tipo: 'Activo',
     // Copia de la cuenta original: en modo edición se conservan los campos
-    // que el formulario no muestra (nivel, tipo, padre, etc.)
+    // que el formulario no muestra (nivel, padre, flags, etc.)
     original: null
   });
 
@@ -71,11 +81,13 @@ export default function PlanCuentas() {
           codigoCuenta: formData.codigo,
           nombreCuenta: formData.nombre,
           naturaleza: formData.naturaleza,
-          // Campos que el formulario no muestra: se conservan tal como venían
-          // para no alterar la estructura de la cuenta (nivel, tipo, padre,
-          // movimiento, flags) ni su pertenencia a la empresa.
+          // El tipo de cuenta ahora se elige en el formulario (se inicializa con
+          // el valor original en modo edición); el resto de campos que el
+          // formulario no muestra se conservan tal como venían para no alterar
+          // la estructura de la cuenta (nivel, padre, movimiento, flags) ni su
+          // pertenencia a la empresa.
           empresaId: original.empresaId ?? original.EmpresaId ?? empresaId,
-          tipoCuenta: original.tipoCuenta ?? original.TipoCuenta ?? 'Activo',
+          tipoCuenta: formData.tipo || original.tipoCuenta || original.TipoCuenta || 'Activo',
           esMovimiento: original.esMovimiento ?? original.EsMovimiento ?? true,
           nivel: original.nivel ?? original.Nivel ?? 5,
           padreCuentaId: original.padreCuentaId ?? original.PadreCuentaId ?? null,
@@ -91,7 +103,7 @@ export default function PlanCuentas() {
           codigoCuenta: formData.codigo,
           nombreCuenta: formData.nombre,
           naturaleza: formData.naturaleza,
-          tipoCuenta: 'Activo',
+          tipoCuenta: formData.tipo || 'Activo',
           activa: true,
           empresaId, // Asignación de empresaId al objeto enviado
           esMovimiento: true,
@@ -104,7 +116,7 @@ export default function PlanCuentas() {
       }
 
       // Limpiar formulario y volver al menú principal
-      setFormData({ id: null, codigo: '', nombre: '', naturaleza: 'Deudora', original: null });
+      setFormData({ id: null, codigo: '', nombre: '', naturaleza: 'Deudora', tipo: 'Activo', original: null });
       setVista('menu');
       
       // Si la lista de cuentas estaba cargada en pantalla, recargarla
@@ -126,15 +138,16 @@ export default function PlanCuentas() {
       codigo: cuenta.codigoCuenta ?? cuenta.codigo ?? '',
       nombre: cuenta.nombreCuenta ?? cuenta.nombre ?? '',
       naturaleza: cuenta.naturaleza ?? 'Deudora',
+      tipo: cuenta.tipoCuenta ?? cuenta.TipoCuenta ?? 'Activo',
       // Se conserva la cuenta original para no perder en la edición los
-      // campos que el formulario no muestra (nivel, tipo, padre, flags, etc.)
+      // campos que el formulario no muestra (nivel, padre, flags, etc.)
       original: cuenta
     });
     setVista('editar');
   };
 
   const cancelarFormulario = () => {
-    setFormData({ id: null, codigo: '', nombre: '', naturaleza: 'Deudora', original: null });
+    setFormData({ id: null, codigo: '', nombre: '', naturaleza: 'Deudora', tipo: 'Activo', original: null });
     setVista('menu');
   };
 
@@ -236,6 +249,23 @@ export default function PlanCuentas() {
               </select>
             </div>
 
+            <div>
+              <label style={{ fontSize: '0.85rem', color: '#94a3b8', marginBottom: '4px', display: 'block' }}>Tipo de Cuenta</label>
+              <select
+                name="tipo"
+                value={formData.tipo}
+                onChange={manejarCambioInput}
+                style={inputStyle}
+              >
+                <option value="Activo">Activo</option>
+                <option value="Pasivo">Pasivo</option>
+                <option value="Patrimonio">Patrimonio</option>
+                <option value="Ingreso">Ingreso</option>
+                <option value="Gasto">Gasto</option>
+                <option value="Costo">Costo</option>
+              </select>
+            </div>
+
             <div style={{ display: 'flex', gap: '12px', marginTop: '8px' }}>
               <button 
                 type="button" 
@@ -276,6 +306,20 @@ export default function PlanCuentas() {
             />
           </div>
 
+          {/* AVISO: falta la cuenta que usa el Estado de Situación Financiera
+              para reflejar el resultado del ejercicio vía asiento temporal */}
+          {!cargando && cuentas.length > 0 && !cuentas.some(c => (c.codigoCuenta ?? c.codigo) === CUENTA_RESULTADO_SITUACION) && (
+            <div style={{
+              background: '#1e293b', border: '1px solid #f59e0b', color: '#fcd34d',
+              padding: '12px 16px', borderRadius: '8px', marginBottom: '16px', fontSize: '0.9rem'
+            }}>
+              ⚠️ No existe la cuenta <strong>{CUENTA_RESULTADO_SITUACION}</strong> en el plan de esta empresa.
+              Sin ella, el Estado de Situación Financiera mostrará el resultado con el cálculo aritmético;
+              cree la cuenta (tipo <strong>Patrimonio</strong>, naturaleza Acreedora) para que el estado lo
+              refleje mediante el asiento temporal.
+            </div>
+          )}
+
           {cargando ? (
             <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>Cargando cuentas...</div>
           ) : (
@@ -304,6 +348,16 @@ export default function PlanCuentas() {
                       >
                         <td style={{ padding: '12px', fontFamily: 'monospace', color: '#60a5fa' }}>
                           {cuenta.codigoCuenta ?? cuenta.codigo}
+                          {(cuenta.codigoCuenta ?? cuenta.codigo) === CUENTA_RESULTADO_SITUACION && (
+                            <span style={{
+                              display: 'block', marginTop: '4px', fontFamily: 'Arial, sans-serif',
+                              background: '#1e3a5f', color: '#93c5fd', border: '1px solid #3b82f6',
+                              padding: '2px 8px', borderRadius: '10px', fontSize: '0.7rem', fontWeight: 'bold',
+                              whiteSpace: 'normal', width: 'fit-content'
+                            }}>
+                              ⚖️ Resultado del ejercicio (Situación Financiera)
+                            </span>
+                          )}
                         </td>
                         <td style={{ padding: '12px' }}>
                           {cuenta.nombreCuenta ?? cuenta.nombre}

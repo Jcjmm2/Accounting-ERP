@@ -392,8 +392,11 @@ public class AsientoContableService
     /// y egresos son deudores; los ingresos, acreedores. Si el tipo no permite
     /// decidir se usa el campo Naturaleza, aceptando tanto "D"/"C" como las
     /// etiquetas "Deudora"/"Acreedora" que envía el formulario del plan.
+    /// Es `public` porque también la usa ReportesContablesService para
+    /// calcular el resultado del periodo del asiento temporal del Estado de
+    /// Situación Financiera con el mismo criterio de signo.
     /// </summary>
-    private static bool EsDeudoraPorTipo(CuentaContable cuenta)
+    public static bool EsDeudoraPorTipo(CuentaContable cuenta)
     {
         var tipo = (cuenta.TipoCuenta ?? string.Empty).ToUpperInvariant();
         if (tipo.Contains("GASTO") || tipo.Contains("COSTO") || tipo.Contains("EGRESO")) return true;

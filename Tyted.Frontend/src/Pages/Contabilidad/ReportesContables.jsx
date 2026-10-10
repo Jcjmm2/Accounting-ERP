@@ -261,6 +261,10 @@ const filaSeparadoraSeccion = () => [{ content: '', styles: { minCellHeight: 10 
 export default function ReportesContables({ empresaActiva, periodoActivo }) {
   const [balance, setBalance] = useState([]);
   const [cuentas, setCuentas] = useState([]);
+  // Asiento temporal (en memoria) que genera el backend al consultar el periodo:
+  // traslada el resultado del ejercicio a la cuenta 3.1.3.1.02 y alimenta el
+  // Estado de Situación Financiera como procedimiento contable.
+  const [asientoTemporal, setAsientoTemporal] = useState(null);
   const [selectedReporte, setSelectedReporte] = useState(null);
   const [loading, setLoading] = useState(false);
 
@@ -291,6 +295,7 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
     cargarPeriodos();
     setBalance([]);
     setCuentas([]);
+    setAsientoTemporal(null);
     setPeriodoConsultadoId(null);
   }, [empresaActiva?.id]);
 
@@ -337,12 +342,17 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
       // backend valida que el periodo pertenezca a esa empresa y getCuentas
       // refuerza el filtro de cuentas también en el cliente.
       const empresaId = Number(empresaActiva?.id ?? 0) || undefined;
-      const [dataBalance, dataCuentas] = await Promise.all([
+      const [dataBalance, dataCuentas, dataAsientoTemporal] = await Promise.all([
         contabilidadApi.getBalanceComprobacion(id, empresaId).catch(() => []),
         contabilidadApi.getCuentas(empresaId).catch(() => []),
+        // Asiento temporal de la situación financiera: se trae en la misma
+        // consulta para que el estado pueda presentar el resultado del periodo
+        // (cuenta 3.1.3.1.02) sin una segunda llamada al pulsar «Consultar».
+        contabilidadApi.getAsientoTemporalSituacion(id, empresaId).catch(() => null),
       ]);
       setBalance(Array.isArray(dataBalance) ? dataBalance : (dataBalance?.$values || []));
       setCuentas(Array.isArray(dataCuentas) ? dataCuentas : (dataCuentas?.$values || []));
+      setAsientoTemporal(dataAsientoTemporal ?? null);
       setPeriodoConsultadoId(id);
     } catch (error) {
       console.error('Error cargando reportes:', error);
@@ -654,21 +664,37 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
         const totalPatrimonioCuentas = patrimonio.reduce((sum, c) => sum + Math.abs(c.saldoFinal), 0);
 
         // ---------------------------------------------------------------
-        // VÍNCULO CON EL ESTADO DE RESULTADO (ECUACIÓN CONTABLE):
-        // el resultado del periodo (ingresos − egresos) todavía NO está
-        // transferido a una cuenta de patrimonio hasta que se registre el
-        // asiento de cierre, por lo que se presenta como parte del
-        // patrimonio para que se cumpla:
+        // RESULTADO DEL PERIODO VÍA ASIENTO TEMPORAL (PROCEDIMIENTO CONTABLE)
+        // Al consultar el periodo, el backend genera en memoria el asiento
+        // temporal (tipo «Temporal») que zera las cuentas de ingreso/egreso y
+        // traslada la diferencia neta a la cuenta 3.1.3.1.02 de la empresa.
+        // El estado toma el resultado de ese asiento —no de una resta hecha en
+        // el cliente— y lo presenta vinculado al patrimonio para que se cumpla:
         //   ACTIVO = PASIVO + PATRIMONIO + RESULTADO DEL EJERCICIO
-        // Cuando el ejercicio está cerrado (ingresos y egresos en cero) el
-        // resultado vale 0,00 y no altera los totales.
+        // El asiento no se persiste en el libro mayor: el Estado de Resultado y
+        // el Balance de Comprobación siguen viendo los movimientos reales, y si
+        // el periodo ya fue cerrado (ingresos y egresos en cero) el resultado
+        // vale 0,00 porque ya está dentro del patrimonio. Si la consulta del
+        // asiento fallara se recurre al cálculo aritmético como respaldo.
         // ---------------------------------------------------------------
         const ingresos = plan.filter(c => c.tipo.includes('INGRESO'));
         const egresos = plan.filter(c => c.tipo.includes('GASTO') || c.tipo.includes('COSTO') || c.tipo.includes('EGRESO'));
         const totalIngresosER = ingresos.reduce((sum, c) => sum + Math.abs(c.saldoFinal), 0);
         const totalEgresosER = egresos.reduce((sum, c) => sum + Math.abs(c.saldoFinal), 0);
-        const resultadoEjercicio = totalIngresosER - totalEgresosER;
+
+        const usaAsientoTemporal = asientoTemporal !== null && asientoTemporal !== undefined;
+        const resultadoEjercicio = usaAsientoTemporal
+          ? Number(asientoTemporal.resultado ?? 0)
+          : totalIngresosER - totalEgresosER;
         const hayResultado = Math.abs(resultadoEjercicio) >= 0.005;
+
+        // Etiqueta de la fila: con el asiento temporal se referencia la cuenta
+        // destino (3.1.3.1.02) tomada del plan de la empresa activa; sin él se
+        // conserva el formato histórico de la resta ingresos − egresos.
+        const cuentaResultadosOk = usaAsientoTemporal && Boolean(asientoTemporal.cuentaResultadosEncontrada);
+        const etiquetaResultado = cuentaResultadosOk
+          ? `RESULTADO DEL EJERCICIO (Asiento temporal ${asientoTemporal.cuentaResultadosCodigo}${asientoTemporal.cuentaResultadosNombre ? ` - ${asientoTemporal.cuentaResultadosNombre}` : ''})`
+          : 'RESULTADO DEL EJERCICIO (Ingresos − Egresos)';
 
         const totalPatrimonio = totalPatrimonioCuentas + resultadoEjercicio;
         const totalPasivoPatrimonio = totalPasivos + totalPatrimonio;
@@ -695,7 +721,7 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
                 // no se cierre el ejercicio, la utilidad (o pérdida) del
                 // Estado de Resultado forma parte del capital.
                 ...(hayResultado
-                  ? [filaTotalSeccion('RESULTADO DEL EJERCICIO (Ingresos − Egresos)', resultadoEjercicio)]
+                  ? [filaTotalSeccion(etiquetaResultado, resultadoEjercicio)]
                   : []),
                 filaTotalSeccion('TOTAL PATRIMONIO', totalPatrimonio),
               ]
@@ -1083,6 +1109,23 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
               </tfoot>
             </table>
           </div>
+
+          {/* NOTA METODOLÓGICA: procedimiento contable del resultado (sólo
+              cuando el asiento temporal encontró la cuenta 3.1.3.1.02) */}
+          {selectedReporte === 'situacion-financiera' && asientoTemporal?.cuentaResultadosEncontrada && (
+            <div style={{
+              maxWidth: '850px', margin: '16px auto 0', background: '#1e293b',
+              border: '1px solid #334155', color: '#94a3b8', padding: '10px 14px',
+              borderRadius: '8px', fontSize: '0.85rem', lineHeight: '1.5'
+            }}>
+              📎 <strong>Procedimiento contable:</strong> el resultado del ejercicio proviene del
+              asiento temporal (tipo «{asientoTemporal.tipoComprobante}») que el sistema genera al
+              consultar este estado y que traslada utilidad/pérdida a la cuenta{' '}
+              <strong>{asientoTemporal.cuentaResultadosCodigo}</strong>
+              {asientoTemporal.cuentaResultadosNombre ? ` - ${asientoTemporal.cuentaResultadosNombre}` : ''}.
+              El asiento no se graba en el libro mayor: existe sólo para la presentación de este estado.
+            </div>
+          )}
 
         </div>
       ) : (

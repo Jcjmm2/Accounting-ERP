@@ -43,6 +43,28 @@ public class ReportesContablesController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Asiento temporal (en memoria) que traslada el resultado del periodo a la
+    /// cuenta 3.1.3.1.02 para la presentación del Estado de Situación Financiera.
+    /// Es idempotente y no modifica el libro mayor: sólo se calcula al consultar.
+    /// </summary>
+    [HttpGet("asiento-temporal-situacion")]
+    public async Task<ActionResult<AsientoTemporalSituacionDto>> GetAsientoTemporalSituacion(
+        [FromQuery] int periodoId,
+        [FromQuery] int? empresaId = null)
+    {
+        try
+        {
+            // empresaId (opcional) valida que el periodo pertenezca a la empresa activa
+            var asiento = await _service.GetAsientoTemporalSituacionFinancieraAsync(periodoId, empresaId);
+            return Ok(asiento);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
     [HttpGet("libro-mayor")]
     public async Task<ActionResult<List<LibroMayorDto>>> GetLibroMayor(
         [FromQuery] int cuentaId,
