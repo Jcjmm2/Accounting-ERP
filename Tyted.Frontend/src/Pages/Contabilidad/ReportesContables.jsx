@@ -216,11 +216,14 @@ const filtrarRamasConMovimiento = (lista) => {
 // detalle jerárquico con sangría, cuentas títulos (padres) sin monto propio
 // y fila SUBTOTAL de cierre consolidando cada subárbol. Devuelve [] cuando
 // la sección no tiene cuentas con movimiento.
-const pintarSeccionJerarquica = (etiqueta, lista) => {
+// `valorDe` permite cambiar cómo se mide cada cuenta (por defecto, valor
+// absoluto); la sección de PATRIMONIO usa uno propio para que la cuenta de
+// resultados (3.1.3.1.02) aporte con signo: una pérdida resta al capital.
+const pintarSeccionJerarquica = (etiqueta, lista, valorDe = (c) => Math.abs(c.saldoFinal)) => {
   if (lista.length === 0) return [];
 
   const jerarquia = filasJerarquicas(lista, (c, esPadre, hijosMap) => ({
-    monto: sumarSubarbol(c, hijosMap, x => Math.abs(x.saldoFinal)),
+    monto: sumarSubarbol(c, hijosMap, valorDe),
   }));
 
   const filasSeccion = [
@@ -650,53 +653,88 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
       }
       case 'situacion-financiera': {
         // ---------------------------------------------------------------
-        // Mismo criterio del balance de comprobación: se usa el plan completo
-        // fusionado para mostrar las CUENTAS TÍTULOS (padres) con jerarquía
-        // y filas SUBTOTAL consolidadas.
+        // ESTRUCTURA: se usa el plan completo fusionado para mostrar las
+        // CUENTAS TÍTULOS (padres) con jerarquía y filas SUBTOTAL.
+        //
+        // ASIENTO TEMPORAL CONTABILIZADO EN EL PERIODO: el resultado que
+        // devuelve el backend se APLICA AL SALDO de la cuenta 3.1.3.1.02 en
+        // una COPIA de las filas de este estado, ANTES del filtrado por
+        // movimiento, de modo que la cuenta y su rama (3.1.3, 3.1, …)
+        // quedan integradas en la jerarquía de PATRIMONIO afectando los
+        // SUBTOTAL correspondientes. El Balance de Comprobación y el Estado
+        // de Resultado no se tocan: el asiento es temporal y sólo afecta la
+        // presentación de este estado. Si la empresa no tiene la cuenta
+        // 3.1.3.1.02 (o no está clasificada como patrimonio) se mantiene la
+        // fila plana histórica como respaldo.
         // ---------------------------------------------------------------
-        const plan = filtrarRamasConMovimiento(cuentasBalancePlan);
-        const activos = plan.filter(c => c.tipo.includes('ACTIVO'));
-        const pasivos = plan.filter(c => c.tipo.includes('PASIVO'));
-        const patrimonio = plan.filter(c => c.tipo.includes('PATRIMONIO') || c.tipo.includes('CAPITAL'));
 
-        const totalActivos = activos.reduce((sum, c) => sum + Math.abs(c.saldoFinal), 0);
-        const totalPasivos = pasivos.reduce((sum, c) => sum + Math.abs(c.saldoFinal), 0);
-        const totalPatrimonioCuentas = patrimonio.reduce((sum, c) => sum + Math.abs(c.saldoFinal), 0);
-
-        // ---------------------------------------------------------------
-        // RESULTADO DEL PERIODO VÍA ASIENTO TEMPORAL (PROCEDIMIENTO CONTABLE)
-        // Al consultar el periodo, el backend genera en memoria el asiento
-        // temporal (tipo «Temporal») que zera las cuentas de ingreso/egreso y
-        // traslada la diferencia neta a la cuenta 3.1.3.1.02 de la empresa.
-        // El estado toma el resultado de ese asiento —no de una resta hecha en
-        // el cliente— y lo presenta vinculado al patrimonio para que se cumpla:
-        //   ACTIVO = PASIVO + PATRIMONIO + RESULTADO DEL EJERCICIO
-        // El asiento no se persiste en el libro mayor: el Estado de Resultado y
-        // el Balance de Comprobación siguen viendo los movimientos reales, y si
-        // el periodo ya fue cerrado (ingresos y egresos en cero) el resultado
-        // vale 0,00 porque ya está dentro del patrimonio. Si la consulta del
-        // asiento fallara se recurre al cálculo aritmético como respaldo.
-        // ---------------------------------------------------------------
-        const ingresos = plan.filter(c => c.tipo.includes('INGRESO'));
-        const egresos = plan.filter(c => c.tipo.includes('GASTO') || c.tipo.includes('COSTO') || c.tipo.includes('EGRESO'));
+        // Resultado del periodo: del asiento temporal del backend, con
+        // respaldo aritmético si la consulta falló (magnitud equivalente
+        // para datos contables sanos).
+        const ingresos = cuentasBalancePlan.filter(c => c.tipo.includes('INGRESO'));
+        const egresos = cuentasBalancePlan.filter(c => c.tipo.includes('GASTO') || c.tipo.includes('COSTO') || c.tipo.includes('EGRESO'));
         const totalIngresosER = ingresos.reduce((sum, c) => sum + Math.abs(c.saldoFinal), 0);
         const totalEgresosER = egresos.reduce((sum, c) => sum + Math.abs(c.saldoFinal), 0);
 
         const usaAsientoTemporal = asientoTemporal !== null && asientoTemporal !== undefined;
+        const cuentaResultadosOk = usaAsientoTemporal && Boolean(asientoTemporal.cuentaResultadosEncontrada);
         const resultadoEjercicio = usaAsientoTemporal
           ? Number(asientoTemporal.resultado ?? 0)
           : totalIngresosER - totalEgresosER;
         const hayResultado = Math.abs(resultadoEjercicio) >= 0.005;
 
-        // Etiqueta de la fila: con el asiento temporal se referencia la cuenta
-        // destino (3.1.3.1.02) tomada del plan de la empresa activa; sin él se
-        // conserva el formato histórico de la resta ingresos − egresos.
-        const cuentaResultadosOk = usaAsientoTemporal && Boolean(asientoTemporal.cuentaResultadosEncontrada);
+        // Cuenta destino del asiento dentro del plan de la empresa activa.
+        const codigoResultados = cuentaResultadosOk
+          ? String(asientoTemporal.cuentaResultadosCodigo ?? '').trim()
+          : '';
+        const cuentaResultadosPlan = codigoResultados
+          ? cuentasBalancePlan.find(c => String(c.codigo ?? '').trim() === codigoResultados)
+          : undefined;
+
+        const esCuentaResultados = (c) =>
+          cuentaResultadosPlan !== undefined && c.idCuenta === cuentaResultadosPlan.idCuenta;
+
+        // Se integra el resultado al saldo de la cuenta sólo cuando existe en
+        // el plan y está clasificada como patrimonio (si no, la fila quedaría
+        // en la sección equivocada y se rompería la ecuación contable).
+        const integraResultado = Boolean(cuentaResultadosPlan)
+          && (cuentaResultadosPlan.tipo.includes('PATRIMONIO') || cuentaResultadosPlan.tipo.includes('CAPITAL'))
+          && hayResultado;
+
+        // Copia de las filas con el resultado contabilizado en la cuenta:
+        // mismo efecto que la línea del asiento temporal (Haber en utilidad,
+        // Debe en pérdida) sobre el saldo del periodo.
+        const filasSituacion = integraResultado
+          ? cuentasBalancePlan.map(c => esCuentaResultados(c)
+              ? { ...c, saldoFinal: c.saldoFinal + resultadoEjercicio }
+              : c)
+          : cuentasBalancePlan;
+
+        const plan = filtrarRamasConMovimiento(filasSituacion);
+        const activos = plan.filter(c => c.tipo.includes('ACTIVO'));
+        const pasivos = plan.filter(c => c.tipo.includes('PASIVO'));
+        const patrimonio = plan.filter(c => c.tipo.includes('PATRIMONIO') || c.tipo.includes('CAPITAL'));
+
+        // La cuenta de resultados aporta con signo FIRMADO (una pérdida resta
+        // al capital); el resto de cuentas conserva el valor absoluto.
+        const valorPatrimonio = (c) => (integraResultado && esCuentaResultados(c)
+          ? c.saldoFinal
+          : Math.abs(c.saldoFinal));
+
+        const totalActivos = activos.reduce((sum, c) => sum + Math.abs(c.saldoFinal), 0);
+        const totalPasivos = pasivos.reduce((sum, c) => sum + Math.abs(c.saldoFinal), 0);
+        const totalPatrimonioCuentas = patrimonio.reduce((sum, c) => sum + valorPatrimonio(c), 0);
+
+        // Etiqueta de la fila de RESPALDO (sólo cuando no se integró).
         const etiquetaResultado = cuentaResultadosOk
           ? `RESULTADO DEL EJERCICIO (Asiento temporal ${asientoTemporal.cuentaResultadosCodigo}${asientoTemporal.cuentaResultadosNombre ? ` - ${asientoTemporal.cuentaResultadosNombre}` : ''})`
           : 'RESULTADO DEL EJERCICIO (Ingresos − Egresos)';
 
-        const totalPatrimonio = totalPatrimonioCuentas + resultadoEjercicio;
+        // Con el resultado integrado ya forma parte del total de patrimonio;
+        // sin integrar se suma en la fila plana de respaldo (formato histórico).
+        const totalPatrimonio = integraResultado
+          ? totalPatrimonioCuentas
+          : totalPatrimonioCuentas + resultadoEjercicio;
         const totalPasivoPatrimonio = totalPasivos + totalPatrimonio;
 
         const filas = [
@@ -714,13 +752,17 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
                 filaSeparadoraSeccion(),
               ]
             : []),
-          ...(patrimonio.length > 0 || hayResultado
+          ...(patrimonio.length > 0 || (!integraResultado && hayResultado)
             ? [
-                ...pintarSeccionJerarquica('PATRIMONIO', patrimonio),
-                // Resultado del ejercicio vinculado al patrimonio: mientras
-                // no se cierre el ejercicio, la utilidad (o pérdida) del
-                // Estado de Resultado forma parte del capital.
-                ...(hayResultado
+                // Sección PATRIMONIO con el resultado ya contabilizado dentro
+                // de la cuenta 3.1.3.1.02 (aparece en su nivel del plan y sus
+                // SUBTOTAL consolidan su saldo).
+                ...pintarSeccionJerarquica('PATRIMONIO', patrimonio, valorPatrimonio),
+                // Respaldo histórico: fila plana FUERA de la jerarquía, sólo
+                // cuando el resultado no pudo integrarse a la cuenta
+                // (empresa sin 3.1.3.1.02 o cuenta no clasificada como
+                // patrimonio).
+                ...(!integraResultado && hayResultado
                   ? [filaTotalSeccion(etiquetaResultado, resultadoEjercicio)]
                   : []),
                 filaTotalSeccion('TOTAL PATRIMONIO', totalPatrimonio),
@@ -729,13 +771,25 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
         ];
 
         // VERIFICACIÓN DE LA ECUACIÓN CONTABLE:
-        // ACTIVO − (PASIVO + PATRIMONIO + RESULTADO) debe ser 0,00.
+        // Con el resultado integrado en PATRIMONIO: ACTIVO − (PASIVO +
+        // PATRIMONIO) debe ser 0,00. Sin integrar (respaldo histórico) se
+        // suma además la fila RESULTADO.
         if (filas.length > 0) {
-          const diferencia = totalActivos - totalPasivoPatrimonio;
-          filas.push([
-            { content: 'ECUACIÓN CONTABLE: ACTIVO − (PASIVO + PATRIMONIO + RESULTADO)', styles: { fontStyle: 'bold' } },
-            { content: formatMoney(Math.abs(diferencia) < 0.005 ? 0 : diferencia), styles: { fontStyle: 'bold' } },
-          ]);
+          const diferenciaRaw = totalActivos - totalPasivoPatrimonio;
+          // Si el desfase es menor a medio centavo (0.005), se considera 0 (cuadrado)
+          const diferencia = Math.abs(diferenciaRaw) < 0.005 ? 0 : diferenciaRaw;
+
+          // Se muestra únicamente si existe una diferencia/descuadre real
+          if (Math.abs(diferencia) > 0) {
+            const etiquetaEcuacion = integraResultado
+              ? 'ECUACIÓN CONTABLE: ACTIVO − (PASIVO + PATRIMONIO)'
+              : 'ECUACIÓN CONTABLE: ACTIVO − (PASIVO + PATRIMONIO + RESULTADO)';
+            
+            filas.push([
+              { content: etiquetaEcuacion, styles: { fontStyle: 'bold' } },
+              { content: formatMoney(diferencia), styles: { fontStyle: 'bold' } },
+            ]);
+          }
         }
 
         return {
@@ -1122,8 +1176,9 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
               asiento temporal (tipo «{asientoTemporal.tipoComprobante}») que el sistema genera al
               consultar este estado y que traslada utilidad/pérdida a la cuenta{' '}
               <strong>{asientoTemporal.cuentaResultadosCodigo}</strong>
-              {asientoTemporal.cuentaResultadosNombre ? ` - ${asientoTemporal.cuentaResultadosNombre}` : ''}.
-              El asiento no se graba en el libro mayor: existe sólo para la presentación de este estado.
+              {asientoTemporal.cuentaResultadosNombre ? ` - ${asientoTemporal.cuentaResultadosNombre}` : ''},
+              cuyo saldo se integra en las cuentas de patrimonio de este estado (afectando sus SUBTOTAL).
+              El asiento no se graba en el libro mayor: afecta sólo la presentación de este informe.
             </div>
           )}
 

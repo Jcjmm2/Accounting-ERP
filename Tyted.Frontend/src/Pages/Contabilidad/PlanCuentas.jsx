@@ -159,6 +159,16 @@ export default function PlanCuentas() {
     return codigo.includes(termino) || nombre.includes(termino);
   });
 
+  // Cuenta que usa el Estado de Situación Financiera para contabilizar el
+  // resultado del ejercicio (asiento temporal). Se evalúa su presencia y su
+  // TIPO para avisar en el listado: sólo si es de patrimonio el estado puede
+  // integrar el resultado dentro de la jerarquía PATRIMONIO del plan.
+  const cuentaResultadoSituacion = cuentas.find(c => (c.codigoCuenta ?? c.codigo) === CUENTA_RESULTADO_SITUACION);
+  const tipoCuentaResultado = String(cuentaResultadoSituacion?.tipoCuenta ?? cuentaResultadoSituacion?.TipoCuenta ?? '').toUpperCase();
+  const cuentaResultadoSinPatrimonio = Boolean(cuentaResultadoSituacion)
+    && !tipoCuentaResultado.includes('PATRIMONIO')
+    && !tipoCuentaResultado.includes('CAPITAL');
+
   // --- ESTILOS REUTILIZABLES ---
   const inputStyle = {
     padding: '10px 12px', borderRadius: '8px', border: '1px solid #334155',
@@ -306,17 +316,28 @@ export default function PlanCuentas() {
             />
           </div>
 
-          {/* AVISO: falta la cuenta que usa el Estado de Situación Financiera
-              para reflejar el resultado del ejercicio vía asiento temporal */}
-          {!cargando && cuentas.length > 0 && !cuentas.some(c => (c.codigoCuenta ?? c.codigo) === CUENTA_RESULTADO_SITUACION) && (
+          {/* AVISOS sobre la cuenta que usa el Estado de Situación Financiera
+              para contabilizar el resultado del ejercicio (asiento temporal) */}
+          {!cargando && cuentas.length > 0 && !cuentaResultadoSituacion && (
             <div style={{
               background: '#1e293b', border: '1px solid #f59e0b', color: '#fcd34d',
               padding: '12px 16px', borderRadius: '8px', marginBottom: '16px', fontSize: '0.9rem'
             }}>
               ⚠️ No existe la cuenta <strong>{CUENTA_RESULTADO_SITUACION}</strong> en el plan de esta empresa.
-              Sin ella, el Estado de Situación Financiera mostrará el resultado con el cálculo aritmético;
-              cree la cuenta (tipo <strong>Patrimonio</strong>, naturaleza Acreedora) para que el estado lo
-              refleje mediante el asiento temporal.
+              Sin ella, el Estado de Situación Financiera mostrará el resultado en una fila fuera de la
+              jerarquía; cree la cuenta (tipo <strong>Patrimonio</strong>, naturaleza Acreedora) para que el
+              resultado se contabilice dentro del patrimonio mediante el asiento temporal.
+            </div>
+          )}
+          {!cargando && cuentaResultadoSinPatrimonio && (
+            <div style={{
+              background: '#1e293b', border: '1px solid #f59e0b', color: '#fcd34d',
+              padding: '12px 16px', borderRadius: '8px', marginBottom: '16px', fontSize: '0.9rem'
+            }}>
+              ⚠️ La cuenta <strong>{CUENTA_RESULTADO_SITUACION}</strong> está clasificada como tipo
+              «{tipoCuentaResultado || 'sin tipo'}». El Estado de Situación Financiera sólo puede integrar el
+              resultado del ejercicio dentro de PATRIMONIO si la cuenta es de tipo <strong>Patrimonio</strong>:
+              edítela y corrija su tipo para que el resultado aparezca en la jerarquía del plan.
             </div>
           )}
 
