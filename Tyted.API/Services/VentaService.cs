@@ -161,10 +161,10 @@ namespace Tyted.API.Services
 
         /// <summary>
         /// Listado filtrado para el Libro de Ventas fiscal (SENIAT): rango de
-        /// fechas del periodo contable activo y/o empresa (multiempresa).
-        /// Los filtros son opcionales y combinables.
+        /// fechas del periodo contable activo, empresa (multiempresa) y/o
+        /// origen del documento ("POS" | "Fiscal"). Filtros opcionales/combinables.
         /// </summary>
-        public async Task<IEnumerable<Venta>> ObtenerFiltradasAsync(DateTime? fechaInicio = null, DateTime? fechaFin = null, int? empresaId = null)
+        public async Task<IEnumerable<Venta>> ObtenerFiltradasAsync(DateTime? fechaInicio = null, DateTime? fechaFin = null, int? empresaId = null, string? origen = null)
         {
             var query = _context.Ventas
                 .Include(v => v.Cliente)
@@ -174,6 +174,9 @@ namespace Tyted.API.Services
             if (empresaId.HasValue)
                 query = query.Where(v => v.EmpresaId == empresaId.Value);
 
+            if (!string.IsNullOrWhiteSpace(origen))
+                query = query.Where(v => v.Origen == origen);
+
             if (fechaInicio.HasValue)
                 query = query.Where(v => v.FechaVenta >= fechaInicio.Value);
 
@@ -182,6 +185,80 @@ namespace Tyted.API.Services
                 query = query.Where(v => v.FechaVenta < fechaFin.Value.Date.AddDays(1));
 
             return await query.OrderByDescending(v => v.FechaVenta).ToListAsync();
+        }
+
+        /// <summary>
+        /// Alta de venta desde el módulo FISCAL: documento declarativo con
+        /// Origen='Fiscal' SIN sesión de caja, SIN descuento de stock y SIN
+        /// kardex (no afecta el POS ni la gestión de inventario). Los totales
+        /// SIEMPRE se recalculan en servidor desde las líneas (integridad
+        /// fiscal) y no se registran pagos (no participa en el arqueo de caja).
+        /// </summary>
+        public async Task<Venta> CrearVentaFiscalAsync(Venta venta)
+        {
+            if (venta.Detalles == null || !venta.Detalles.Any())
+                throw new Exception("La venta fiscal no tiene líneas detalladas.");
+
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                venta.Origen = "Fiscal";
+                venta.NumeroFactura = await _correlativoService.GenerarSiguienteNumeroVenta();
+                venta.TipoMoneda = "USD";
+                if (venta.ClienteId <= 0) venta.ClienteId = 1;
+                if (venta.FechaVenta == default) venta.FechaVenta = DateHelper.GetVenezuelaTime();
+                if (string.IsNullOrWhiteSpace(venta.Usuario)) venta.Usuario = "FISCAL";
+                venta.IsAnulada = false;
+
+                var tasa = venta.TasaDeCambio > 0 ? venta.TasaDeCambio : 1m;
+                decimal subtotal = 0m, ivaTotal = 0m;
+
+                foreach (var detalle in venta.Detalles)
+                {
+                    var producto = await _context.Productos
+                        .FirstOrDefaultAsync(p => p.CodigoProd == detalle.CodigoProd)
+                        ?? throw new Exception($"Producto {detalle.CodigoProd} no existe.");
+                    var unidad = await _context.ProductosUnidad
+                        .FirstOrDefaultAsync(u => u.IdProductoUnidad == detalle.IdProductoUnidad)
+                        ?? throw new Exception($"Unidad no encontrada para {detalle.CodigoProd}.");
+                    if (detalle.Cantidad <= 0)
+                        throw new Exception("Cantidad inválida en las líneas de la venta fiscal.");
+
+                    detalle.NombreUnidad = unidad.NombreUnidad;
+
+                    var linea = Math.Round(detalle.PrecioUnitarioMonedaBase * detalle.Cantidad, 2);
+                    var ivaLinea = Math.Round(linea * (detalle.TasaIVA / 100m), 2);
+                    detalle.SubtotalLineaMonedaBase = linea;
+                    detalle.TotalLineaMonedaBase = linea + ivaLinea;
+                    detalle.SubtotalLineaMonedaExt = linea * tasa;
+                    detalle.IvaLineaMonedaExt = ivaLinea * tasa;
+                    detalle.TotalLineaMonedaExt = (linea + ivaLinea) * tasa;
+
+                    subtotal += linea;
+                    ivaTotal += ivaLinea;
+                }
+
+                venta.SubtotalMonedaBase = subtotal;
+                venta.IvaMonedaBase = ivaTotal;
+                venta.TotalMonedaBase = subtotal + ivaTotal;
+                venta.SubtotalMonedaExt = subtotal * tasa;
+                venta.IvaMonedaExt = ivaTotal * tasa;
+                venta.TotalMonedaExt = (subtotal + ivaTotal) * tasa;
+                venta.TasaDeCambio = tasa;
+                venta.TasaDia = tasa;
+                venta.TotalUSD = venta.TotalMonedaBase;
+                venta.TotalVES = venta.TotalMonedaExt;
+
+                _context.Ventas.Add(venta);
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+                return venta;
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+                throw new Exception($"Error al registrar la venta fiscal: {ex.Message}", ex);
+            }
         }
 
         public async Task<bool> AnularVentaAsync(int IdVenta)
@@ -197,6 +274,10 @@ namespace Tyted.API.Services
                 if (venta == null) throw new Exception("La venta no existe.");
                 if (venta.IsAnulada) throw new Exception("Esta venta ya fue anulada previamente.");
 
+                // Las ventas de origen FISCAL nunca tocaron stock ni kardex:
+                // su anulación tampoco revierte inventario (sólo cambia estado).
+                if (venta.Origen != "Fiscal")
+                {
                 foreach (var detalle in venta.Detalles)
                 {
                     // Buscamos el producto maestro
@@ -230,6 +311,7 @@ namespace Tyted.API.Services
                         _context.InventarioMovimientos.Add(movimientoAnulacion);
                     }
                 }
+                } // fin Origen != "Fiscal" (sin reversión de inventario)
 
                 // 5. BLINDAJE DE CUENTAS POR COBRAR (CxC)
                 // Si la venta fue a crédito, el cliente ya no debe ese dinero
@@ -277,7 +359,9 @@ namespace Tyted.API.Services
 
             var ventasDelDia = await _context.Ventas
                 .Include(v => v.Pagos) 
-                .Where(v => v.FechaVenta >= fechaInicioBusqueda && !v.IsAnulada)
+                // Las ventas del módulo FISCAL no tocan caja: se excluyen del
+                // arqueo. Se tolera Origen NULL como no-fiscal (datos legados).
+                .Where(v => v.FechaVenta >= fechaInicioBusqueda && !v.IsAnulada && (v.Origen == null || v.Origen != "Fiscal"))
                 .ToListAsync();
 
             var reporte = new ReporteCajaDTO

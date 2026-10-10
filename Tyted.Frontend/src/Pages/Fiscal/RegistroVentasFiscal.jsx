@@ -49,13 +49,28 @@ const inputChico = {
 // empresa/periodo rige el rango de fechas consultado.
 // ---------------------------------------------------------------------------
 export default function RegistroVentasFiscal() {
-  const { empresaActiva, periodoActivo } = useContext(ConfigContext);
+  const { empresaActiva, periodoActivo, tasa } = useContext(ConfigContext);
 
   const [ventas, setVentas] = useState([]);
   const [cargando, setCargando] = useState(false);
   const [editandoId, setEditandoId] = useState(null);
   const [formFiscal, setFormFiscal] = useState({ tipoTransaccion: '01', numeroControl: '' });
   const [procesandoId, setProcesandoId] = useState(null);
+
+  // --- ALTA DE VENTA FISCAL (sin caja, sin stock, sin kardex) ---
+  const [mostrarForm, setMostrarForm] = useState(false);
+  const [guardando, setGuardando] = useState(false);
+  const [contabilizarAuto, setContabilizarAuto] = useState(true);
+  const [clientes, setClientes] = useState([]);
+  const [formVenta, setFormVenta] = useState({
+    fecha: new Date().toISOString().slice(0, 10),
+    clienteId: '',
+    tipoTransaccion: '01',
+    numeroControl: ''
+  });
+  const [lineas, setLineas] = useState([]);
+  const [buscadorProd, setBuscadorProd] = useState('');
+  const [resultadosProd, setResultadosProd] = useState([]);
 
   const empresaId = Number(empresaActiva?.id ?? 0);
   const fechaInicio = periodoActivo?.fechaInicio;
@@ -140,6 +155,132 @@ export default function RegistroVentasFiscal() {
     }
   };
 
+  // -------------------------------------------------------------------------
+  // ALTA DE VENTA FISCAL
+  // -------------------------------------------------------------------------
+  const totalesForm = lineas.reduce((acc, l) => {
+    const base = Number(l.precio) * Number(l.cantidad);
+    acc.subtotal += base;
+    acc.iva += base * (Number(l.tasaIVA) / 100);
+    return acc;
+  }, { subtotal: 0, iva: 0 });
+  totalesForm.total = totalesForm.subtotal + totalesForm.iva;
+
+  const abrirFormVentaFiscal = async () => {
+    setFormVenta({
+      fecha: new Date().toISOString().slice(0, 10),
+      clienteId: '',
+      tipoTransaccion: '01',
+      numeroControl: ''
+    });
+    setLineas([]);
+    setBuscadorProd('');
+    setResultadosProd([]);
+    setMostrarForm(true);
+    if (clientes.length === 0) {
+      try {
+        const data = await fiscalApi.getClientes();
+        setClientes(Array.isArray(data) ? data : (data?.$values || []));
+      } catch (error) {
+        console.warn('Error cargando clientes:', error);
+      }
+    }
+  };
+
+  const buscarProdFiscal = async (valor) => {
+    setBuscadorProd(valor);
+    if (valor.trim().length < 2) { setResultadosProd([]); return; }
+    try {
+      const data = await fiscalApi.buscarProductos(valor, Number(tasa) || 1);
+      const unicos = [];
+      const vistos = new Set();
+      (Array.isArray(data) ? data : []).forEach((p) => {
+        if (!vistos.has(p.codigoProd)) { vistos.add(p.codigoProd); unicos.push(p); }
+      });
+      setResultadosProd(unicos);
+    } catch {
+      setResultadosProd([]);
+    }
+  };
+
+  const agregarLinea = (prod) => {
+    setLineas(prev => [...prev, {
+      idProductoUnidad: prod.idProductoUnidad,
+      codigoProd: prod.codigoProd,
+      descripcion: prod.descripcion || 'PRODUCTO',
+      unidad: prod.unidad || 'UND',
+      precio: Number(prod.precioUSD || prod.precioMonedaBase || 0),
+      cantidad: 1,
+      tasaIVA: Number(prod.porcentajeIva || 0)
+    }]);
+    setBuscadorProd('');
+    setResultadosProd([]);
+  };
+
+  const modificarLinea = (idx, campo, valor) => {
+    setLineas(prev => prev.map((l, i) => (i === idx ? { ...l, [campo]: valor } : l)));
+  };
+
+  const quitarLinea = (idx) => {
+    setLineas(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  const guardarVentaFiscal = async () => {
+    if (lineas.length === 0) { alert('⚠️ Agregue al menos una línea a la venta fiscal.'); return; }
+    if (!formVenta.clienteId) { alert('⚠️ Seleccione el cliente.'); return; }
+    if (lineas.some(l => Number(l.cantidad) <= 0 || Number(l.precio) < 0)) {
+      alert('⚠️ Revise cantidades y precios de las líneas.'); return;
+    }
+
+    const confirmado = window.confirm(
+      'Registrar la venta fiscal (documento declarativo).\n\n' +
+      'NO afecta el Punto de Venta ni el inventario: sin caja, sin descuento de stock y sin kardex.' +
+      (contabilizarAuto ? '\nSe generará además su comprobante contable.' : '')
+    );
+    if (!confirmado) return;
+
+    setGuardando(true);
+    try {
+      const creada = await fiscalApi.crearVentaFiscal({
+        empresaId,
+        clienteId: Number(formVenta.clienteId),
+        fechaVenta: `${formVenta.fecha}T12:00:00`,
+        tipoTransaccion: formVenta.tipoTransaccion,
+        numeroControl: formVenta.numeroControl || null,
+        esCredito: false,
+        usuario: 'FISCAL',
+        tasaDeCambio: Number(tasa) || 1,
+        tasaDia: Number(tasa) || 1,
+        detalles: lineas.map(l => ({
+          codigoProd: l.codigoProd,
+          idProductoUnidad: Number(l.idProductoUnidad),
+          nombreUnidad: l.unidad,
+          cantidad: Number(l.cantidad),
+          precioUnitarioMonedaBase: Number(l.precio),
+          tasaIVA: Number(l.tasaIVA)
+        }))
+      });
+
+      if (contabilizarAuto && creada?.ventaId) {
+        try {
+          const r = await fiscalApi.contabilizarVenta(creada.ventaId);
+          if (!r.generada) alert(`⚠️ Venta registrada, pero el comprobante no se generó:\n${r.advertencia || r.mensaje || ''}`);
+        } catch (errorC) {
+          alert(`⚠️ Venta registrada; el comprobante contable falló:\n${mensajeErrorApi(errorC)}`);
+        }
+      }
+
+      alert(`✅ Venta fiscal ${creada.numeroFactura || ''} registrada (sin efectos en caja ni inventario).`);
+      setMostrarForm(false);
+      await cargarVentas();
+    } catch (error) {
+      console.error('Error creando venta fiscal:', error);
+      alert(`❌ No se pudo registrar la venta fiscal:\n${mensajeErrorApi(error)}`);
+    } finally {
+      setGuardando(false);
+    }
+  };
+
   const hayContexto = Boolean(empresaId && fechaInicio && fechaFin);
 
   return (
@@ -157,17 +298,31 @@ export default function RegistroVentasFiscal() {
             {' · '}<b style={{ color: '#fbbf24' }}>{periodoActivo?.nombre || 'Sin periodo'}</b>
           </span>
         </div>
-        <button
-          onClick={cargarVentas}
-          disabled={cargando || !hayContexto}
-          style={{
-            background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px',
-            padding: '10px 16px', cursor: cargando ? 'wait' : 'pointer', fontWeight: 'bold',
-            opacity: hayContexto ? 1 : 0.5
-          }}
-        >
-          {cargando ? '⏳ Cargando…' : '🔍 Recargar'}
-        </button>
+        <div style={{ display: 'flex', gap: '10px' }}>
+          <button
+            onClick={abrirFormVentaFiscal}
+            disabled={!hayContexto || cargando}
+            style={{
+              background: '#059669', color: '#fff', border: 'none', borderRadius: '8px',
+              padding: '10px 16px', cursor: hayContexto && !cargando ? 'pointer' : 'not-allowed',
+              fontWeight: 'bold', opacity: hayContexto ? 1 : 0.5
+            }}
+            title="Registrar una venta fiscal declarativa (sin caja ni inventario)"
+          >
+            ➕ Nueva venta fiscal
+          </button>
+          <button
+            onClick={cargarVentas}
+            disabled={cargando || !hayContexto}
+            style={{
+              background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px',
+              padding: '10px 16px', cursor: cargando ? 'wait' : 'pointer', fontWeight: 'bold',
+              opacity: hayContexto ? 1 : 0.5
+            }}
+          >
+            {cargando ? '⏳ Cargando…' : '🔍 Recargar'}
+          </button>
+        </div>
       </div>
 
       {!hayContexto ? (
@@ -176,6 +331,118 @@ export default function RegistroVentasFiscal() {
         </div>
       ) : (
         <>
+          {/* --- FORMULARIO DE ALTA DE VENTA FISCAL (sin caja/inventario) --- */}
+          {mostrarForm && (
+            <div style={{ background: '#1e293b', border: '1px solid #16a34a', borderRadius: '12px', padding: '20px', marginBottom: '20px' }}>
+              <h3 style={{ margin: '0 0 4px 0', color: '#34d399', fontSize: '1.05rem' }}>➕ Nueva venta fiscal</h3>
+              <p style={{ margin: '0 0 14px 0', color: '#94a3b8', fontSize: '0.8rem' }}>
+                Documento declarativo: NO afecta el Punto de Venta ni el inventario (sin caja, sin descuento de stock, sin kardex).
+              </p>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '12px', marginBottom: '14px' }}>
+                <div>
+                  <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Fecha</label>
+                  <input type="date" value={formVenta.fecha} onChange={(e) => setFormVenta({ ...formVenta, fecha: e.target.value })} style={inputChico} />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Cliente</label>
+                  <select value={formVenta.clienteId} onChange={(e) => setFormVenta({ ...formVenta, clienteId: e.target.value })} style={inputChico}>
+                    <option value="">Seleccione…</option>
+                    {clientes.map((c) => (
+                      <option key={c.id} value={c.id}>{c.nombre} ({c.rif || 'S/RIF'})</option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Tipo (SENIAT)</label>
+                  <select value={formVenta.tipoTransaccion} onChange={(e) => setFormVenta({ ...formVenta, tipoTransaccion: e.target.value })} style={inputChico}>
+                    {TIPOS_TRANSACCION.map((t) => <option key={t.valor} value={t.valor}>{t.etiqueta}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>N° Control</label>
+                  <input type="text" value={formVenta.numeroControl} onChange={(e) => setFormVenta({ ...formVenta, numeroControl: e.target.value })} placeholder="00-000000" style={inputChico} />
+                </div>
+              </div>
+
+              <div style={{ position: 'relative', marginBottom: '10px' }}>
+                <input
+                  type="text"
+                  value={buscadorProd}
+                  onChange={(e) => buscarProdFiscal(e.target.value)}
+                  placeholder="🔍 Buscar producto para agregar una línea…"
+                  style={{ ...inputChico, width: '100%' }}
+                />
+                {resultadosProd.length > 0 && (
+                  <div style={{ position: 'absolute', left: 0, right: 0, top: '100%', zIndex: 30, background: '#0f172a', border: '1px solid #334155', borderRadius: '8px', maxHeight: '220px', overflowY: 'auto' }}>
+                    {resultadosProd.map((p) => (
+                      <div key={`${p.idProductoUnidad}-${p.codigoProd}`} onClick={() => agregarLinea(p)} style={{ padding: '8px 12px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #1f2937' }}>
+                        <span style={{ fontSize: '0.8rem' }}>{p.descripcion} <b style={{ color: '#94a3b8' }}>({p.unidad})</b></span>
+                        <b style={{ color: '#34d399' }}>${Number(p.precioUSD || p.precioMonedaBase || 0).toFixed(2)} · IVA {p.porcentajeIva || 0}%</b>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {lineas.length > 0 && (
+                <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', marginBottom: '12px' }}>
+                  <thead>
+                    <tr style={{ color: '#93c5fd', textAlign: 'left' }}>
+                      <th style={{ padding: '6px' }}>Producto</th>
+                      <th style={{ padding: '6px' }}>Cant.</th>
+                      <th style={{ padding: '6px' }}>Precio $</th>
+                      <th style={{ padding: '6px' }}>IVA %</th>
+                      <th style={{ padding: '6px', textAlign: 'right' }}>Subtotal</th>
+                      <th style={{ padding: '6px' }}></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lineas.map((l, idx) => (
+                      <tr key={`${l.idProductoUnidad}-${idx}`} style={{ borderTop: '1px solid #1f2937' }}>
+                        <td style={{ padding: '6px' }}>{l.descripcion} <span style={{ color: '#64748b' }}>({l.unidad})</span></td>
+                        <td style={{ padding: '6px' }}>
+                          <input type="number" min="0.001" step="0.001" value={l.cantidad} onChange={(e) => modificarLinea(idx, 'cantidad', e.target.value)} style={{ ...inputChico, width: '80px' }} />
+                        </td>
+                        <td style={{ padding: '6px' }}>
+                          <input type="number" min="0" step="0.01" value={l.precio} onChange={(e) => modificarLinea(idx, 'precio', e.target.value)} style={{ ...inputChico, width: '90px' }} />
+                        </td>
+                        <td style={{ padding: '6px' }}>
+                          <select value={l.tasaIVA} onChange={(e) => modificarLinea(idx, 'tasaIVA', Number(e.target.value))} style={inputChico}>
+                            <option value={0}>0%</option>
+                            <option value={8}>8%</option>
+                            <option value={16}>16%</option>
+                          </select>
+                        </td>
+                        <td style={{ padding: '6px', textAlign: 'right' }}>${(Number(l.precio) * Number(l.cantidad)).toFixed(2)}</td>
+                        <td style={{ padding: '6px', textAlign: 'center' }}>
+                          <button onClick={() => quitarLinea(idx)} title="Quitar línea" style={{ background: '#7f1d1d', color: '#fff', border: 'none', borderRadius: '5px', padding: '3px 8px', cursor: 'pointer' }}>🗑️</button>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                <div style={{ fontSize: '0.9rem' }}>
+                  <b>Base:</b> ${totalesForm.subtotal.toFixed(2)} · <b>IVA:</b> ${totalesForm.iva.toFixed(2)} ·{' '}
+                  <b style={{ color: '#34d399', fontSize: '1.05rem' }}>${totalesForm.total.toFixed(2)}</b>
+                </div>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                  <label style={{ fontSize: '0.8rem', color: '#cbd5e1', display: 'flex', gap: '6px', alignItems: 'center' }}>
+                    <input type="checkbox" checked={contabilizarAuto} onChange={(e) => setContabilizarAuto(e.target.checked)} />
+                    🧾 Contabilizar automáticamente
+                  </label>
+                  <button onClick={() => setMostrarForm(false)} style={{ background: '#475569', color: '#fff', border: 'none', borderRadius: '8px', padding: '9px 16px', cursor: 'pointer', fontWeight: 'bold' }}>Cancelar</button>
+                  <button onClick={guardarVentaFiscal} disabled={guardando} style={{ background: '#16a34a', color: '#fff', border: 'none', borderRadius: '8px', padding: '9px 18px', cursor: guardando ? 'wait' : 'pointer', fontWeight: 'bold', opacity: guardando ? 0.6 : 1 }}>
+                    {guardando ? '⏳ Guardando…' : '💾 Guardar venta fiscal'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Resumen del período (exentas, base gravada, débito fiscal) */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px', marginBottom: '20px' }}>
             {[

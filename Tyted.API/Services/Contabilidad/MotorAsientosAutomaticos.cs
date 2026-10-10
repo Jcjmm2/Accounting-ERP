@@ -292,6 +292,86 @@ public class MotorAsientosAutomaticos
         };
     }
 
+    /// <summary>
+    /// Comprobante del GASTO fiscal: Debe Gastos (5.1.2) | Haber Proveedores
+    /// (si tiene proveedor) o Caja. Idempotencia por AsientoContableId.
+    /// </summary>
+    public async Task<MotorAsientosResponse> GenerarAsientoGastoAsync(Gasto gasto, int usuarioId = 1)
+    {
+        if (gasto.AsientoContableId.HasValue)
+            return new MotorAsientosResponse
+            {
+                Generada = false,
+                AsientoId = gasto.AsientoContableId.Value,
+                Mensaje = "El gasto ya tiene comprobante contable.",
+                Advertencia = $"Ya contabilizado (asiento {gasto.AsientoContableId.Value}): no se duplica el comprobante."
+            };
+
+        if (gasto.IsAnulada)
+            return new MotorAsientosResponse
+            {
+                Generada = false,
+                Mensaje = "Gasto anulado.",
+                Advertencia = "Los gastos anulados no se contabilizan."
+            };
+
+        var monto = Math.Abs(gasto.Monto);
+        if (monto <= 0.005m)
+            return new MotorAsientosResponse
+            {
+                Generada = false,
+                Mensaje = "Sin monto que contabilizar.",
+                Advertencia = "El gasto no tiene monto."
+            };
+
+        var codigoHaber = gasto.CodigoProv.HasValue ? _mapping.Proveedores : _mapping.Caja;
+        var faltantes = new List<string>();
+        var cuentaDebe = await BuscarCuentaActivaAsync(gasto.EmpresaId, _mapping.Gastos, faltantes);
+        var cuentaHaber = await BuscarCuentaActivaAsync(gasto.EmpresaId, codigoHaber, faltantes);
+
+        if (faltantes.Count > 0)
+            return new MotorAsientosResponse
+            {
+                Generada = false,
+                Mensaje = "Plan de cuentas incompleto.",
+                Advertencia = $"No se encontraron activas en el plan de la empresa: {string.Join(", ", faltantes)}. Cree o reactive las cuentas y vuelva a intentar."
+            };
+
+        var periodo = await BuscarPeriodoAbiertoAsync(gasto.EmpresaId, gasto.Fecha);
+
+        var concepto = $"GASTO [{gasto.TipoTransaccion}] {gasto.Categoria ?? "S/CAT"} {gasto.Concepto} total {monto:0.00}";
+        var asiento = await _asientos.CrearAsientoAsync(new AsientoContable
+        {
+            EmpresaId = gasto.EmpresaId,
+            PeriodoContableId = periodo.Id,
+            NumeroComprobante = string.Empty,
+            FechaComprobante = gasto.Fecha,
+            Concepto = concepto.Length > 500 ? concepto[..500] : concepto,
+            TipoComprobante = "Diario",
+            Estado = "Aprobado",
+            UsuarioId = usuarioId,
+            Detalles = new List<AsientoDetalle>
+            {
+                new() { CuentaContableId = cuentaDebe!.Id, Debe = monto, Haber = 0m },
+                new() { CuentaContableId = cuentaHaber!.Id, Debe = 0m, Haber = monto }
+            }
+        });
+
+        // Vínculo gasto ↔ comprobante (idempotencia)
+        gasto.AsientoContableId = asiento.Id;
+        await _context.SaveChangesAsync();
+
+        return new MotorAsientosResponse
+        {
+            Generada = true,
+            AsientoId = asiento.Id,
+            NumeroComprobante = asiento.NumeroComprobante,
+            TotalDebe = monto,
+            TotalHaber = monto,
+            Mensaje = "Comprobante contable del gasto generado."
+        };
+    }
+
     /// <summary>Cuenta activa por código dentro del plan de la empresa; si no existe se anota en `faltantes`.</summary>
     private async Task<CuentaContable?> BuscarCuentaActivaAsync(int empresaId, string codigo, List<string> faltantes)
     {

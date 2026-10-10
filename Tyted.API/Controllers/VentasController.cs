@@ -30,19 +30,42 @@ namespace Tyted.API.Controllers
         public async Task<ActionResult<IEnumerable<Venta>>> GetVentas(
             [FromQuery] DateTime? fechaInicio,
             [FromQuery] DateTime? fechaFin,
-            [FromQuery] int? empresaId)
+            [FromQuery] int? empresaId,
+            [FromQuery] string? origen)
         {
             // Filtros opcionales del Libro de Ventas fiscal: rango del periodo
-            // contable activo y aislamiento multiempresa. Sin parámetros se
-            // conserva el comportamiento histórico (todas las ventas).
-            if (fechaInicio.HasValue || fechaFin.HasValue || empresaId.HasValue)
+            // contable activo, aislamiento multiempresa y origen del documento
+            // ("POS" para el historial del caja, sin parámetros = todas).
+            if (fechaInicio.HasValue || fechaFin.HasValue || empresaId.HasValue || !string.IsNullOrWhiteSpace(origen))
             {
-                var ventasFiltradas = await _ventaService.ObtenerFiltradasAsync(fechaInicio, fechaFin, empresaId);
+                var ventasFiltradas = await _ventaService.ObtenerFiltradasAsync(fechaInicio, fechaFin, empresaId, origen);
                 return Ok(ventasFiltradas);
             }
 
             var ventas = await _ventaService.ObtenerTodasAsync();
             return Ok(ventas);
+        }
+
+        /// <summary>
+        /// Alta de venta desde el módulo FISCAL (Origen='Fiscal'): SIN sesión de
+        /// caja, SIN descuento de stock y SIN kardex — no afecta el POS ni la
+        /// gestión de inventario. Los totales se recalculan en servidor.
+        /// </summary>
+        [HttpPost("fiscal")]
+        public async Task<IActionResult> CrearVentaFiscal([FromBody] Venta venta)
+        {
+            if (venta is null)
+                return BadRequest(new { message = "El cuerpo de la petición no es una venta válida." });
+
+            try
+            {
+                var creada = await _ventaService.CrearVentaFiscalAsync(venta);
+                return Ok(creada);
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
         }
 
         [HttpPost]

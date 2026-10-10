@@ -111,6 +111,10 @@ namespace Tyted.API.Services
                 if (compra == null) throw new Exception("La compra no existe.");
                 if (compra.IsAnulada) throw new Exception("Esta compra ya fue anulada.");
 
+                // Las compras de origen FISCAL nunca tocaron stock ni kardex:
+                // su anulación tampoco revierte inventario (sólo cambia estado).
+                if (compra.Origen != "Fiscal")
+                {
                 foreach (var detalle in compra.Detalles)
                 {
                     var producto = await _context.Productos
@@ -146,6 +150,7 @@ namespace Tyted.API.Services
                         _context.InventarioMovimientos.Add(movimiento);
                     }
                 }
+                } // fin Origen != "Fiscal" (sin reversión de inventario)
 
                 // 3. ANULAR CUENTA POR PAGAR
                 var cxp = await _context.CuentasPorPagar.FirstOrDefaultAsync(c => c.CompraId == id);
@@ -163,6 +168,76 @@ namespace Tyted.API.Services
             {
                 await transaction.RollbackAsync();
                 throw new Exception(ex.Message);
+            }
+        }
+
+        /// <summary>
+        /// Alta de compra desde el módulo FISCAL: documento declarativo con
+        /// Origen='Fiscal' SIN aumento de stock, SIN actualización de costos y
+        /// SIN kardex (no afecta el módulo de compras ni la gestión de
+        /// inventario). Totales recalculados en servidor desde las líneas.
+        /// </summary>
+        public async Task<Compra> CrearCompraFiscalAsync(Compra compra)
+        {
+            if (compra.Detalles == null || !compra.Detalles.Any())
+                throw new Exception("La compra fiscal no tiene líneas detalladas.");
+            if (compra.CodigoProv == null)
+                throw new Exception("Indique el proveedor de la compra fiscal.");
+
+            using var transaction = await _context.Database.BeginTransactionAsync();
+            try
+            {
+                compra.Origen = "Fiscal";
+                if (compra.FechaCompra == default) compra.FechaCompra = DateHelper.GetVenezuelaTime();
+                compra.IsAnulada = false;
+                if (string.IsNullOrWhiteSpace(compra.TipoMoneda)) compra.TipoMoneda = "USD";
+                var tasa = compra.TasaDeCambio > 0 ? compra.TasaDeCambio : 1m;
+
+                decimal subtotal = 0m, ivaTotal = 0m;
+                foreach (var detalle in compra.Detalles)
+                {
+                    var producto = await _context.Productos
+                        .FirstOrDefaultAsync(p => p.CodigoProd == detalle.CodigoProd)
+                        ?? throw new Exception($"Producto {detalle.CodigoProd} no existe.");
+                    var unidad = await _context.ProductosUnidad
+                        .FirstOrDefaultAsync(u => u.IdProductoUnidad == detalle.IdProductoUnidad)
+                        ?? throw new Exception($"Unidad no encontrada para {detalle.CodigoProd}.");
+                    if (detalle.Cantidad <= 0)
+                        throw new Exception("Cantidad inválida en las líneas de la compra fiscal.");
+
+                    if (string.IsNullOrWhiteSpace(detalle.UnidadCompra))
+                        detalle.UnidadCompra = unidad.NombreUnidad;
+
+                    var linea = Math.Round(detalle.CostoUnitarioMonedaBase * detalle.Cantidad, 2);
+                    var ivaLinea = Math.Round(linea * (detalle.TasaIVA / 100m), 2);
+                    detalle.SubtotalLineaMonedaBase = linea;
+                    detalle.TotalLineaMonedaBase = linea + ivaLinea;
+                    detalle.CostoUnitarioMonedaExt = detalle.CostoUnitarioMonedaBase * tasa;
+                    detalle.SubtotalLineaMonedaExt = linea * tasa;
+                    detalle.IvaLineaMonedaExt = ivaLinea * tasa;
+                    detalle.TotalLineaMonedaExt = (linea + ivaLinea) * tasa;
+
+                    subtotal += linea;
+                    ivaTotal += ivaLinea;
+                }
+
+                compra.SubtotalMonedaBase = subtotal;
+                compra.IvaMonedaBase = ivaTotal;
+                compra.TotalMonedaBase = subtotal + ivaTotal;
+                compra.SubtotalMonedaExt = subtotal * tasa;
+                compra.IvaMonedaExt = ivaTotal * tasa;
+                compra.TotalMonedaExt = (subtotal + ivaTotal) * tasa;
+                compra.TasaDeCambio = tasa;
+
+                _context.Compras.Add(compra);
+                await _context.SaveChangesAsync();
+                await transaction.CommitAsync();
+                return compra;
+            }
+            catch (Exception ex)
+            {
+                await transaction.RollbackAsync();
+                throw new Exception($"Error al registrar la compra fiscal: {ex.Message}", ex);
             }
         }
     }

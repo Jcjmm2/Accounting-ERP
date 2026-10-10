@@ -30,11 +30,11 @@ namespace Tyted.API.Controllers
         public async Task<ActionResult<IEnumerable<Compra>>> GetCompras(
             [FromQuery] DateTime? fechaInicio,
             [FromQuery] DateTime? fechaFin,
-            [FromQuery] int? empresaId)
+            [FromQuery] int? empresaId,
+            [FromQuery] string? origen)
         {
             // Filtros opcionales del Libro de Compras fiscal: rango del periodo
-            // contable activo y aislamiento multiempresa. Sin parámetros se
-            // conserva el comportamiento histórico (todas las compras).
+            // contable activo, aislamiento multiempresa y origen del documento.
             var query = _context.Compras
                 .Include(c => c.Proveedor)
                 .Include(c => c.Detalles)
@@ -42,6 +42,9 @@ namespace Tyted.API.Controllers
 
             if (empresaId.HasValue)
                 query = query.Where(c => c.EmpresaId == empresaId.Value);
+
+            if (!string.IsNullOrWhiteSpace(origen))
+                query = query.Where(c => c.Origen == origen);
 
             if (fechaInicio.HasValue)
                 query = query.Where(c => c.FechaCompra >= fechaInicio.Value);
@@ -53,6 +56,28 @@ namespace Tyted.API.Controllers
             return await query
                 .OrderByDescending(c => c.FechaCompra)
                 .ToListAsync();
+        }
+
+        /// <summary>
+        /// Alta de compra desde el módulo FISCAL (Origen='Fiscal'): SIN aumento
+        /// de stock, SIN costos y SIN kardex — no afecta el módulo de compras
+        /// ni la gestión de inventario. Totales recalculados en servidor.
+        /// </summary>
+        [HttpPost("fiscal")]
+        public async Task<ActionResult<Compra>> CrearCompraFiscal([FromBody] Compra compra)
+        {
+            if (compra is null)
+                return BadRequest(new { message = "El cuerpo de la petición no es una compra válida." });
+
+            try
+            {
+                var creada = await _compraService.CrearCompraFiscalAsync(compra);
+                return Ok(creada);
+            }
+            catch (Exception ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
         }
 
         // GET: api/Compras/5

@@ -75,6 +75,8 @@ builder.Services.AddSingleton(
 builder.Services.AddScoped<MotorAsientosAutomaticos>();
 // Fiscal F2: retenciones de IVA emitidas con correlativo SENIAT
 builder.Services.AddScoped<RetencionIvaService>();
+// Fiscal: gastos declarativos (sin inventario) con contabilización automática
+builder.Services.AddScoped<GastoService>();
 
 // =========================================================================
 // 4. CONFIGURACIÓN CORS (Actualizada)

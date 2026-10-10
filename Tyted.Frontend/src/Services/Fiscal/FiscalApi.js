@@ -94,5 +94,60 @@ export const fiscalApi = {
   emitirRetencionIva: async ({ compraId, empresaId, porcentaje }) => {
     const response = await api.post('/retenciones-iva', { compraId, empresaId, porcentaje });
     return response.data;
+  },
+
+  // -------------------------------------------------------------------------
+  // ALTA DE DOCUMENTOS DESDE EL MÓDULO FISCAL (Origen='Fiscal'): SIN caja,
+  // SIN stock y SIN kardex — no afectan el POS ni la gestión de inventario.
+  // -------------------------------------------------------------------------
+  crearVentaFiscal: async (venta) => {
+    const response = await api.post('/Ventas/fiscal', venta);
+    return response.data;
+  },
+
+  crearCompraFiscal: async (compra) => {
+    const response = await api.post('/Compras/fiscal', compra);
+    return response.data;
+  },
+
+  // -------------------------------------------------------------------------
+  // GASTOS DEL MÓDULO FISCAL (entidad propia, sin inventario)
+  // -------------------------------------------------------------------------
+  getGastos: async ({ fechaInicio, fechaFin, empresaId } = {}) => {
+    const params = {};
+    if (fechaInicio) params.fechaInicio = fechaInicio;
+    if (fechaFin) params.fechaFin = fechaFin;
+    if (empresaId) params.empresaId = empresaId;
+    const response = await api.get('/gastos', { params });
+    return response.data;
+  },
+
+  crearGasto: async (gasto) => {
+    const response = await api.post('/gastos', gasto);
+    return response.data;
+  },
+
+  contabilizarGasto: async (id) => {
+    const response = await api.post(`/gastos/${id}/contabilizar`);
+    return response.data;
+  },
+
+  // -------------------------------------------------------------------------
+  // MAESTROS para los formularios de alta fiscal (clientes, proveedores,
+  // búsqueda de productos con precios e IVA del día)
+  // -------------------------------------------------------------------------
+  getClientes: async () => {
+    const response = await api.get('/Clientes');
+    return response.data;
+  },
+
+  getProveedores: async () => {
+    const response = await api.get('/Proveedores');
+    return response.data;
+  },
+
+  buscarProductos: async (termino, tasaDelDia = 1) => {
+    const response = await api.get('/Productos/buscar', { params: { termino, tasaDelDia } });
+    return response.data;
   }
 };

@@ -43,6 +43,7 @@ namespace Tyted.API.Data
 
         // --- FISCAL (IVA SENIAT) ---
         public DbSet<RetencionIvaEmitida> RetencionesIvaEmitidas { get; set; } = default!;
+        public DbSet<Gasto> Gastos { get; set; } = default!;
 
         // --- CONTABILIDAD ---
         public DbSet<CuentaContable> CuentasContables { get; set; } = default!;

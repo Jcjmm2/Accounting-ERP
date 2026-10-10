@@ -23,7 +23,9 @@ import RegistroVentasFiscal from './Pages/Fiscal/RegistroVentasFiscal';
 import RegistroComprasFiscal from './Pages/Fiscal/RegistroComprasFiscal';
 
 function App() {
-  const [vista, setVista] = useState('pos');
+  // Página por defecto: Módulo Contable. Se recuerda la última vista visitada
+  // para que la sesión siguiente abra donde el usuario se quedó.
+  const [vista, setVista] = useState(() => localStorage.getItem('tyted_vista') || 'contabilidad');
   const [sidebarVisible, setSidebarVisible] = useState(window.innerWidth > 768);
   
   // Obtener datos del contexto global de configuración
@@ -32,6 +34,8 @@ function App() {
   // Función para cambiar de vista con comportamiento responsive
   const cambiarVista = (nuevaVista) => {
     setVista(nuevaVista);
+    // Persistir la última vista (la app reabrirá en este módulo)
+    localStorage.setItem('tyted_vista', nuevaVista);
     if (window.innerWidth <= 768) {
       setSidebarVisible(false);
     }

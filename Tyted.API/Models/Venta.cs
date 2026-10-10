@@ -81,6 +81,13 @@ namespace Tyted.API.Models
 
         /// <summary>Comprobante contable generado por el motor de asientos (integración administrativo-contable).</summary>
         public int? AsientoContableId { get; set; }
+
+        /// <summary>
+        /// Origen del documento: "POS" (caja/inventario) o "Fiscal" (alta desde
+        /// el módulo fiscal: sin caja, sin stock y sin kardex).
+        /// </summary>
+        [StringLength(20)]
+        public string Origen { get; set; } = "POS";
     }
 
 }

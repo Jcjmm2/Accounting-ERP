@@ -46,29 +46,15 @@ const POS = () => {
     puntoBancamiga: 0,
     Metal: 0
     });
-  const [datosEmpresa, setDatosEmpresa] = useState({
-        razonSocial: "CARGANDO...",
-        rif: "",
-        direccion: "",
-        telefono: ""
-      });
-      useEffect(() => {
-    const cargarDatosEmpresa = async () => {
-        try {
-            const res = await fetch(`${API_URL}/Empresa/configuracion`,{
-            headers: getAuthHeaders() // Agrégalo si el endpoint está protegido
-        });
-            if (res.ok) {
-                const data = await res.json();
-                // Aseguramos que data tenga datos, si no, mantenemos valores seguros
-                setDatosEmpresa(data || {});
-            }
-        } catch (error) {
-            console.error("Error cargando datos de empresa:", error);
-        }
-    };
-    cargarDatosEmpresa();
-    }, [API_URL]);
+  // Datos de empresa de la BARRA y el TICKET: guiados por el selector global
+  // (ConfigContext). Antes se cargaban desde /Empresa/configuracion SIN id,
+  // lo que devolvía siempre la primera empresa de la BD ("empresa por defecto").
+  const datosEmpresa = {
+    razonSocial: empresaActiva?.razonSocial || empresaActiva?.nombre || 'EMPRESA',
+    rif: empresaActiva?.rif || '',
+    direccion: empresaActiva?.direccion || '',
+    telefono: empresaActiva?.telefono || ''
+  };
 
   // --- NUEVO ESTADO PARA PEDIDOS PENDIENTES ---
 const [mostrarModalPedidos, setMostrarModalPedidos] = useState(false);
@@ -1379,6 +1365,7 @@ return (
         isOpen={mostrarHistorial}
         onClose={() => setMostrarHistorial(false)}
         API_URL={API_URL}
+        empresaId={Number(empresaActiva?.id ?? 0) || undefined}
       />
       {/* Al final de tu componente POS, junto a los otros modales */}
       <ModalPedidosPendientes 
@@ -1402,13 +1389,18 @@ return (
   
 };
 
-const ModalHistorialVentas = ({ isOpen, onClose, API_URL, notificar }) => {
+const ModalHistorialVentas = ({ isOpen, onClose, API_URL, notificar, empresaId }) => {
     const [ventas, setVentas] = useState([]);
     const [busqueda, setBusqueda] = useState("");
 
     const cargarVentas = async () => {
         try {
-            const res = await fetch(`${API_URL}/Ventas`, { headers: getAuthHeaders() });
+            // Filtra por la empresa activa del selector global y sólo documentos
+            // de origen POS (los fiscales se gestionan en el módulo fiscal).
+            const params = new URLSearchParams();
+            if (empresaId) params.set('empresaId', empresaId);
+            params.set('origen', 'POS');
+            const res = await fetch(`${API_URL}/Ventas?${params.toString()}`, { headers: getAuthHeaders() });
             if (res.ok) setVentas(await res.json());
         } catch (err) { console.error("Error cargando historial:", err); }
     };
