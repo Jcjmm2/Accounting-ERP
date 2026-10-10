@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Tyted.API.Data;
 
@@ -11,9 +12,11 @@ using Tyted.API.Data;
 namespace Tyted.API.Migrations
 {
     [DbContext(typeof(TytedContext))]
-    partial class TytedContextModelSnapshot : ModelSnapshot
+    [Migration("20261010150608_AddMultiempresaFiscalVentasCompras")]
+    partial class AddMultiempresaFiscalVentasCompras
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -1033,71 +1036,6 @@ namespace Tyted.API.Migrations
                     b.ToTable("Proveedores");
                 });
 
-            modelBuilder.Entity("Tyted.API.Models.RetencionIvaEmitida", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<decimal>("BaseImponible")
-                        .HasColumnType("decimal(18, 4)");
-
-                    b.Property<int?>("CompraId")
-                        .HasColumnType("int");
-
-                    b.Property<int>("EmpresaId")
-                        .HasColumnType("int");
-
-                    b.Property<string>("Estado")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)");
-
-                    b.Property<DateTime>("FechaRetencion")
-                        .HasColumnType("datetime2");
-
-                    b.Property<decimal>("IvaCalculado")
-                        .HasColumnType("decimal(18, 4)");
-
-                    b.Property<decimal>("MontoFactura")
-                        .HasColumnType("decimal(18, 4)");
-
-                    b.Property<decimal>("MontoRetenido")
-                        .HasColumnType("decimal(18, 4)");
-
-                    b.Property<string>("NumeroComprobante")
-                        .IsRequired()
-                        .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)");
-
-                    b.Property<string>("NumeroControl")
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
-
-                    b.Property<string>("NumeroFactura")
-                        .HasMaxLength(50)
-                        .HasColumnType("nvarchar(50)");
-
-                    b.Property<int>("PorcentajeRetencion")
-                        .HasColumnType("int");
-
-                    b.Property<string>("ProveedorNombre")
-                        .HasMaxLength(200)
-                        .HasColumnType("nvarchar(200)");
-
-                    b.Property<string>("ProveedorRif")
-                        .HasMaxLength(20)
-                        .HasColumnType("nvarchar(20)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("CompraId");
-
-                    b.ToTable("RetencionesIvaEmitidas");
-                });
-
             modelBuilder.Entity("Tyted.API.Models.TasaDeCambio", b =>
                 {
                     b.Property<int>("IdTasa")
@@ -1600,15 +1538,6 @@ namespace Tyted.API.Migrations
                     b.Navigation("Producto");
 
                     b.Navigation("UnidadMedida");
-                });
-
-            modelBuilder.Entity("Tyted.API.Models.RetencionIvaEmitida", b =>
-                {
-                    b.HasOne("Tyted.API.Models.Compra", "Compra")
-                        .WithMany()
-                        .HasForeignKey("CompraId");
-
-                    b.Navigation("Compra");
                 });
 
             modelBuilder.Entity("Tyted.API.Models.Venta", b =>

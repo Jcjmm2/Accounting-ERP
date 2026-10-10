@@ -41,6 +41,9 @@ namespace Tyted.API.Data
         public DbSet<NotaEntregaCompra> NotasEntregaCompra { get; set; } = default!;
         public DbSet<NotaEntregaCompraDetalle> NotasEntregaCompraDetalle { get; set; } = default!;
 
+        // --- FISCAL (IVA SENIAT) ---
+        public DbSet<RetencionIvaEmitida> RetencionesIvaEmitidas { get; set; } = default!;
+
         // --- CONTABILIDAD ---
         public DbSet<CuentaContable> CuentasContables { get; set; } = default!;
         public DbSet<PeriodoContable> PeriodosContables { get; set; } = default!;

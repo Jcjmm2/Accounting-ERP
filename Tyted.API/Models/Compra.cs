@@ -81,6 +81,17 @@ namespace Tyted.API.Models
         // Dentro de Compra.cs
         public bool EsCredito { get; set; } = false;
         public DateTime? FechaVencimiento { get; set; }
+
+        // --- MULTIEMPRESA E INTEGRACIÓN FISCAL/CONTABLE (Libro de Compras SENIAT) ---
+        /// <summary>Empresa a la que pertenece la compra (selector global empresaActiva).</summary>
+        public int EmpresaId { get; set; } = 1;
+
+        /// <summary>Tipo de transacción SENIAT: 01-Registro, 02-Complemento, 03-Anulación.</summary>
+        [StringLength(2)]
+        public string TipoTransaccion { get; set; } = "01";
+
+        /// <summary>Comprobante contable generado por el motor de asientos (integración administrativo-contable).</summary>
+        public int? AsientoContableId { get; set; }
     }
 
 }

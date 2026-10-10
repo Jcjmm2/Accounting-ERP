@@ -14,17 +14,33 @@ namespace Tyted.API.Controllers
     {
         private readonly VentaService _ventaService;
         private readonly TytedContext _context;
+        // Motor de asientos automáticos: genera el comprobante contable de la
+        // venta (integración administrativo-contable, plan BE-F4).
+        private readonly MotorAsientosAutomaticos _motor;
 
-        public VentasController(VentaService ventaService, TytedContext context)
+        public VentasController(VentaService ventaService, TytedContext context, MotorAsientosAutomaticos motor)
         {
             _ventaService = ventaService;
             _context = context;
+            _motor = motor;
         }
         // --- GESTIÓN DE VENTAS ---
 
         [HttpGet]
-        public async Task<ActionResult<IEnumerable<Venta>>> GetVentas()
+        public async Task<ActionResult<IEnumerable<Venta>>> GetVentas(
+            [FromQuery] DateTime? fechaInicio,
+            [FromQuery] DateTime? fechaFin,
+            [FromQuery] int? empresaId)
         {
+            // Filtros opcionales del Libro de Ventas fiscal: rango del periodo
+            // contable activo y aislamiento multiempresa. Sin parámetros se
+            // conserva el comportamiento histórico (todas las ventas).
+            if (fechaInicio.HasValue || fechaFin.HasValue || empresaId.HasValue)
+            {
+                var ventasFiltradas = await _ventaService.ObtenerFiltradasAsync(fechaInicio, fechaFin, empresaId);
+                return Ok(ventasFiltradas);
+            }
+
             var ventas = await _ventaService.ObtenerTodasAsync();
             return Ok(ventas);
         }
@@ -71,6 +87,65 @@ namespace Tyted.API.Controllers
             {
                 return BadRequest(new { message = ex.Message });
             }
+        }
+
+        // --- LIBRO DE VENTAS FISCAL (SENIAT) ---
+
+        /// <summary>
+        /// Actualiza los campos fiscales del documento: tipo de transacción
+        /// SENIAT (01-Registro, 02-Complemento, 03-Anulación) y N° Control.
+        /// </summary>
+        [HttpPut("{id}/fiscal")]
+        public async Task<ActionResult<Venta>> ActualizarFiscalVenta(int id, [FromBody] ActualizarDocumentoFiscalDto dto)
+        {
+            var venta = await _context.Ventas.FirstOrDefaultAsync(v => v.VentaId == id);
+            if (venta == null) return NotFound(new { message = "La venta no existe." });
+
+            var tiposValidos = new[] { "01", "02", "03" };
+            if (dto is null || string.IsNullOrWhiteSpace(dto.TipoTransaccion) || !tiposValidos.Contains(dto.TipoTransaccion))
+                return BadRequest(new { message = "Tipo de transacción inválido. Use 01 (Registro), 02 (Complemento) o 03 (Anulación)." });
+
+            venta.TipoTransaccion = dto.TipoTransaccion;
+            venta.NumeroControl = dto.NumeroControl;
+            await _context.SaveChangesAsync();
+            return Ok(venta);
+        }
+
+        // --- INTEGRACIÓN CONTABLE (BE-F4): comprobante automático de la venta ---
+
+        /// <summary>
+        /// Genera el comprobante contable de la venta (partida doble) mediante el
+        /// motor de asientos automáticos y vincula el asiento a la venta.
+        /// Idempotente: si la venta ya tiene comprobante responde 400 con aviso.
+        /// </summary>
+        [HttpPost("{id}/contabilizar")]
+        public async Task<ActionResult<MotorAsientosResponse>> ContabilizarVenta(int id)
+        {
+            var venta = await _context.Ventas
+                .Include(v => v.Detalles)
+                .FirstOrDefaultAsync(v => v.VentaId == id);
+            if (venta == null) return NotFound(new { message = "La venta no existe." });
+
+            try
+            {
+                var usuarioId = await ObtenerUsuarioIdAsync();
+                var respuesta = await _motor.GenerarAsientoVentaAsync(venta, usuarioId);
+                // Generada=false: aviso (cuenta faltante o ya contabilizada), sin error
+                return Ok(respuesta);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
+        /// <summary>Id real del usuario autenticado (auditoría y comprobantes).</summary>
+        private async Task<int> ObtenerUsuarioIdAsync()
+        {
+            var nombre = User.Identity?.Name;
+            if (string.IsNullOrEmpty(nombre)) return 1;
+            var usuario = await _context.Usuarios.AsNoTracking().FirstOrDefaultAsync(u => u.Username == nombre);
+            return usuario?.Id ?? 1;
         }
 
         // --- ARQUEO Y CIERRE DE CAJA ---
@@ -204,5 +279,16 @@ namespace Tyted.API.Controllers
 
             return Ok(reporte);
         }
+    }
+
+    /// <summary>
+    /// DTO de actualización de campos fiscales de un documento (venta o compra):
+    /// tipo de transacción SENIAT y N° Control.
+    /// </summary>
+    public class ActualizarDocumentoFiscalDto
+    {
+        /// <summary>01-Registro, 02-Complemento, 03-Anulación.</summary>
+        public string TipoTransaccion { get; set; } = "01";
+        public string? NumeroControl { get; set; }
     }
 }

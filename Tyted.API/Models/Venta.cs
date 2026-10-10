@@ -66,6 +66,21 @@ namespace Tyted.API.Models
         public bool EsCredito { get; set; } = false;
         public DateTime? FechaVencimiento { get; set; } // Solo si es crédito
         public int? PedidoId { get; set; } // Para vincular la venta con un pedido previo
+
+        // --- MULTIEMPRESA E INTEGRACIÓN FISCAL/CONTABLE (Libro de Ventas SENIAT) ---
+        /// <summary>Empresa a la que pertenece la venta (selector global empresaActiva).</summary>
+        public int EmpresaId { get; set; } = 1;
+
+        /// <summary>Tipo de transacción SENIAT: 01-Registro, 02-Complemento, 03-Anulación.</summary>
+        [StringLength(2)]
+        public string TipoTransaccion { get; set; } = "01";
+
+        /// <summary>N° de Control del documento fiscal (factura del emisor).</summary>
+        [StringLength(20)]
+        public string? NumeroControl { get; set; }
+
+        /// <summary>Comprobante contable generado por el motor de asientos (integración administrativo-contable).</summary>
+        public int? AsientoContableId { get; set; }
     }
 
 }

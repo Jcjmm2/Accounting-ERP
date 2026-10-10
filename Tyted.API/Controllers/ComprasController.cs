@@ -14,20 +14,43 @@ namespace Tyted.API.Controllers
     {
         private readonly TytedContext _context;
         private readonly CompraService _compraService;
+        // Motor de asientos automáticos: genera el comprobante contable de la
+        // compra (integración administrativo-contable, plan BE-F4).
+        private readonly MotorAsientosAutomaticos _motor;
 
-        public ComprasController(TytedContext context, CompraService compraService)
+        public ComprasController(TytedContext context, CompraService compraService, MotorAsientosAutomaticos motor)
         {
             _context = context;
             _compraService = compraService;
+            _motor = motor;
         }
 
         // GET: api/Compras
         [HttpGet]
-        public async Task<ActionResult<IEnumerable<Compra>>> GetCompras()
+        public async Task<ActionResult<IEnumerable<Compra>>> GetCompras(
+            [FromQuery] DateTime? fechaInicio,
+            [FromQuery] DateTime? fechaFin,
+            [FromQuery] int? empresaId)
         {
-            return await _context.Compras
+            // Filtros opcionales del Libro de Compras fiscal: rango del periodo
+            // contable activo y aislamiento multiempresa. Sin parámetros se
+            // conserva el comportamiento histórico (todas las compras).
+            var query = _context.Compras
                 .Include(c => c.Proveedor)
                 .Include(c => c.Detalles)
+                .AsQueryable();
+
+            if (empresaId.HasValue)
+                query = query.Where(c => c.EmpresaId == empresaId.Value);
+
+            if (fechaInicio.HasValue)
+                query = query.Where(c => c.FechaCompra >= fechaInicio.Value);
+
+            // fechaFin inclusiva por día: cubre documentos con hora del último día
+            if (fechaFin.HasValue)
+                query = query.Where(c => c.FechaCompra < fechaFin.Value.Date.AddDays(1));
+
+            return await query
                 .OrderByDescending(c => c.FechaCompra)
                 .ToListAsync();
         }
@@ -77,6 +100,64 @@ namespace Tyted.API.Controllers
             {
                 return BadRequest(new { message = ex.Message });
             }
+        }
+
+        // ==========================================================
+        // LIBRO DE COMPRAS FISCAL (SENIAT) E INTEGRACIÓN CONTABLE
+        // ==========================================================
+
+        /// <summary>
+        /// Actualiza los campos fiscales de la compra: tipo de transacción SENIAT
+        /// (01-Registro, 02-Complemento, 03-Anulación) y N° Control del proveedor.
+        /// </summary>
+        [HttpPut("{id}/fiscal")]
+        public async Task<ActionResult<Compra>> ActualizarFiscalCompra(int id, [FromBody] ActualizarDocumentoFiscalDto dto)
+        {
+            var compra = await _context.Compras.FirstOrDefaultAsync(c => c.Id == id);
+            if (compra == null) return NotFound(new { message = "La compra no existe." });
+
+            var tiposValidos = new[] { "01", "02", "03" };
+            if (dto is null || string.IsNullOrWhiteSpace(dto.TipoTransaccion) || !tiposValidos.Contains(dto.TipoTransaccion))
+                return BadRequest(new { message = "Tipo de transacción inválido. Use 01 (Registro), 02 (Complemento) o 03 (Anulación)." });
+
+            compra.TipoTransaccion = dto.TipoTransaccion;
+            compra.NumeroControl = dto.NumeroControl;
+            await _context.SaveChangesAsync();
+            return Ok(compra);
+        }
+
+        /// <summary>
+        /// Genera el comprobante contable de la compra (partida doble) mediante el
+        /// motor de asientos automáticos y vincula el asiento a la compra.
+        /// </summary>
+        [HttpPost("{id}/contabilizar")]
+        public async Task<ActionResult<MotorAsientosResponse>> ContabilizarCompra(int id)
+        {
+            var compra = await _context.Compras
+                .Include(c => c.Detalles)
+                .Include(c => c.Proveedor)
+                .FirstOrDefaultAsync(c => c.Id == id);
+            if (compra == null) return NotFound(new { message = "La compra no existe." });
+
+            try
+            {
+                var usuarioId = await ObtenerUsuarioIdAsync();
+                var respuesta = await _motor.GenerarAsientoCompraAsync(compra, usuarioId);
+                return Ok(respuesta);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
+        /// <summary>Id real del usuario autenticado (auditoría y comprobantes).</summary>
+        private async Task<int> ObtenerUsuarioIdAsync()
+        {
+            var nombre = User.Identity?.Name;
+            if (string.IsNullOrEmpty(nombre)) return 1;
+            var usuario = await _context.Usuarios.AsNoTracking().FirstOrDefaultAsync(u => u.Username == nombre);
+            return usuario?.Id ?? 1;
         }
 
         // ==========================================================

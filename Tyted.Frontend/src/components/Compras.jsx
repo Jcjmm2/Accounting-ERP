@@ -12,8 +12,9 @@ const getAuthHeaders = (incluirJson = true) => {
         return headers;
     };
 const Compras = () => {
-    // 1. Contexto y Configuración
-    const { API_URL, tasa } = useContext(ConfigContext);
+    // 1. Contexto y Configuración (empresaActiva: la compra se registra en la
+    // empresa activa del selector global)
+    const { API_URL, tasa, empresaActiva } = useContext(ConfigContext);
     
     // 2. Estados de Datos
     const [proveedores, setProveedores] = useState([]);
@@ -276,6 +277,8 @@ const Compras = () => {
 
         // 3. OBJETO FINAL (ENCABEZADO COMPRA)
         const compraParaEnviar = {
+            // Multiempresa: la compra pertenece a la empresa activa del selector
+            EmpresaId: Number(empresaActiva?.id ?? 1),
             CodigoProv: parseInt(compra.idProveedor),
             NumeroFactura: compra.numeroFactura,
             NumeroControl: compra.numeroControl || "", // Agregado por seguridad si existe en el form

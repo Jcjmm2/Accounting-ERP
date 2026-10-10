@@ -159,6 +159,31 @@ namespace Tyted.API.Services
                 .ToListAsync();
         }
 
+        /// <summary>
+        /// Listado filtrado para el Libro de Ventas fiscal (SENIAT): rango de
+        /// fechas del periodo contable activo y/o empresa (multiempresa).
+        /// Los filtros son opcionales y combinables.
+        /// </summary>
+        public async Task<IEnumerable<Venta>> ObtenerFiltradasAsync(DateTime? fechaInicio = null, DateTime? fechaFin = null, int? empresaId = null)
+        {
+            var query = _context.Ventas
+                .Include(v => v.Cliente)
+                .Include(v => v.Detalles)
+                .AsQueryable();
+
+            if (empresaId.HasValue)
+                query = query.Where(v => v.EmpresaId == empresaId.Value);
+
+            if (fechaInicio.HasValue)
+                query = query.Where(v => v.FechaVenta >= fechaInicio.Value);
+
+            // fechaFin inclusiva por día: cubre documentos con hora dentro del último día
+            if (fechaFin.HasValue)
+                query = query.Where(v => v.FechaVenta < fechaFin.Value.Date.AddDays(1));
+
+            return await query.OrderByDescending(v => v.FechaVenta).ToListAsync();
+        }
+
         public async Task<bool> AnularVentaAsync(int IdVenta)
         {
             using var transaction = await _context.Database.BeginTransactionAsync();

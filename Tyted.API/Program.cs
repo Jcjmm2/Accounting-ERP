@@ -67,6 +67,14 @@ builder.Services.AddScoped<PlanCuentasService>();
 builder.Services.AddScoped<AsientoContableService>();
 builder.Services.AddScoped<PeriodoContableService>();
 builder.Services.AddScoped<ReportesContablesService>();
+// Integración administrativo-contable (plan BE-F4): mapping de cuentas VEN-NIF
+// para el motor de asientos automáticos de ventas y compras. Se lee de
+// appsettings.json → "Contabilidad:Mapping" con defaults del plan base.
+builder.Services.AddSingleton(
+    builder.Configuration.GetSection("Contabilidad:Mapping").Get<MappingContable>() ?? new MappingContable());
+builder.Services.AddScoped<MotorAsientosAutomaticos>();
+// Fiscal F2: retenciones de IVA emitidas con correlativo SENIAT
+builder.Services.AddScoped<RetencionIvaService>();
 
 // =========================================================================
 // 4. CONFIGURACIÓN CORS (Actualizada)

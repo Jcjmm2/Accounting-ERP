@@ -19,6 +19,8 @@ import ConfiguracionEmpresa from './Components/ConfiguracionEmpresa';
 import Clientes from './Components/Clientes';
 import Pedidos from './Components/Pedidos';
 import ModuloContable from './Pages/Contabilidad/ModuloContable';
+import RegistroVentasFiscal from './Pages/Fiscal/RegistroVentasFiscal';
+import RegistroComprasFiscal from './Pages/Fiscal/RegistroComprasFiscal';
 
 function App() {
   const [vista, setVista] = useState('pos');
@@ -68,8 +70,10 @@ function App() {
       case 'usuarios': return <Usuarios />;
       case 'config': return <ConfiguracionEmpresa />;
       case 'clientes': return <Clientes />;
+      case 'ventas-fiscal': return <RegistroVentasFiscal />;
+      case 'compras-fiscal': return <RegistroComprasFiscal />;
       case 'contabilidad': return <ModuloContable />;
-      default: return <POS />;
+      default: return <ModuloContable />;
     }
   };
 
@@ -199,6 +203,17 @@ function App() {
               )}
             </select>
           </div>
+
+          {/* Contexto activo: el selector empresa/periodo rige los módulos que
+              lo consumen (contabilidad, configuración y libros fiscales) */}
+          <div style={{
+            fontSize: '0.7rem', color: '#94a3b8', background: '#0f172a',
+            border: '1px solid #334155', borderRadius: '6px', padding: '6px 8px',
+            marginTop: '-6px', marginBottom: '14px', lineHeight: '1.4'
+          }}>
+            Contexto: <b style={{ color: '#60a5fa' }}>{empresaActiva?.razonSocial || empresaActiva?.nombre || '—'}</b>
+            {' · '}<b style={{ color: '#fbbf24' }}>{periodoActivo?.nombre || '—'}</b>
+          </div>
         </div>
 
         {/* Menú de navegación principal */}
@@ -244,6 +259,14 @@ function App() {
             📒 Contabilidad
           </button>
 
+          <small className="nav-label">FISCAL (IVA SENIAT)</small>
+          <button className={`nav-button ${vista === 'ventas-fiscal' ? 'active' : ''}`} onClick={() => cambiarVista('ventas-fiscal')}>
+            📕 Registro de Ventas
+          </button>
+          <button className={`nav-button ${vista === 'compras-fiscal' ? 'active' : ''}`} onClick={() => cambiarVista('compras-fiscal')}>
+            📗 Registro de Compras
+          </button>
+
           <small className="nav-label">SISTEMA</small>
           <button className={`nav-button ${vista === 'reportes' ? 'active' : ''}`} onClick={() => cambiarVista('reportes')}>
             📈 Reportes
@@ -284,8 +307,13 @@ function App() {
         </div>
       </aside>
       
-      {/* Área principal donde se renderizan las vistas dinámicas */}
-      <main className="main-content">
+      {/* Área principal donde se renderizan las vistas dinámicas.
+          La key fuerza el re-montaje al cambiar el contexto global
+          (empresa/periodo), de modo que las vistas recargan sus datos. */}
+      <main
+        className="main-content"
+        key={`ctx-${empresaActiva?.id ?? 'x'}-${periodoActivo?.id ?? 'x'}`}
+      >
         {renderVista()}
       </main>
     </div>

@@ -11,7 +11,8 @@ const getAuthHeaders = () => ({
   'Authorization': `Bearer ${localStorage.getItem("token")}`
   });
 const POS = () => {
-  const { tasa, API_URL, user } = useContext(ConfigContext);
+  // empresaActiva: la venta se registra en la empresa del selector global
+  const { tasa, API_URL, user, empresaActiva } = useContext(ConfigContext);
   // Fase 3.3: Recuperar carrito al cargar
   const [carrito, setCarrito] = useState(() => {
     try {
@@ -541,6 +542,8 @@ const finalizarVenta = async (tipoVenta = null) => {
   // 3. Construcción del objeto Venta
   const ventaData = {
     clienteId: cliente.id || 1,
+    // Multiempresa: la venta pertenece a la empresa activa del selector global
+    empresaId: Number(empresaActiva?.id ?? 1),
     usuario: user.username,
     esCredito: creditoFinal,
     fechaVenta: new Date().toISOString(),
@@ -1411,7 +1414,12 @@ const ModalHistorialVentas = ({ isOpen, onClose, API_URL, notificar }) => {
     };
 
     useEffect(() => {
-        if (isOpen) cargarVentas();
+        if (!isOpen) return;
+        // Diferido al macrotask: evita ejecutar setState síncrono dentro del
+        // efect (regla react-hooks/set-state-in-effect) con comportamiento
+        // idéntico al llamado directo.
+        const timer = setTimeout(() => cargarVentas(), 0);
+        return () => clearTimeout(timer);
     }, [isOpen]);
 
     const handleAnular = async (id, numero) => {
