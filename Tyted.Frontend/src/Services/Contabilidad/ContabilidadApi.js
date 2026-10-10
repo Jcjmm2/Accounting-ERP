@@ -136,6 +136,21 @@ export const contabilidadApi = {
     return response.data;
   },
 
+  // Genera el asiento de cierre que traslada el resultado del periodo
+  // (utilidad o pérdida) a la cuenta de patrimonio "Resultados del ejercicio".
+  // Si el periodo ya tiene un cierre generado por el sistema, el backend
+  // responde 400 salvo que se envíe regenerar=true (lo reemplaza).
+  generarCierreResultados: async ({ periodoId, empresaId, usuarioId = 1, usuario = 'Sistema', regenerar = false }) => {
+    const response = await api.post('/asientos/cierre-resultados', {
+      periodoId,
+      empresaId,
+      usuarioId,
+      usuario,
+      regenerar
+    });
+    return response.data;
+  },
+
   // ---------------------------------------------------------------------------
   // GESTIÓN DE PERIODOS
   // ---------------------------------------------------------------------------

@@ -17,6 +17,9 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
   const [concepto, setConcepto] = useState('');
   const [tipoComprobante, setTipoComprobante] = useState('Diario');
   const [numeroComprobante, setNumeroComprobante] = useState(''); 
+  // Indica que se intentó grabar (o salir del campo) sin descripción, para
+  // resaltar el campo Concepto y mostrar el aviso de obligatoriedad.
+  const [errorConcepto, setErrorConcepto] = useState(false);
   
   const [lineas, setLineas] = useState([
     { cuentaId: '', codigoManual: '', debe: '', haber: '' },
@@ -102,18 +105,41 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
     if (lineas.length > 2) setLineas(lineas.filter((_, i) => i !== index));
   };
 
-  // Búsqueda dual: Tipear código sin puntos (Ej. 111101 -> 1.1.1.1.01)
+  // Búsqueda dual con formato visual: mientras el usuario tipea el código
+  // (con o sin puntos, Ej. 111101) el campo se autoformatea con los puntos
+  // del código real del plan de cuentas (Ej. 1.1.1.1.01) y, al completar el
+  // código exacto, asocia la cuenta contable correspondiente.
   const handleCodigoManual = (index, valor) => {
     const nuevasLineas = [...lineas];
-    nuevasLineas[index].codigoManual = valor;
-    
-    const valorLimpio = valor.replace(/\./g, '').trim();
+    const valorLimpio = String(valor).replace(/\./g, '').trim();
 
     if (valorLimpio === '') {
+      nuevasLineas[index].codigoManual = '';
       nuevasLineas[index].cuentaId = '';
       setLineas(nuevasLineas);
       return;
     }
+
+    // Candidatos del plan cuyo código (sin puntos) comienza por lo tipeado.
+    // Se muestra el prefijo del candidato más corto para que el usuario vea
+    // los puntos apareciendo (efecto visual) mientras escribe.
+    const candidatos = cuentasDisponibles
+      .map(c => c.codigoCuenta || c.codigo || '')
+      .filter(codigo => codigo.replace(/\./g, '').startsWith(valorLimpio))
+      .sort((a, b) => a.length - b.length);
+
+    let codigoMostrar = valorLimpio;
+    if (candidatos.length > 0) {
+      let digitos = 0;
+      codigoMostrar = '';
+      for (const caracter of candidatos[0]) {
+        if (digitos >= valorLimpio.length) break;
+        codigoMostrar += caracter;
+        if (caracter !== '.') digitos += 1;
+      }
+    }
+
+    nuevasLineas[index].codigoManual = codigoMostrar;
 
     const match = cuentasDisponibles.find(c => {
       const codigoBD = c.codigoCuenta || c.codigo || '';
@@ -150,6 +176,28 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
     setLineas(nuevasLineas);
   };
 
+  // Al salir del campo (blur) de un monto, si el usuario dejó el número sin
+  // decimales se completan visualmente con ".00" (p. ej. 100 -> 100.00) y si
+  // dejó un solo decimal se agrega un cero (100.5 -> 100.50). Es únicamente
+  // un ajuste de presentación: el valor numérico no cambia.
+  const completarDecimales = (index, campo) => {
+    const crudo = String(lineas[index][campo] ?? '').trim();
+    if (crudo === '') return;
+    if (!Number.isFinite(Number(crudo))) return;
+
+    let formateado = crudo;
+    if (!crudo.includes('.')) {
+      formateado = `${crudo}.00`;
+    } else if (/^\d+\.\d$/.test(crudo)) {
+      formateado = `${crudo}0`;
+    }
+    if (formateado === crudo) return;
+
+    const nuevasLineas = [...lineas];
+    nuevasLineas[index][campo] = formateado;
+    setLineas(nuevasLineas);
+  };
+
   const limpiarFormulario = () => {
     if (periodoActivo?.fechaInicio) {
       const inicio = periodoActivo.fechaInicio.split('T')[0];
@@ -165,11 +213,20 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
     setLineas([{ cuentaId: '', codigoManual: '', debe: '', haber: '' }, { cuentaId: '', codigoManual: '', debe: '', haber: '' }]);
     setModo('crear');
     setAsientoIdEditando(null);
+    setErrorConcepto(false);
   };
 
   // --- FUNCIONES DE GUARDADO ---
   const guardar = async (e) => {
     e.preventDefault();
+
+    // La descripción (concepto/glosa) es obligatoria: sin ella el asiento no
+    // se graba y se resalta el campo para que el usuario sepa qué completar.
+    if (!concepto.trim()) {
+      setErrorConcepto(true);
+      return alert('⚠️ El asiento no tiene descripción. Complete el campo "Concepto / Glosa" para poder grabar el asiento.');
+    }
+
     if (!cuadrado) return alert('⚠️ El asiento no está cuadrado. El Debe debe ser igual al Haber.');
 
     const lineasInvalidas = lineas.some(l => (l.debe || l.haber) && !l.cuentaId);
@@ -314,8 +371,23 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
                 </select>
               </div>
               <div>
-                <label style={labelStyle}>Concepto / Glosa</label>
-                <input type="text" value={concepto} onChange={e => setConcepto(e.target.value)} placeholder="Ej. Registro de nómina..." style={inputStyle} required />
+                <label style={{ ...labelStyle, color: errorConcepto ? '#f87171' : undefined }}>Concepto / Glosa *</label>
+                <input 
+                  type="text" 
+                  value={concepto} 
+                  onChange={e => { 
+                    setConcepto(e.target.value); 
+                    if (errorConcepto && e.target.value.trim()) setErrorConcepto(false);
+                  }} 
+                  onBlur={() => { if (!concepto.trim()) setErrorConcepto(true); }}
+                  placeholder="Ej. Registro de nómina..." 
+                  style={{ ...inputStyle, border: `1px solid ${errorConcepto ? '#dc2626' : '#334155'}` }} 
+                />
+                {errorConcepto && (
+                  <small style={{ color: '#f87171', fontSize: '0.75rem', display: 'block', marginTop: '4px' }}>
+                    ⚠️ Obligatorio: describa el asiento para poder grabarlo.
+                  </small>
+                )}
               </div>
             </div>
 
@@ -336,7 +408,7 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
                         <div style={{ display: 'flex', gap: '8px' }}>
                           <input 
                             type="text"
-                            placeholder="Ej. 111101"
+                            placeholder="Ej. 1.1.1.1.01 (con o sin puntos)"
                             value={linea.codigoManual}
                             onChange={e => handleCodigoManual(index, e.target.value)}
                             style={{ ...inputStyle, width: '140px', fontFamily: 'monospace' }}
@@ -364,10 +436,10 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
                         </div>
                       </td>
                       <td style={{ padding: '8px' }}>
-                        <input type="number" step="0.01" value={linea.debe} onChange={e => actualizarLinea(index, 'debe', e.target.value)} placeholder="0.00" style={{ ...inputStyle, textAlign: 'right' }} />
+                        <input type="number" step="0.01" value={linea.debe} onChange={e => actualizarLinea(index, 'debe', e.target.value)} onBlur={() => completarDecimales(index, 'debe')} placeholder="0.00" style={{ ...inputStyle, textAlign: 'right' }} />
                       </td>
                       <td style={{ padding: '8px' }}>
-                        <input type="number" step="0.01" value={linea.haber} onChange={e => actualizarLinea(index, 'haber', e.target.value)} placeholder="0.00" style={{ ...inputStyle, textAlign: 'right' }} />
+                        <input type="number" step="0.01" value={linea.haber} onChange={e => actualizarLinea(index, 'haber', e.target.value)} onBlur={() => completarDecimales(index, 'haber')} placeholder="0.00" style={{ ...inputStyle, textAlign: 'right' }} />
                       </td>
                       <td style={{ padding: '8px', textAlign: 'center' }}>
                         <button type="button" onClick={() => eliminarLinea(index)} style={{ background: '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', padding: '6px 10px', cursor: 'pointer' }}>✕</button>
@@ -402,7 +474,7 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
                     Cancelar Edición
                   </button>
                 )}
-                <button type="submit" disabled={!cuadrado || !concepto || cargando} style={{ 
+                <button type="submit" disabled={!cuadrado || cargando} title={!concepto.trim() ? 'Complete el campo "Concepto / Glosa" para poder grabar el asiento' : undefined} style={{ 
                   background: cuadrado ? (modo === 'editar' ? '#f59e0b' : '#16a34a') : '#475569', 
                   color: '#fff', border: 'none', borderRadius: '8px', padding: '12px 24px', 
                   cursor: cuadrado ? 'pointer' : 'not-allowed', fontWeight: 'bold', fontSize: '1rem'

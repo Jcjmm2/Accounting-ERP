@@ -196,6 +196,271 @@ public class AsientoContableService
         return asientoExistente;
     }
 
+    // ---------------------------------------------------------------------------
+    // ASIENTO DE CIERRE DE RESULTADOS (traslado a patrimonio)
+    // ---------------------------------------------------------------------------
+
+    /// <summary>
+    /// Prefijo del concepto que identifica los asientos de cierre de resultados
+    /// generados por el sistema. Permite distinguirlos de los asientos de
+    /// cierre manuales para poder regenerarlos sin tocar asientos del usuario.
+    /// </summary>
+    public const string PrefijoCierreResultados = "CIERRE DE RESULTADOS";
+
+    /// <summary>
+    /// Genera el asiento de cierre que traslada el resultado del periodo
+    /// (utilidad o pérdida) a una cuenta de patrimonio ("Resultados del
+    /// ejercicio"), cumpliendo la ecuación contable del estado de situación
+    /// financiera: ACTIVO = PASIVO + PATRIMONIO (con el resultado ya incluido).
+    ///
+    /// Reglas aplicadas:
+    /// - Calcula el saldo acumulado (signo natural) de cada cuenta de ingresos
+    ///   y egresos de la empresa hasta el cierre del periodo; incluye los
+    ///   saldos arrastrados de periodos anteriores (mismo corte de fechas que
+    ///   el balance de comprobación).
+    /// - Zera cada cuenta con un asiento contrario (ingreso: Debe; gasto: Haber).
+    /// - La diferencia neta se acredita (utilidad) o debita (pérdida) a la
+    ///   cuenta de patrimonio "Resultados del ejercicio"; si la empresa no
+    ///   tiene esa cuenta, el sistema la crea automáticamente bajo Patrimonio.
+    /// - Si el periodo ya tiene un cierre generado por el sistema, se rechaza
+    ///   salvo que se pida regenerar (regenerar = true), en cuyo caso se
+    ///   reemplaza para reflejar los últimos movimientos registrados.
+    /// </summary>
+    public async Task<CierreResultadosResponse> GenerarAsientoCierreResultadosAsync(
+        int periodoId,
+        int empresaId,
+        int usuarioId,
+        string? usuario = null,
+        bool regenerar = false)
+    {
+        var periodo = await _context.PeriodosContables
+            .AsNoTracking()
+            .FirstOrDefaultAsync(p => p.Id == periodoId)
+            ?? throw new InvalidOperationException("El periodo contable no existe.");
+
+        if (periodo.EmpresaId != empresaId)
+            throw new InvalidOperationException("El periodo solicitado no pertenece a la empresa activa.");
+
+        if (periodo.Cerrado || string.Equals(periodo.Estado, "Cerrado", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("No se puede generar el asiento de cierre en un periodo cerrado. Abra el periodo e intente de nuevo.");
+
+        // Cierre previo generado por el sistema para este periodo (se identifica
+        // por tipo "Cierre" + el prefijo del concepto, nunca toca asientos manuales).
+        var cierrePrevio = await _context.AsientosContables
+            .Include(a => a.Detalles)
+            .FirstOrDefaultAsync(a => a.PeriodoContableId == periodoId
+                && a.EmpresaId == empresaId
+                && a.TipoComprobante == "Cierre"
+                && a.Concepto.StartsWith(PrefijoCierreResultados));
+
+        if (cierrePrevio != null && !regenerar)
+            throw new InvalidOperationException($"El periodo «{periodo.Nombre}» ya tiene un asiento de cierre de resultados ({cierrePrevio.NumeroComprobante}). Use la opción «Regenerar» para reemplazarlo con los últimos movimientos.");
+
+        // Acumulado (saldo inicial + movimientos) de las cuentas de resultado
+        // hasta el fin del periodo, con el mismo corte inclusivo que usa el
+        // balance de comprobación (FechaFin cubre asientos del último día).
+        var fechaFinExclusiva = periodo.FechaFin.Date.AddDays(1);
+
+        var cuentasResultado = await _context.CuentasContables
+            .AsNoTracking()
+            .Where(c => c.EmpresaId == empresaId
+                && (c.TipoCuenta.ToUpper().Contains("INGRESO")
+                    || c.TipoCuenta.ToUpper().Contains("GASTO")
+                    || c.TipoCuenta.ToUpper().Contains("COSTO")
+                    || c.TipoCuenta.ToUpper().Contains("EGRESO")))
+            .OrderBy(c => c.CodigoCuenta)
+            .ToListAsync();
+
+        if (cuentasResultado.Count == 0)
+            throw new InvalidOperationException("La empresa no tiene cuentas de ingresos ni de egresos en su plan de cuentas: no hay nada que cerrar.");
+
+        var idsCuentas = cuentasResultado.Select(c => c.Id).ToList();
+        var acumulado = await _context.AsientosDetalles
+            .AsNoTracking()
+            .Where(d => d.AsientoContable!.EmpresaId == empresaId
+                && d.AsientoContable.FechaComprobante < fechaFinExclusiva
+                // Al regenerar se excluyen los movimientos del cierre previo
+                // para calcular los saldos como si el cierre no existiera.
+                && (cierrePrevio == null || d.AsientoContableId != cierrePrevio.Id)
+                && idsCuentas.Contains(d.CuentaContableId))
+            .GroupBy(d => d.CuentaContableId)
+            .Select(g => new { CuentaId = g.Key, Debe = g.Sum(x => x.Debe), Haber = g.Sum(x => x.Haber) })
+            .ToListAsync();
+        var acumuladoPorCuenta = acumulado.ToDictionary(x => x.CuentaId, x => x);
+
+        // Cierre de cada cuenta de resultado con saldo distinto de cero.
+        var detalles = new List<AsientoDetalle>();
+        decimal totalIngresos = 0m;
+        decimal totalEgresos = 0m;
+
+        foreach (var cuenta in cuentasResultado)
+        {
+            acumuladoPorCuenta.TryGetValue(cuenta.Id, out var mov);
+            var debe = mov?.Debe ?? 0m;
+            var haber = mov?.Haber ?? 0m;
+
+            // Signo natural según el TIPO de la cuenta (los ingresos son
+            // acreedores; los gastos y costos, deudores), usando la naturaleza
+            // declarada ("D"/"Deudora" vs "C"/"Acreedora") como respaldo.
+            var esDeudora = EsDeudoraPorTipo(cuenta);
+            var saldoNatural = esDeudora ? debe - haber : haber - debe;
+
+            if (Math.Abs(saldoNatural) <= 0.01m) continue;
+
+            if (esDeudora) totalEgresos += saldoNatural;
+            else totalIngresos += saldoNatural;
+
+            // Zerar la cuenta con un movimiento contrario al saldo acumulado.
+            detalles.Add(new AsientoDetalle
+            {
+                CuentaContableId = cuenta.Id,
+                Debe = esDeudora ? 0m : saldoNatural,
+                Haber = esDeudora ? saldoNatural : 0m
+            });
+        }
+
+        if (detalles.Count == 0)
+            throw new InvalidOperationException($"No hay cuentas de ingresos o egresos con saldo que cerrar en el periodo «{periodo.Nombre}». Es posible que el resultado ya haya sido transferido a patrimonio.");
+
+        var resultado = totalIngresos - totalEgresos; // > 0 utilidad, < 0 pérdida
+        var esUtilidad = resultado >= 0m;
+
+        // Cuenta de patrimonio destino ("Resultados del ejercicio")
+        var (cuentaResultados, creada) = await ObtenerOCrearCuentaResultadosAsync(empresaId);
+
+        detalles.Add(new AsientoDetalle
+        {
+            CuentaContableId = cuentaResultados.Id,
+            Debe = esUtilidad ? 0m : Math.Abs(resultado),
+            Haber = esUtilidad ? resultado : 0m
+        });
+
+        // Regeneración: se retira el cierre previo (y sus detalles) antes de
+        // crear el nuevo para no duplicar el traslado del resultado.
+        if (cierrePrevio != null)
+        {
+            _context.AsientosDetalles.RemoveRange(cierrePrevio.Detalles);
+            _context.AsientosContables.Remove(cierrePrevio);
+            _context.AuditoriasContables.Add(new AuditoriaContable
+            {
+                Fecha = DateTime.Now,
+                Usuario = usuario ?? "Sistema",
+                Accion = "Eliminación de asiento de cierre",
+                Detalle = $"Se reemplazó el asiento de cierre {cierrePrevio.NumeroComprobante} del periodo «{periodo.Nombre}» al regenerar los resultados."
+            });
+            await _context.SaveChangesAsync();
+        }
+
+        var concepto = $"{PrefijoCierreResultados} {periodo.Nombre}: traslado de {(esUtilidad ? "utilidad" : "pérdida")} por {Math.Abs(resultado):0.00} a la cuenta {cuentaResultados.CodigoCuenta} - {cuentaResultados.NombreCuenta}";
+
+        // CrearAsientoAsync reutiliza todas las validaciones del alta normal
+        // (partida doble, cuenta activa, rango del periodo, auditoría y
+        // autogeneración del comprobante con formato YYMM0000001).
+        var asiento = await CrearAsientoAsync(new AsientoContable
+        {
+            EmpresaId = empresaId,
+            PeriodoContableId = periodoId,
+            NumeroComprobante = string.Empty,
+            FechaComprobante = periodo.FechaFin.Date,
+            Concepto = concepto.Length > 500 ? concepto[..500] : concepto,
+            TipoComprobante = "Cierre",
+            Estado = "Aprobado",
+            UsuarioId = usuarioId,
+            Detalles = detalles
+        });
+
+        return new CierreResultadosResponse
+        {
+            AsientoId = asiento.Id,
+            NumeroComprobante = asiento.NumeroComprobante,
+            Concepto = asiento.Concepto,
+            FechaComprobante = asiento.FechaComprobante,
+            TotalIngresos = totalIngresos,
+            TotalEgresos = totalEgresos,
+            Resultado = resultado,
+            EsUtilidad = esUtilidad,
+            CuentaResultadosId = cuentaResultados.Id,
+            CuentaResultadosCodigo = cuentaResultados.CodigoCuenta,
+            CuentaResultadosNombre = cuentaResultados.NombreCuenta,
+            CuentaResultadosCreada = creada,
+            CantidadDetalles = detalles.Count
+        };
+    }
+
+    /// <summary>
+    /// Naturaleza de una cuenta de resultado según su TIPO: los gastos, costos
+    /// y egresos son deudores; los ingresos, acreedores. Si el tipo no permite
+    /// decidir se usa el campo Naturaleza, aceptando tanto "D"/"C" como las
+    /// etiquetas "Deudora"/"Acreedora" que envía el formulario del plan.
+    /// </summary>
+    private static bool EsDeudoraPorTipo(CuentaContable cuenta)
+    {
+        var tipo = (cuenta.TipoCuenta ?? string.Empty).ToUpperInvariant();
+        if (tipo.Contains("GASTO") || tipo.Contains("COSTO") || tipo.Contains("EGRESO")) return true;
+        if (tipo.Contains("INGRESO")) return false;
+        return (cuenta.Naturaleza ?? "D").TrimStart()
+            .StartsWith("D", StringComparison.OrdinalIgnoreCase);
+    }
+
+    /// <summary>
+    /// Busca la cuenta de patrimonio destino del resultado ("Resultados del
+    /// ejercicio") y, si no existe, la crea automáticamente bajo la cuenta
+    /// título de patrimonio. El código generado evita chocar con el índice
+    /// único (EmpresaId, CodigoCuenta) de la tabla CuentasContables.
+    /// </summary>
+    private async Task<(CuentaContable cuenta, bool creada)> ObtenerOCrearCuentaResultadosAsync(int empresaId)
+    {
+        var existente = await _context.CuentasContables
+            .AsNoTracking()
+            .Where(c => c.EmpresaId == empresaId
+                && (c.TipoCuenta.ToUpper().Contains("PATRIMONIO") || c.TipoCuenta.ToUpper().Contains("CAPITAL"))
+                && c.NombreCuenta.ToUpper().Contains("RESULTADO"))
+            .OrderBy(c => c.CodigoCuenta)
+            .FirstOrDefaultAsync();
+
+        if (existente != null) return (existente, false);
+
+        var tituloPatrimonio = await _context.CuentasContables
+            .AsNoTracking()
+            .Where(c => c.EmpresaId == empresaId
+                && (c.TipoCuenta.ToUpper().Contains("PATRIMONIO") || c.TipoCuenta.ToUpper().Contains("CAPITAL")))
+            .OrderBy(c => c.Nivel).ThenBy(c => c.CodigoCuenta)
+            .FirstOrDefaultAsync();
+
+        var baseCodigo = (tituloPatrimonio?.CodigoCuenta ?? "3").Trim().TrimEnd('.');
+        var codigo = $"{baseCodigo}.99";
+        for (var intento = 99; intento >= 1; intento--)
+        {
+            var candidato = $"{baseCodigo}.{intento:D2}";
+            var ocupado = await _context.CuentasContables
+                .AnyAsync(c => c.EmpresaId == empresaId && c.CodigoCuenta == candidato);
+            if (!ocupado)
+            {
+                codigo = candidato;
+                break;
+            }
+        }
+
+        var cuenta = new CuentaContable
+        {
+            EmpresaId = empresaId,
+            CodigoCuenta = codigo,
+            NombreCuenta = "RESULTADOS DEL EJERCICIO",
+            TipoCuenta = "Patrimonio",
+            Naturaleza = "C",
+            EsMovimiento = true,
+            Nivel = (tituloPatrimonio?.Nivel ?? 0) + 1,
+            PadreCuentaId = tituloPatrimonio?.Id,
+            AceptaTerceros = false,
+            AceptaCentroCosto = false,
+            Activa = true
+        };
+
+        _context.CuentasContables.Add(cuenta);
+        await _context.SaveChangesAsync();
+        return (cuenta, true);
+    }
+
     /// <summary>
     /// Genera el consecutivo del comprobante con el formato solicitado YYMM0000001:
     /// 2 dígitos de año + 2 de mes + secuencia de 7 dígitos (ej: 26100000001).
@@ -249,4 +514,29 @@ public class AsientoContableService
         if (detalle.Referencia.Length > 100)
             detalle.Referencia = detalle.Referencia[..100];
     }
+}
+
+/// <summary>
+/// Resultado del proceso de generación del asiento de cierre de resultados:
+/// resume el traslado del resultado del periodo a la cuenta de patrimonio.
+/// </summary>
+public class CierreResultadosResponse
+{
+    public int AsientoId { get; set; }
+    public string NumeroComprobante { get; set; } = string.Empty;
+    public string Concepto { get; set; } = string.Empty;
+    public DateTime FechaComprobante { get; set; }
+    /// <summary>Suma de los saldos naturales (acumulados) de las cuentas de ingresos.</summary>
+    public decimal TotalIngresos { get; set; }
+    /// <summary>Suma de los saldos naturales (acumulados) de las cuentas de gastos y costos.</summary>
+    public decimal TotalEgresos { get; set; }
+    /// <summary>Utilidad (positivo) o pérdida (negativo) transferida a patrimonio.</summary>
+    public decimal Resultado { get; set; }
+    public bool EsUtilidad { get; set; }
+    public int CuentaResultadosId { get; set; }
+    public string CuentaResultadosCodigo { get; set; } = string.Empty;
+    public string CuentaResultadosNombre { get; set; } = string.Empty;
+    /// <summary>Indica si la cuenta de patrimonio tuvo que ser creada por el sistema.</summary>
+    public bool CuentaResultadosCreada { get; set; }
+    public int CantidadDetalles { get; set; }
 }

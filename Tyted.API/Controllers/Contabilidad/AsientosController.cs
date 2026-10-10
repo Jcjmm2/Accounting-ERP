@@ -79,4 +79,47 @@ public class AsientosController : ControllerBase
             return BadRequest(new { message = $"Error al actualizar el asiento: {ex.Message}" });
         }
     }
+
+    /// <summary>
+    /// Genera el asiento de cierre que traslada el resultado del periodo
+    /// (utilidad o pérdida) a una cuenta de patrimonio ("Resultados del
+    /// ejercicio"). Si el periodo ya tiene un cierre generado por el sistema,
+    /// responde 400 salvo que se envíe regenerar=true (lo reemplaza).
+    /// </summary>
+    [HttpPost("asientos/cierre-resultados")]
+    public async Task<ActionResult<CierreResultadosResponse>> GenerarCierreResultados([FromBody] CierreResultadosRequest? request)
+    {
+        if (request is null || request.PeriodoId <= 0)
+            return BadRequest(new { message = "Indique el periodo contable a cerrar (periodoId)." });
+
+        if (request.EmpresaId <= 0)
+            return BadRequest(new { message = "Indique la empresa a la que pertenece el periodo (empresaId)." });
+
+        try
+        {
+            var resultado = await _service.GenerarAsientoCierreResultadosAsync(
+                request.PeriodoId,
+                request.EmpresaId,
+                request.UsuarioId,
+                request.Usuario,
+                request.Regenerar);
+
+            return Ok(resultado);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+}
+
+/// <summary>Solicitud de generación del asiento de cierre de resultados.</summary>
+public class CierreResultadosRequest
+{
+    public int PeriodoId { get; set; }
+    public int EmpresaId { get; set; }
+    public int UsuarioId { get; set; } = 1;
+    public string? Usuario { get; set; }
+    /// <summary>Reemplaza el cierre previo del sistema si ya existía.</summary>
+    public bool Regenerar { get; set; }
 }

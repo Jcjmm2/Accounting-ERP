@@ -1,15 +1,17 @@
 import { useEffect, useState, useContext } from 'react';
-import { contabilidadApi } from '../../Services/Contabilidad/ContabilidadApi';
+import { contabilidadApi, mensajeErrorApi } from '../../Services/Contabilidad/ContabilidadApi';
 import { ConfigContext } from '../../Context/ConfigContext';
 
 export default function PeriodosContables() {
   // 1. Extraemos la empresa activa y la función de refresco del contexto global
-  const { empresaActiva, refrescarContextoContable } = useContext(ConfigContext);
+  const { empresaActiva, refrescarContextoContable, user } = useContext(ConfigContext);
 
   const [periodosAnuales, setPeriodosAnuales] = useState([]);
   const [anioNuevo, setAnioNuevo] = useState(new Date().getFullYear());
   const [expandidos, setExpandidos] = useState({});
   const [cargando, setCargando] = useState(false);
+  // Id del periodo que está generando su asiento de cierre de resultados (spinner)
+  const [generandoCierreId, setGenerandoCierreId] = useState(null);
 
   const cargarPeriodos = async () => {
     if (!empresaActiva?.id) return;
@@ -70,6 +72,51 @@ export default function PeriodosContables() {
     } catch (error) {
       console.error('Error creando el ejercicio fiscal:', error);
       alert('❌ Error al crear el ejercicio fiscal.');
+    }
+  };
+
+  // Genera el asiento de cierre de resultados del periodo seleccionado: el
+  // resultado (utilidad o pérdida) se traslada a la cuenta de patrimonio
+  // "RESULTADOS DEL EJERCICIO" y queda registrado en el libro mayor, de modo
+  // que el estado de situación financiera cumple ACTIVO = PASIVO + PATRIMONIO.
+  const generarCierre = async (periodo) => {
+    const nombrePeriodo = periodo?.nombre || `ID ${periodo?.id}`;
+    const confirmado = window.confirm(
+      `Se generará el asiento de cierre de resultados del periodo «${nombrePeriodo}».\n\n` +
+      'El resultado del periodo (utilidad o pérdida) se transferirá a la cuenta de patrimonio ' +
+      '"RESULTADOS DEL EJERCICIO" y las cuentas de ingresos y egresos quedarán en cero.\n\n' +
+      'Si el periodo ya tiene un cierre del sistema, será reemplazado por el nuevo. ¿Continuar?'
+    );
+    if (!confirmado) return;
+
+    setGenerandoCierreId(periodo.id);
+    try {
+      // regenerar: true porque la confirmación del usuario ya autoriza
+      // reemplazar el cierre previo del sistema (si existía).
+      const r = await contabilidadApi.generarCierreResultados({
+        periodoId: periodo.id,
+        empresaId: empresaActiva?.id,
+        usuarioId: Number(user?.id ?? 1),
+        usuario: user?.username || user?.nombre || 'Sistema',
+        regenerar: true
+      });
+
+      const monto = Math.abs(Number(r.resultado ?? 0)).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+      alert(
+        `✅ Asiento de cierre generado: ${r.numeroComprobante}\n\n` +
+        `Periodo: ${nombrePeriodo}\n` +
+        `Cuenta destino: ${r.cuentaResultadosCodigo} - ${r.cuentaResultadosNombre}` +
+        `${r.cuentaResultadosCreada ? ' (creada automáticamente)' : ''}\n` +
+        `${r.esUtilidad ? '💰 Utilidad' : '📉 Pérdida'} del periodo: ${monto}\n` +
+        `Líneas del asiento: ${r.cantidadDetalles}`
+      );
+
+      await cargarPeriodos();
+    } catch (error) {
+      console.error('Error generando el asiento de cierre:', error);
+      alert(`❌ No se pudo generar el asiento de cierre:\n${mensajeErrorApi(error)}`);
+    } finally {
+      setGenerandoCierreId(null);
     }
   };
 
@@ -135,6 +182,21 @@ export default function PeriodosContables() {
                     </div>
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); generarCierre(padre); }}
+                      disabled={padre.estado !== 'Abierto' || generandoCierreId !== null}
+                      title={padre.estado !== 'Abierto' ? 'El ejercicio está cerrado: no se pueden generar asientos de cierre' : 'Generar el asiento que traslada el resultado del ejercicio a la cuenta de patrimonio "Resultados del ejercicio"'}
+                      style={{
+                        background: padre.estado === 'Abierto' ? '#7c3aed' : '#334155',
+                        color: '#fff', border: 'none', borderRadius: '6px', padding: '6px 12px',
+                        fontSize: '0.75rem', fontWeight: 'bold',
+                        cursor: padre.estado === 'Abierto' && generandoCierreId === null ? 'pointer' : 'not-allowed',
+                        opacity: padre.estado === 'Abierto' && generandoCierreId === null ? 1 : 0.5
+                      }}
+                    >
+                      {generandoCierreId === padre.id ? '⏳ Cerrando...' : '📉 Cierre de Resultados'}
+                    </button>
                     <span style={{ padding: '6px 14px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 'bold', background: padre.estado === 'Abierto' ? '#064e3b' : '#7f1d1d', color: padre.estado === 'Abierto' ? '#34d399' : '#fca5a5' }}>
                       {padre.estado}
                     </span>
@@ -156,10 +218,25 @@ export default function PeriodosContables() {
                               {new Date(sub.fechaInicio).toLocaleDateString()} - {new Date(sub.fechaFin).toLocaleDateString()}
                             </span>
                           </div>
-                          <div style={{ display: 'flex', justifyContent: 'flex-start' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '8px' }}>
                             <span style={{ padding: '4px 10px', borderRadius: '6px', fontSize: '0.7rem', fontWeight: 'bold', background: sub.estado === 'Abierto' ? '#064e3b' : '#7f1d1d', color: sub.estado === 'Abierto' ? '#34d399' : '#fca5a5' }}>
                               {sub.estado}
                             </span>
+                            <button
+                              type="button"
+                              onClick={() => generarCierre(sub)}
+                              disabled={sub.estado !== 'Abierto' || generandoCierreId !== null}
+                              title={sub.estado !== 'Abierto' ? 'El periodo está cerrado: no se pueden generar asientos de cierre' : 'Generar el asiento que traslada el resultado del periodo a la cuenta de patrimonio "Resultados del ejercicio"'}
+                              style={{
+                                background: sub.estado === 'Abierto' ? '#7c3aed' : '#334155',
+                                color: '#fff', border: 'none', borderRadius: '6px', padding: '4px 10px',
+                                fontSize: '0.7rem', fontWeight: 'bold',
+                                cursor: sub.estado === 'Abierto' && generandoCierreId === null ? 'pointer' : 'not-allowed',
+                                opacity: sub.estado === 'Abierto' && generandoCierreId === null ? 1 : 0.5
+                              }}
+                            >
+                              {generandoCierreId === sub.id ? '⏳' : '📉 Cierre'}
+                            </button>
                           </div>
                         </div>
                       ))

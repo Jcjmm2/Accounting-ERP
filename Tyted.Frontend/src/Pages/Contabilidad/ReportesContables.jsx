@@ -173,6 +173,91 @@ const insertarSubtotalesJerarquia = (filas) => {
   return salida;
 };
 
+// ---------------------------------------------------------------------------
+// FILTRADO DE RAMAS Y SECCIONES COMPARTIDOS POR LOS TRES ESTADOS
+// ---------------------------------------------------------------------------
+
+// Mantiene SÓLO las cuentas con saldo o movimiento y, como excepción, los
+// títulos/subtítulos ancestros que las contienen. Los títulos sin movimiento
+// en toda su rama se OCULTAN (no se lista el plan completo, sólo la
+// estructura operativa del periodo).
+const filtrarRamasConMovimiento = (lista) => {
+  const conValores = (c) => c.saldoInicial !== 0 || c.debe !== 0 || c.haber !== 0 || c.saldoFinal !== 0;
+
+  const arbol = construirArbol(lista);
+  const visibles = new Set();
+  const visitados = new Set();
+
+  // Post-orden: una cuenta se conserva si tiene movimiento O si su árbol
+  // descendiente contiene alguna cuenta con movimiento.
+  const marcarRama = (c) => {
+    const id = c.idCuenta;
+    if (visitados.has(id)) return visibles.has(id);
+    visitados.add(id);
+    let hayMovimiento = conValores(c);
+    (arbol.hijosMap.get(id) || []).forEach(hijo => {
+      if (marcarRama(hijo)) hayMovimiento = true;
+    });
+    if (hayMovimiento) visibles.add(id);
+    return hayMovimiento;
+  };
+  arbol.raices.forEach(raiz => marcarRama(raiz));
+  // Cuentas no alcanzadas desde las raíces (p. ej. por ciclos): si tienen
+  // movimiento no se descartan.
+  lista.forEach(c => {
+    if (!visitados.has(c.idCuenta) && conValores(c)) visibles.add(c.idCuenta);
+  });
+
+  return lista.filter(c => visibles.has(c.idCuenta));
+};
+
+// Pinta una sección (ACTIVO, PASIVO, PATRIMONIO, INGRESOS, EGRESOS) con la
+// MISMA estructura del balance de comprobación: título de cuenta en negrita,
+// detalle jerárquico con sangría, cuentas títulos (padres) sin monto propio
+// y fila SUBTOTAL de cierre consolidando cada subárbol. Devuelve [] cuando
+// la sección no tiene cuentas con movimiento.
+const pintarSeccionJerarquica = (etiqueta, lista) => {
+  if (lista.length === 0) return [];
+
+  const jerarquia = filasJerarquicas(lista, (c, esPadre, hijosMap) => ({
+    monto: sumarSubarbol(c, hijosMap, x => Math.abs(x.saldoFinal)),
+  }));
+
+  const filasSeccion = [
+    [{ content: etiqueta, styles: { fontStyle: 'bold' } }, ''],
+  ];
+
+  insertarSubtotalesJerarquia(jerarquia).forEach(r => {
+    const esSubtotal = r.esSubtotalCierre === true;
+    const estilo = (r.esPadre || esSubtotal) ? { fontStyle: 'bold' } : {};
+    const descripcion = r.cuenta.codigo
+      ? `${r.cuenta.codigo} - ${r.cuenta.nombre}`
+      : `${r.cuenta.nombre}`;
+    const etiquetaFila = esSubtotal
+      ? `${sangria(r.profundidad)}SUBTOTAL ${descripcion}`
+      : `${sangria(r.profundidad)}${descripcion}`;
+    // Los padres consolidan su subárbol en la fila SUBTOTAL de cierre (los
+    // valores propios de las cuentas título son cero), evitando el doble
+    // conteo al sumar el detalle visible.
+    const mostrarMonto = !r.esPadre || esSubtotal;
+    filasSeccion.push([
+      { content: etiquetaFila, styles: estilo },
+      { content: mostrarMonto ? formatMoney(r.valores.monto) : '', styles: estilo },
+    ]);
+  });
+
+  return filasSeccion;
+};
+
+// Fila TOTAL en negrita (usada por el Estado de Resultado y el de Situación).
+const filaTotalSeccion = (etiqueta, monto) => [
+  { content: etiqueta, styles: { fontStyle: 'bold' } },
+  { content: formatMoney(monto), styles: { fontStyle: 'bold' } },
+];
+
+// Fila separadora entre secciones de los estados financieros.
+const filaSeparadoraSeccion = () => [{ content: '', styles: { minCellHeight: 10 } }, ''];
+
 export default function ReportesContables({ empresaActiva, periodoActivo }) {
   const [balance, setBalance] = useState([]);
   const [cuentas, setCuentas] = useState([]);
@@ -350,37 +435,11 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
       case 'balance-comprobacion': {
         // ---------------------------------------------------------------
         // FILTRADO: se muestran SÓLO las cuentas con saldo o movimiento y,
-        // como excepción, los títulos/subtítulos ancestros que las contienen.
-        // Los títulos sin movimiento en toda su rama se OCULTAN (no se lista
-        // el plan completo, sólo la estructura operativa del periodo).
+        // como excepción, los títulos/subtítulos ancestros que las contienen
+        // (misma regla que aplican el Estado de Resultado y el Estado de
+        // Situación Financiera gracias al helper compartido).
         // ---------------------------------------------------------------
-        const conValores = (c) => c.saldoInicial !== 0 || c.debe !== 0 || c.haber !== 0 || c.saldoFinal !== 0;
-
-        const arbolPlan = construirArbol(cuentasBalancePlan);
-        const visibles = new Set();
-        const visitados = new Set();
-
-        // Post-orden: una cuenta se conserva si tiene movimiento O si su árbol
-        // descendiente contiene alguna cuenta con movimiento.
-        const marcarRama = (c) => {
-          const id = c.idCuenta;
-          if (visitados.has(id)) return visibles.has(id);
-          visitados.add(id);
-          let hayMovimiento = conValores(c);
-          (arbolPlan.hijosMap.get(id) || []).forEach(hijo => {
-            if (marcarRama(hijo)) hayMovimiento = true;
-          });
-          if (hayMovimiento) visibles.add(id);
-          return hayMovimiento;
-        };
-        arbolPlan.raices.forEach(raiz => marcarRama(raiz));
-        // Cuentas no alcanzadas desde las raíces (p. ej. por ciclos): si tienen
-        // movimiento no se descartan.
-        cuentasBalancePlan.forEach(c => {
-          if (!visitados.has(c.idCuenta) && conValores(c)) visibles.add(c.idCuenta);
-        });
-
-        const planBalance = cuentasBalancePlan.filter(c => visibles.has(c.idCuenta));
+        const planBalance = filtrarRamasConMovimiento(cuentasBalancePlan);
 
         const totales = planBalance.reduce((acc, c) => ({
           inicial: acc.inicial + c.saldoInicial,
@@ -542,40 +601,34 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
         };
       }
       case 'estado-resultados': {
-        const ingresos = cuentasEnriquecidas.filter(c => c.tipo.includes('INGRESO'));
-        const egresos = cuentasEnriquecidas.filter(c => c.tipo.includes('GASTO') || c.tipo.includes('COSTO'));
+        // ---------------------------------------------------------------
+        // Se trabaja sobre el plan completo fusionado (cuentasBalancePlan)
+        // para que las CUENTAS TÍTULOS (padres sin saldo propio, p. ej.
+        // "GASTOS ADMINISTRATIVOS") también se muestren con su jerarquía y
+        // su fila SUBTOTAL, igual que el balance de comprobación.
+        // ---------------------------------------------------------------
+        const plan = filtrarRamasConMovimiento(cuentasBalancePlan);
+        const ingresos = plan.filter(c => c.tipo.includes('INGRESO'));
+        const egresos = plan.filter(c => c.tipo.includes('GASTO') || c.tipo.includes('COSTO') || c.tipo.includes('EGRESO'));
 
         const totalIngresos = ingresos.reduce((sum, c) => sum + Math.abs(c.saldoFinal), 0);
         const totalEgresos = egresos.reduce((sum, c) => sum + Math.abs(c.saldoFinal), 0);
         const utilidad = totalIngresos - totalEgresos;
 
-        // Subárbol consolidado por partida: los padres subtotalizan la suma de
-        // sus hijos (valores absolutos), sin alterar los totales existentes.
-        const consolidarSeccion = (lista) =>
-          filasJerarquicas(lista, (c, esPadre, hijosMap) => ({
-            monto: sumarSubarbol(c, hijosMap, x => Math.abs(x.saldoFinal)),
-          }));
-
-        const filasIngresos = consolidarSeccion(ingresos);
-        const filasEgresos = consolidarSeccion(egresos);
-
-        const pintarSeccion = (etiqueta, filasSeccion) => [
-          [{ content: etiqueta, styles: { fontStyle: 'bold' } }, ''],
-          ...filasSeccion.map(r => {
-            const estilo = r.esPadre ? { fontStyle: 'bold' } : {};
-            return [
-              { content: `${sangria(r.profundidad)}${r.cuenta.nombre}`, styles: estilo },
-              { content: formatMoney(r.valores.monto), styles: estilo },
-            ];
-          }),
-        ];
-
         const filas = [
-          ...pintarSeccion('INGRESOS', filasIngresos),
-          [{ content: 'TOTAL INGRESOS', styles: { fontStyle: 'bold' } }, { content: formatMoney(totalIngresos), styles: { fontStyle: 'bold' } }],
-          [{ content: '', styles: { minCellHeight: 10 } }, ''],
-          ...pintarSeccion('EGRESOS', filasEgresos),
-          [{ content: 'TOTAL EGRESOS', styles: { fontStyle: 'bold' } }, { content: formatMoney(totalEgresos), styles: { fontStyle: 'bold' } }],
+          ...(ingresos.length > 0
+            ? [
+                ...pintarSeccionJerarquica('INGRESOS', ingresos),
+                filaTotalSeccion('TOTAL INGRESOS', totalIngresos),
+              ]
+            : []),
+          ...(ingresos.length > 0 && egresos.length > 0 ? [filaSeparadoraSeccion()] : []),
+          ...(egresos.length > 0
+            ? [
+                ...pintarSeccionJerarquica('EGRESOS', egresos),
+                filaTotalSeccion('TOTAL EGRESOS', totalEgresos),
+              ]
+            : []),
         ];
 
         return {
@@ -586,50 +639,84 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
         };
       }
       case 'situacion-financiera': {
-        const activos = cuentasEnriquecidas.filter(c => c.tipo.includes('ACTIVO'));
-        const pasivos = cuentasEnriquecidas.filter(c => c.tipo.includes('PASIVO'));
-        const patrimonio = cuentasEnriquecidas.filter(c => c.tipo.includes('PATRIMONIO') || c.tipo.includes('CAPITAL'));
+        // ---------------------------------------------------------------
+        // Mismo criterio del balance de comprobación: se usa el plan completo
+        // fusionado para mostrar las CUENTAS TÍTULOS (padres) con jerarquía
+        // y filas SUBTOTAL consolidadas.
+        // ---------------------------------------------------------------
+        const plan = filtrarRamasConMovimiento(cuentasBalancePlan);
+        const activos = plan.filter(c => c.tipo.includes('ACTIVO'));
+        const pasivos = plan.filter(c => c.tipo.includes('PASIVO'));
+        const patrimonio = plan.filter(c => c.tipo.includes('PATRIMONIO') || c.tipo.includes('CAPITAL'));
 
         const totalActivos = activos.reduce((sum, c) => sum + Math.abs(c.saldoFinal), 0);
         const totalPasivos = pasivos.reduce((sum, c) => sum + Math.abs(c.saldoFinal), 0);
-        const totalPatrimonio = patrimonio.reduce((sum, c) => sum + Math.abs(c.saldoFinal), 0);
+        const totalPatrimonioCuentas = patrimonio.reduce((sum, c) => sum + Math.abs(c.saldoFinal), 0);
 
-        const consolidarSeccion = (lista) =>
-          filasJerarquicas(lista, (c, esPadre, hijosMap) => ({
-            monto: sumarSubarbol(c, hijosMap, x => Math.abs(x.saldoFinal)),
-          }));
+        // ---------------------------------------------------------------
+        // VÍNCULO CON EL ESTADO DE RESULTADO (ECUACIÓN CONTABLE):
+        // el resultado del periodo (ingresos − egresos) todavía NO está
+        // transferido a una cuenta de patrimonio hasta que se registre el
+        // asiento de cierre, por lo que se presenta como parte del
+        // patrimonio para que se cumpla:
+        //   ACTIVO = PASIVO + PATRIMONIO + RESULTADO DEL EJERCICIO
+        // Cuando el ejercicio está cerrado (ingresos y egresos en cero) el
+        // resultado vale 0,00 y no altera los totales.
+        // ---------------------------------------------------------------
+        const ingresos = plan.filter(c => c.tipo.includes('INGRESO'));
+        const egresos = plan.filter(c => c.tipo.includes('GASTO') || c.tipo.includes('COSTO') || c.tipo.includes('EGRESO'));
+        const totalIngresosER = ingresos.reduce((sum, c) => sum + Math.abs(c.saldoFinal), 0);
+        const totalEgresosER = egresos.reduce((sum, c) => sum + Math.abs(c.saldoFinal), 0);
+        const resultadoEjercicio = totalIngresosER - totalEgresosER;
+        const hayResultado = Math.abs(resultadoEjercicio) >= 0.005;
 
-        const filasActivos = consolidarSeccion(activos);
-        const filasPasivos = consolidarSeccion(pasivos);
-        const filasPatrimonio = consolidarSeccion(patrimonio);
-
-        const pintarSeccion = (etiqueta, filasSeccion) => [
-          [{ content: etiqueta, styles: { fontStyle: 'bold' } }, ''],
-          ...filasSeccion.map(r => {
-            const estilo = r.esPadre ? { fontStyle: 'bold' } : {};
-            return [
-              { content: `${sangria(r.profundidad)}${r.cuenta.nombre}`, styles: estilo },
-              { content: formatMoney(r.valores.monto), styles: estilo },
-            ];
-          }),
-        ];
+        const totalPatrimonio = totalPatrimonioCuentas + resultadoEjercicio;
+        const totalPasivoPatrimonio = totalPasivos + totalPatrimonio;
 
         const filas = [
-          ...pintarSeccion('ACTIVO', filasActivos),
-          [{ content: 'TOTAL ACTIVO', styles: { fontStyle: 'bold' } }, { content: formatMoney(totalActivos), styles: { fontStyle: 'bold' } }],
-          [{ content: '', styles: { minCellHeight: 10 } }, ''],
-          ...pintarSeccion('PASIVO', filasPasivos),
-          [{ content: 'TOTAL PASIVO', styles: { fontStyle: 'bold' } }, { content: formatMoney(totalPasivos), styles: { fontStyle: 'bold' } }],
-          [{ content: '', styles: { minCellHeight: 10 } }, ''],
-          ...pintarSeccion('PATRIMONIO', filasPatrimonio),
-          [{ content: 'TOTAL PATRIMONIO', styles: { fontStyle: 'bold' } }, { content: formatMoney(totalPatrimonio), styles: { fontStyle: 'bold' } }],
+          ...(activos.length > 0
+            ? [
+                ...pintarSeccionJerarquica('ACTIVO', activos),
+                filaTotalSeccion('TOTAL ACTIVO', totalActivos),
+                filaSeparadoraSeccion(),
+              ]
+            : []),
+          ...(pasivos.length > 0
+            ? [
+                ...pintarSeccionJerarquica('PASIVO', pasivos),
+                filaTotalSeccion('TOTAL PASIVO', totalPasivos),
+                filaSeparadoraSeccion(),
+              ]
+            : []),
+          ...(patrimonio.length > 0 || hayResultado
+            ? [
+                ...pintarSeccionJerarquica('PATRIMONIO', patrimonio),
+                // Resultado del ejercicio vinculado al patrimonio: mientras
+                // no se cierre el ejercicio, la utilidad (o pérdida) del
+                // Estado de Resultado forma parte del capital.
+                ...(hayResultado
+                  ? [filaTotalSeccion('RESULTADO DEL EJERCICIO (Ingresos − Egresos)', resultadoEjercicio)]
+                  : []),
+                filaTotalSeccion('TOTAL PATRIMONIO', totalPatrimonio),
+              ]
+            : []),
         ];
+
+        // VERIFICACIÓN DE LA ECUACIÓN CONTABLE:
+        // ACTIVO − (PASIVO + PATRIMONIO + RESULTADO) debe ser 0,00.
+        if (filas.length > 0) {
+          const diferencia = totalActivos - totalPasivoPatrimonio;
+          filas.push([
+            { content: 'ECUACIÓN CONTABLE: ACTIVO − (PASIVO + PATRIMONIO + RESULTADO)', styles: { fontStyle: 'bold' } },
+            { content: formatMoney(Math.abs(diferencia) < 0.005 ? 0 : diferencia), styles: { fontStyle: 'bold' } },
+          ]);
+        }
 
         return {
           titulo: 'Estado de Situación Financiera',
           columnas: ['Descripción', 'Monto'],
           filas,
-          totales: ['TOTAL PASIVO Y PATRIMONIO', formatMoney(totalPasivos + totalPatrimonio)]
+          totales: ['TOTAL PASIVO Y PATRIMONIO', formatMoney(totalPasivoPatrimonio)]
         };
       }
       case 'resumen-diario': {
@@ -659,15 +746,21 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
 
     const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'letter' });
 
-    // Encabezado según formato PDF (usa el periodo realmente consultado)
+    // Encabezado según formato PDF (usa el periodo realmente consultado).
+    // Con willDrawPage el membrete se dibuja en CADA página generada: cuando
+    // el reporte desborda el tamaño carta, jspdf-autotable crea hojas nuevas
+    // y este hook permite repetir el encabezado en todas ellas (la fila de
+    // columnas de la tabla se repite automáticamente en cada página).
     const periodoInfo = periodoConsultadoData || periodoSeleccionadoData;
-    pdf.setFontSize(10);
-    pdf.setFont('helvetica', 'bold');
-    pdf.text(`${empresaActiva?.nombre?.toUpperCase() || 'EMPRESA PRINCIPAL'}`, 40, 40);
-    pdf.text(`RIF ${empresaActiva?.rif || 'J-000000000'}`, 40, 52);
-    pdf.text(`${estructura.titulo} del ${formatearFecha(periodoInfo?.fechaInicio)} al ${formatearFecha(periodoInfo?.fechaFin)}`, 40, 64);
-    pdf.setFont('helvetica', 'normal');
-    pdf.text('Expresado en Bolívar', 40, 76);
+    const dibujarMembrete = () => {
+      pdf.setFontSize(10);
+      pdf.setFont('helvetica', 'bold');
+      pdf.text(`${empresaActiva?.nombre?.toUpperCase() || 'EMPRESA PRINCIPAL'}`, 40, 40);
+      pdf.text(`RIF ${empresaActiva?.rif || 'J-000000000'}`, 40, 52);
+      pdf.text(`${estructura.titulo} del ${formatearFecha(periodoInfo?.fechaInicio)} al ${formatearFecha(periodoInfo?.fechaFin)}`, 40, 64);
+      pdf.setFont('helvetica', 'normal');
+      pdf.text('Expresado en Bolívar', 40, 76);
+    };
     
     // Preparar filas: se conserva el contenido y la negrita de los subtotales
     // (padres) para que autotable los resalte igual que en la vista previa.
@@ -711,8 +804,21 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
       styles: { fontSize: 8, cellPadding: 3, textColor: [0, 0, 0] },
       headStyles: { fontStyle: 'bold', borderBottom: '1px solid #000' },
       footStyles: { fontStyle: 'bold', borderTop: '1px solid #000' },
-      margin: { left: 40, right: 40 },
+      // top reserva el espacio del membrete también en las páginas 2, 3, ...
+      margin: { top: 105, bottom: 50, left: 40, right: 40 },
+      // Repite el membrete de la empresa en cada página del documento.
+      willDrawPage: () => dibujarMembrete(),
     });
+
+    // Numeración al pie de cada hoja: "Página X de Y".
+    const totalPaginas = pdf.internal.getNumberOfPages();
+    const altoPagina = pdf.internal.pageSize.getHeight();
+    for (let pagina = 1; pagina <= totalPaginas; pagina += 1) {
+      pdf.setPage(pagina);
+      pdf.setFontSize(8);
+      pdf.setFont('helvetica', 'normal');
+      pdf.text(`Página ${pagina} de ${totalPaginas}`, 40, altoPagina - 25);
+    }
 
     pdf.save(`${estructura.titulo.replace(/\s+/g, '')}_${periodoInfo?.nombre || 'Reporte'}.pdf`);
   };
@@ -781,7 +887,25 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
         }
 
         const workbook = XLSX.utils.book_new();
-        XLSX.utils.book_append_sheet(workbook, worksheet, 'Reporte Financiero');
+        const nombreHoja = 'Reporte Financiero';
+        XLSX.utils.book_append_sheet(workbook, worksheet, nombreHoja);
+
+        // -----------------------------------------------------------------------
+        // CONFIGURACIÓN DE IMPRESIÓN (hoja tamaño carta):
+        // - !margins: márgenes de página en pulgadas (equivalen a los del PDF).
+        // - _xlnm.Print_Titles (defined name con localSheetId): repite en cada
+        //   hoja impresa las filas 1 a 6 (membrete + fila de columnas) cuando
+        //   el reporte desborda una página carta. El escritor de la comunidad
+        //   serializa Names con Sheet -> localSheetId y Ref -> rango.
+        // -----------------------------------------------------------------------
+        worksheet['!margins'] = {
+          left: 0.4, right: 0.4, top: 0.55, bottom: 0.5, header: 0.3, footer: 0.3
+        };
+        workbook.Workbook = {
+          Names: [
+            { Name: '_xlnm.Print_Titles', Sheet: 0, Ref: `'${nombreHoja}'!$1:$6` },
+          ],
+        };
 
         // Descargar archivo
         XLSX.writeFile(workbook, `${estructura.titulo.replace(/\s+/g, '')}_${periodoInfo?.nombre || 'Reporte'}.xlsx`);
