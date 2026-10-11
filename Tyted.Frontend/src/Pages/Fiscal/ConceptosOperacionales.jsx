@@ -17,7 +17,24 @@ import { contabilidadApi } from '../../Services/Contabilidad/ContabilidadApi';
 const TIPOS_OPERACION = [
   { valor: 'VENTA', etiqueta: '💰 Ingresos (VENTA)', color: '#34d399' },
   { valor: 'GASTO', etiqueta: '💸 Gastos (GASTO)', color: '#fbbf24' },
-  { valor: 'COMPRA', etiqueta: '🛒 Compras (COMPRA)', color: '#60a5fa' }
+  { valor: 'COMPRA', etiqueta: '🛒 Compras (COMPRA)', color: '#60a5fa' },
+  { valor: 'SISTEMA', etiqueta: '⚙️ Cuentas Base (SISTEMA)', color: '#a855f7' }
+];
+
+// Claves CANÓNICAS de las cuentas base que el motor de asientos resuelve en los
+// 4 flujos (venta, resumen Z, compra, gasto). El nombre del concepto SISTEMA
+// DEBE ser exactamente una de estas claves: por eso en el formulario se elige
+// de un <select> y no se teclea (una errata haría que el backend no lo encuentre
+// con el FirstOrDefault y siguiera usando el mapping global de appsettings).
+const CLAVES_SISTEMA = [
+  { clave: 'CAJA_PRINCIPAL', etiqueta: 'CAJA_PRINCIPAL — Caja (Debe en ventas de contado / Haber en compras de contado)' },
+  { clave: 'CXC_CLIENTES', etiqueta: 'CXC_CLIENTES — Cuentas por Cobrar (Debe en ventas a crédito)' },
+  { clave: 'IVA_DEBITO', etiqueta: 'IVA_DEBITO — IVA Débito Fiscal (Haber en ventas y resúmenes Z)' },
+  { clave: 'IVA_CREDITO', etiqueta: 'IVA_CREDITO — IVA Crédito Fiscal (Debe en compras)' },
+  { clave: 'INGRESOS_VENTAS', etiqueta: 'INGRESOS_VENTAS — Ingresos por Ventas (Haber de fallback sin concepto)' },
+  { clave: 'COMPRAS', etiqueta: 'COMPRAS — Compras (Debe en compras de mercancía)' },
+  { clave: 'GASTOS', etiqueta: 'GASTOS — Gastos (Debe en gastos y compras de servicio)' },
+  { clave: 'PROVEEDORES', etiqueta: 'PROVEEDORES — Proveedores (Haber en compras a crédito)' }
 ];
 
 const inputChico = {
@@ -254,6 +271,48 @@ export default function ConceptosOperacionales() {
             ))}
           </div>
 
+          {/* Explicación para cuentas de SISTEMA (cuentas base del asiento) */}
+          {tipoActivo === 'SISTEMA' && (
+            <div style={{ background: '#2e1065', border: '1px solid #a855f7', color: '#d8b4fe', padding: '12px 16px', borderRadius: '10px', fontSize: '0.82rem', marginBottom: '18px', lineHeight: '1.6' }}>
+              ⚙️ <b>Cuentas de Integración Automática:</b> registre aquí los conceptos obligatorios que el motor contable
+              utiliza para las contrapartidas fijas de los asientos de ventas, resúmenes Z, compras y gastos.
+              <br />
+              Claves disponibles: <b>CAJA_PRINCIPAL</b>, <b>CXC_CLIENTES</b>, <b>IVA_DEBITO</b>, <b>IVA_CREDITO</b>,{' '}
+              <b>INGRESOS_VENTAS</b>, <b>COMPRAS</b>, <b>GASTOS</b>, <b>PROVEEDORES</b>.
+              <br />
+              Si una clave no está configurada, el motor usa el mapping global por defecto (appsettings); si se
+              configura aquí, manda la cuenta que usted elija para esta empresa.
+            </div>
+          )}
+
+          {/* Estado de las claves SISTEMA: qué falta por configurar */}
+          {tipoActivo === 'SISTEMA' && (
+            <div style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: '10px', padding: '12px 16px', marginBottom: '18px' }}>
+              <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '8px' }}>ESTADO DE LAS CUENTAS BASE</div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '8px' }}>
+                {CLAVES_SISTEMA.map(({ clave }) => {
+                  const concepto = conceptos.find((c) => c.nombreConcepto === clave);
+                  const cuenta = concepto ? cuentas.find((x) => x.codigo === String(concepto.cuentaContable || '').trim()) : null;
+                  return (
+                    <div key={clave} style={{ display: 'flex', justifyContent: 'space-between', gap: '8px', background: '#1e293b', border: '1px solid #334155', borderRadius: '6px', padding: '7px 10px', fontSize: '0.78rem' }}>
+                      <span style={{ fontFamily: 'monospace', color: '#e2e8f0' }}>{clave}</span>
+                      {!concepto ? (
+                        <span style={{ color: '#fbbf24', fontWeight: 'bold' }}>⏳ sin configurar</span>
+                      ) : !cuenta ? (
+                        <span style={{ color: '#f87171', fontWeight: 'bold' }}>⚠️ cta inexistente</span>
+                      ) : !cuenta.activa ? (
+                        <span style={{ color: '#fbbf24', fontWeight: 'bold' }}>⚠️ cta inactiva</span>
+                      ) : !cuenta.esMovimiento ? (
+                        <span style={{ color: '#f87171', fontWeight: 'bold' }}>⚠️ cta padre</span>
+                      ) : (
+                        <span style={{ color: '#34d399', fontWeight: 'bold' }}>✅ {concepto.cuentaContable}</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
 
           {/* Formulario de alta/edición */}
           {Boolean(form.nombreConcepto || editandoId || form.cuentaContable) && (
@@ -263,14 +322,36 @@ export default function ConceptosOperacionales() {
               </h3>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '14px', marginBottom: '14px' }}>
                 <div>
-                  <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Nombre del concepto</label>
-                  <input
-                    type="text"
-                    value={form.nombreConcepto}
-                    onChange={(e) => setForm({ ...form, nombreConcepto: e.target.value })}
-                    placeholder="Ej: Servicios de internet"
-                    style={{ ...inputChico, width: '100%' }}
-                  />
+                  <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                    {form.tipoOperacion === 'SISTEMA' ? 'Clave de la cuenta base' : 'Nombre del concepto'}
+                  </label>
+                  {form.tipoOperacion === 'SISTEMA' ? (
+                    // En modo SISTEMA el nombre NO es texto libre: debe ser una
+                    // clave canónica exacta para que el motor la encuentre.
+                    <select
+                      value={form.nombreConcepto}
+                      onChange={(e) => setForm({ ...form, nombreConcepto: e.target.value })}
+                      style={{ ...inputChico, width: '100%' }}
+                    >
+                      <option value="">Seleccione la clave…</option>
+                      {editandoId && form.nombreConcepto && (
+                        <option value={form.nombreConcepto}>{form.nombreConcepto} (actual)</option>
+                      )}
+                      {CLAVES_SISTEMA
+                        .filter(({ clave }) => editandoId || !conceptos.some((c) => c.nombreConcepto === clave))
+                        .map(({ clave, etiqueta }) => (
+                          <option key={clave} value={clave}>{etiqueta}</option>
+                        ))}
+                    </select>
+                  ) : (
+                    <input
+                      type="text"
+                      value={form.nombreConcepto}
+                      onChange={(e) => setForm({ ...form, nombreConcepto: e.target.value })}
+                      placeholder="Ej: Servicios de internet"
+                      style={{ ...inputChico, width: '100%' }}
+                    />
+                  )}
                 </div>
                 <div>
                   <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Tipo de operación</label>

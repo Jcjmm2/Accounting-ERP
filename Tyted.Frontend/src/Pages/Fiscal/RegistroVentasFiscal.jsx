@@ -49,6 +49,17 @@ const inputChico = {
   borderRadius: '6px', padding: '6px 8px', fontSize: '0.8rem'
 };
 
+// Cuando el motor aborta por cuentas base ausentes (caja/CxC, IVA o ingresos),
+// amplía el aviso con el paso a paso para corregirlo desde la UI (plan de
+// cuentas o panel de conceptos SISTEMA), en vez de dejar sólo el código.
+const guiaCuentasBase = (texto) => {
+  if (!texto || !String(texto).includes('No se encontraron activas')) return '';
+  return '\n\n🔧 Cómo corregirlo:\n' +
+    '1) Contabilidad → Plan de Cuentas: cree/reactive la(s) cuenta(s) indicada(s) y verifique que estén ACTIVAS y sean de MOVIMIENTO.\n' +
+    '2) O bien 🧮 Conceptos → pestaña ⚙️ SISTEMA: reasigne la cuenta base (CAJA_PRINCIPAL, CXC_CLIENTES, IVA_DEBITO…).\n' +
+    '3) Vuelva a pulsar 🧾 (el proceso es idempotente: no duplica el asiento).';
+};
+
 // ---------------------------------------------------------------------------
 // REGISTRO DE VENTAS (LIBRO DE VENTAS IVA): alimenta la parte fiscal con sus
 // comprobantes contables (integración BE-F4). El selector global de
@@ -229,7 +240,7 @@ export default function RegistroVentasFiscal() {
       if (r.generada) {
         alert(`✅ Comprobante ${r.numeroComprobante} generado.\nDebe/Haber: ${fmt(r.totalDebe)}`);
       } else {
-        alert(`⚠️ ${r.mensaje || 'No se generó el comprobante.'}\n${r.advertencia || ''}`);
+        alert(`⚠️ ${r.mensaje || 'No se generó el comprobante.'}\n${r.advertencia || ''}${guiaCuentasBase(r.advertencia)}`);
       }
       await cargarVentas();
     } catch (error) {
@@ -366,7 +377,7 @@ export default function RegistroVentasFiscal() {
       if (contabilizarAuto && creada?.ventaId) {
         try {
           const r = await fiscalApi.contabilizarVenta(creada.ventaId);
-          if (!r.generada) alert(`⚠️ Venta registrada, pero el comprobante no se generó:\n${r.advertencia || r.mensaje || ''}`);
+          if (!r.generada) alert(`⚠️ Venta registrada, pero el comprobante no se generó:\n${r.advertencia || r.mensaje || ''}${guiaCuentasBase(r.advertencia)}`);
         } catch (errorC) {
           alert(`⚠️ Venta registrada; el comprobante contable falló:\n${mensajeErrorApi(errorC)}`);
         }
@@ -432,7 +443,7 @@ export default function RegistroVentasFiscal() {
       if (contabilizarResumenAuto && creado?.id) {
         try {
           const resp = await fiscalApi.contabilizarResumenVenta(creado.id);
-          if (!resp.generada) alert(`⚠️ Resumen registrado, pero el comprobante no se generó:\n${resp.advertencia || resp.mensaje || ''}`);
+          if (!resp.generada) alert(`⚠️ Resumen registrado, pero el comprobante no se generó:\n${resp.advertencia || resp.mensaje || ''}${guiaCuentasBase(resp.advertencia)}`);
         } catch (errorC) {
           alert(`⚠️ Resumen registrado; el comprobante contable falló:\n${mensajeErrorApi(errorC)}`);
         }
@@ -462,7 +473,7 @@ export default function RegistroVentasFiscal() {
       if (resp.generada) {
         alert(`✅ Comprobante ${resp.numeroComprobante} generado.\nDebe/Haber: ${fmt(resp.totalDebe)}`);
       } else {
-        alert(`⚠️ ${resp.mensaje || 'No se generó el comprobante.'}\n${resp.advertencia || ''}`);
+        alert(`⚠️ ${resp.mensaje || 'No se generó el comprobante.'}\n${resp.advertencia || ''}${guiaCuentasBase(resp.advertencia)}`);
       }
       await cargarVentas();
     } catch (error) {

@@ -49,6 +49,17 @@ const inputChico = {
   borderRadius: '6px', padding: '6px 8px', fontSize: '0.8rem'
 };
 
+// Cuando el motor aborta por cuentas base ausentes (caja/proveedores, IVA o
+// compras/gastos), amplía el aviso con el paso a paso para corregirlo desde la
+// UI (plan de cuentas o panel de conceptos SISTEMA), en vez de sólo el código.
+const guiaCuentasBase = (texto) => {
+  if (!texto || !String(texto).includes('No se encontraron activas')) return '';
+  return '\n\n🔧 Cómo corregirlo:\n' +
+    '1) Contabilidad → Plan de Cuentas: cree/reactive la(s) cuenta(s) indicada(s) y verifique que estén ACTIVAS y sean de MOVIMIENTO.\n' +
+    '2) O bien 🧮 Conceptos → pestaña ⚙️ SISTEMA: reasigne la cuenta base (CAJA_PRINCIPAL, PROVEEDORES, IVA_CREDITO…).\n' +
+    '3) Vuelva a pulsar 🧾 (el proceso es idempotente: no duplica el asiento).';
+};
+
 // ---------------------------------------------------------------------------
 // REGISTRO DE COMPRAS (LIBRO DE COMPRAS IVA): alimenta la parte fiscal con
 // sus comprobantes contables (BE-F4). El selector global empresa/periodo rige
@@ -206,7 +217,7 @@ export default function RegistroComprasFiscal() {
       if (r.generada) {
         alert(`✅ Comprobante ${r.numeroComprobante} generado.\nDebe/Haber: ${fmt(r.totalDebe)}`);
       } else {
-        alert(`⚠️ ${r.mensaje || 'No se generó el comprobante.'}\n${r.advertencia || ''}`);
+        alert(`⚠️ ${r.mensaje || 'No se generó el comprobante.'}\n${r.advertencia || ''}${guiaCuentasBase(r.advertencia)}`);
       }
       await cargarCompras();
     } catch (error) {
@@ -360,7 +371,7 @@ export default function RegistroComprasFiscal() {
       if (contabilizarAuto && creada?.id) {
         try {
           const r = await fiscalApi.contabilizarCompra(creada.id);
-          if (!r.generada) alert(`⚠️ Compra registrada, pero el comprobante no se generó:\n${r.advertencia || r.mensaje || ''}`);
+          if (!r.generada) alert(`⚠️ Compra registrada, pero el comprobante no se generó:\n${r.advertencia || r.mensaje || ''}${guiaCuentasBase(r.advertencia)}`);
         } catch (errorC) {
           alert(`⚠️ Compra registrada; el comprobante contable falló:\n${mensajeErrorApi(errorC)}`);
         }
@@ -432,7 +443,7 @@ export default function RegistroComprasFiscal() {
       if (contabilizarGastoAuto && creado?.id) {
         try {
           const r = await fiscalApi.contabilizarGasto(creado.id);
-          if (!r.generada) alert(`⚠️ Gasto registrado, pero el comprobante no se generó:\n${r.advertencia || r.mensaje || ''}`);
+          if (!r.generada) alert(`⚠️ Gasto registrado, pero el comprobante no se generó:\n${r.advertencia || r.mensaje || ''}${guiaCuentasBase(r.advertencia)}`);
         } catch (errorC) {
           alert(`⚠️ Gasto registrado; el comprobante contable falló:\n${mensajeErrorApi(errorC)}`);
         }
@@ -455,7 +466,7 @@ export default function RegistroComprasFiscal() {
     try {
       const r = await fiscalApi.contabilizarGasto(g.id);
       if (r.generada) alert(`✅ Comprobante ${r.numeroComprobante} generado.\nDebe/Haber: ${fmt(r.totalDebe)}`);
-      else alert(`⚠️ ${r.mensaje || 'No se generó el comprobante.'}\n${r.advertencia || ''}`);
+      else alert(`⚠️ ${r.mensaje || 'No se generó el comprobante.'}\n${r.advertencia || ''}${guiaCuentasBase(r.advertencia)}`);
       await cargarCompras();
     } catch (error) {
       console.error('Error contabilizando el gasto:', error);

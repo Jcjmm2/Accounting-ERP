@@ -300,14 +300,48 @@ IF NOT EXISTS (SELECT 1 FROM [dbo].[__EFMigrationsHistory] WHERE [MigrationId] =
                 ("Servicios de Internet Residencial", "VENTA", "4.1.1.1.02"),
                 ("Venta de Equipos", "VENTA", "4.1.1.1.03"),
                 // COMPRAS (catálogo listo para uso futuro)
-                ("Compra de equipos Internet Satelital", "COMPRA", "5.1.1.1.16")
+                ("Compra de equipos Internet Satelital", "COMPRA", "5.1.1.1.16"),
+                // ----------------------------------------------------------------
+                // CUENTAS BASE (SISTEMA): contrapartidas fijas que el motor de
+                // asientos usa en los 4 flujos (venta, resumen Z, compra, gasto).
+                // Cada empresa puede reasignarlas desde 🧮 Conceptos → ⚙️ SISTEMA;
+                // si no existen, el motor cae al mapping global (appsettings).
+                ("CAJA_PRINCIPAL", "SISTEMA", "1.1.1.1.01"),
+                ("CXC_CLIENTES", "SISTEMA", "1.1.3.01"),
+                ("IVA_DEBITO", "SISTEMA", "1.1.5.01"),
+                ("IVA_CREDITO", "SISTEMA", "1.1.5.02"),
+                ("INGRESOS_VENTAS", "SISTEMA", "4.1.1"),
+                ("COMPRAS", "SISTEMA", "5.1.1"),
+                ("GASTOS", "SISTEMA", "5.1.2"),
+                ("PROVEEDORES", "SISTEMA", "2.1.1.01")
             };
 
             var empresas = context.Empresa.Select(e => e.Id).ToList();
             foreach (var empresaId in empresas)
             {
                 if (context.ConceptosOperacionales.Any(c => c.EmpresaId == empresaId))
-                    continue; // la empresa ya tiene su catálogo: no duplicar
+                {
+                    // Empresa ya configurada: sólo se completan las CUENTAS BASE
+                    // (SISTEMA) que falten, para que el motor de asientos tenga
+                    // sus contrapartidas mapeadas desde el panel de conceptos.
+                    foreach (var (nombre, tipo, cuenta) in semilla.Where(s => s.Tipo == "SISTEMA"))
+                    {
+                        if (context.ConceptosOperacionales.Any(c =>
+                            c.EmpresaId == empresaId
+                            && c.TipoOperacion == tipo
+                            && c.NombreConcepto == nombre))
+                            continue;
+
+                        context.ConceptosOperacionales.Add(new ConceptoOperacional
+                        {
+                            EmpresaId = empresaId,
+                            NombreConcepto = nombre,
+                            TipoOperacion = tipo,
+                            CuentaContable = cuenta
+                        });
+                    }
+                    continue;
+                }
 
                 foreach (var (nombre, tipo, cuenta) in semilla)
                 {

@@ -64,8 +64,8 @@ namespace Tyted.API.Controllers
                 return BadRequest(new { message = "El nombre del concepto es obligatorio." });
 
             concepto.TipoOperacion = (concepto.TipoOperacion ?? "GASTO").ToUpper();
-            if (!new[] { "COMPRA", "VENTA", "GASTO" }.Contains(concepto.TipoOperacion))
-                return BadRequest(new { message = "El tipo de operación debe ser COMPRA, VENTA o GASTO." });
+            if (!new[] { "COMPRA", "VENTA", "GASTO", "SISTEMA" }.Contains(concepto.TipoOperacion))
+                return BadRequest(new { message = "El tipo de operación debe ser COMPRA, VENTA, GASTO o SISTEMA." });
 
             var duplicado = await _context.ConceptosOperacionales.AnyAsync(c =>
                 c.EmpresaId == concepto.EmpresaId
@@ -90,7 +90,12 @@ namespace Tyted.API.Controllers
             concepto.NombreConcepto = datos.NombreConcepto?.Trim() ?? concepto.NombreConcepto;
             concepto.CuentaContable = datos.CuentaContable?.Trim() ?? concepto.CuentaContable;
             if (!string.IsNullOrWhiteSpace(datos.TipoOperacion))
-                concepto.TipoOperacion = datos.TipoOperacion.ToUpper();
+            {
+                var tipo = datos.TipoOperacion.ToUpper();
+                if (!new[] { "COMPRA", "VENTA", "GASTO", "SISTEMA" }.Contains(tipo))
+                    return BadRequest(new { message = "El tipo de operación debe ser COMPRA, VENTA, GASTO o SISTEMA." });
+                concepto.TipoOperacion = tipo;
+            }
 
             try
             {

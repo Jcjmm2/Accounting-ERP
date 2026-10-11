@@ -107,12 +107,16 @@ public class MotorAsientosAutomaticos
         var montoBase = Math.Abs(subtotal);
         var montoIva = Math.Abs(iva);
 
-        var codigoDebe = venta.EsCredito ? _mapping.CuentasPorCobrar : _mapping.Caja;
+        var codigoDebe = venta.EsCredito
+            ? await ResolverCodigoCuentaAsync(venta.EmpresaId, "CXC_CLIENTES", _mapping.CuentasPorCobrar)
+            : await ResolverCodigoCuentaAsync(venta.EmpresaId, "CAJA_PRINCIPAL", _mapping.Caja);
+        var codigoIngresos = await ResolverCodigoCuentaAsync(venta.EmpresaId, "INGRESOS_VENTAS", _mapping.IngresosVentas);
         var faltantes = new List<string>();
         var cuentaDebe = await BuscarCuentaActivaAsync(venta.EmpresaId, codigoDebe, faltantes);
-        var cuentaIngresos = await BuscarCuentaActivaAsync(venta.EmpresaId, _mapping.IngresosVentas, faltantes);
+        var cuentaIngresos = await BuscarCuentaActivaAsync(venta.EmpresaId, codigoIngresos, faltantes);
         var cuentaIva = montoIva > 0m
-            ? await BuscarCuentaActivaAsync(venta.EmpresaId, _mapping.IvaDebitoFiscal, faltantes)
+            ? await BuscarCuentaActivaAsync(venta.EmpresaId,
+                await ResolverCodigoCuentaAsync(venta.EmpresaId, "IVA_DEBITO", _mapping.IvaDebitoFiscal), faltantes)
             : null;
 
         // --- LÍNEAS POR CONCEPTO DE INGRESO (módulo fiscal, sin inventario) ---
@@ -138,7 +142,9 @@ public class MotorAsientosAutomaticos
             var acumulado = new Dictionary<string, decimal>(StringComparer.Ordinal);
             foreach (var detalle in venta.Detalles)
             {
-                var codigoCuenta = _mapping.IngresosVentas;
+                // Fallback: la cuenta global de ingresos YA resuelta (concepto
+                // SISTEMA o mapping), nunca el mapping en crudo.
+                var codigoCuenta = codigoIngresos;
                 if (detalle.ConceptoOperacionalId.HasValue
                     && cuentasPorConcepto.TryGetValue(detalle.ConceptoOperacionalId.Value, out var ctaConcepto)
                     && !string.IsNullOrWhiteSpace(ctaConcepto))
@@ -172,7 +178,9 @@ public class MotorAsientosAutomaticos
             {
                 Generada = false,
                 Mensaje = "Plan de cuentas incompleto.",
-                Advertencia = $"No se encontraron activas en el plan de la empresa: {string.Join(", ", faltantes)}. Cree o reactive las cuentas y vuelva a intentar."
+                Advertencia = $"No se encontraron activas en el plan de la empresa: {string.Join(", ", faltantes)}. " +
+                    "Son cuentas base del asiento (caja/CxC, IVA o ingresos): créelas o reactívelas en Contabilidad → Plan de Cuentas, " +
+                    "o bien asígneles una cuenta distinta en 🧮 Conceptos → pestaña ⚙️ SISTEMA y vuelva a intentar."
             };
 
         var periodo = await BuscarPeriodoAbiertoAsync(venta.EmpresaId, venta.FechaVenta);
@@ -293,10 +301,13 @@ public class MotorAsientosAutomaticos
             };
 
         var faltantes = new List<string>();
-        var cuentaDebe = await BuscarCuentaActivaAsync(resumen.EmpresaId, _mapping.Caja, faltantes);
-        var cuentaIngresos = await BuscarCuentaActivaAsync(resumen.EmpresaId, _mapping.IngresosVentas, faltantes);
+        var cuentaDebe = await BuscarCuentaActivaAsync(resumen.EmpresaId,
+            await ResolverCodigoCuentaAsync(resumen.EmpresaId, "CAJA_PRINCIPAL", _mapping.Caja), faltantes);
+        var cuentaIngresos = await BuscarCuentaActivaAsync(resumen.EmpresaId,
+            await ResolverCodigoCuentaAsync(resumen.EmpresaId, "INGRESOS_VENTAS", _mapping.IngresosVentas), faltantes);
         var cuentaIva = montoIva > 0m
-            ? await BuscarCuentaActivaAsync(resumen.EmpresaId, _mapping.IvaDebitoFiscal, faltantes)
+            ? await BuscarCuentaActivaAsync(resumen.EmpresaId,
+                await ResolverCodigoCuentaAsync(resumen.EmpresaId, "IVA_DEBITO", _mapping.IvaDebitoFiscal), faltantes)
             : null;
 
         if (faltantes.Count > 0)
@@ -304,7 +315,9 @@ public class MotorAsientosAutomaticos
             {
                 Generada = false,
                 Mensaje = "Plan de cuentas incompleto.",
-                Advertencia = $"No se encontraron activas en el plan de la empresa: {string.Join(", ", faltantes)}. Cree o reactive las cuentas y vuelva a intentar."
+                Advertencia = $"No se encontraron activas en el plan de la empresa: {string.Join(", ", faltantes)}. " +
+                    "Son cuentas base del asiento (caja, IVA o ingresos): créelas o reactívelas en Contabilidad → Plan de Cuentas, " +
+                    "o bien asígneles una cuenta distinta en 🧮 Conceptos → pestaña ⚙️ SISTEMA y vuelva a intentar."
             };
 
         var periodo = await BuscarPeriodoAbiertoAsync(resumen.EmpresaId, resumen.Fecha);
@@ -392,13 +405,18 @@ public class MotorAsientosAutomaticos
         var montoBase = Math.Abs(subtotal);
         var montoIva = Math.Abs(iva);
 
-        var codigoDebe = compra.EsGastoServicio ? _mapping.Gastos : _mapping.Compras;
-        var codigoHaber = compra.EsCredito ? _mapping.Proveedores : _mapping.Caja;
+        var codigoDebe = compra.EsGastoServicio
+            ? await ResolverCodigoCuentaAsync(compra.EmpresaId, "GASTOS", _mapping.Gastos)
+            : await ResolverCodigoCuentaAsync(compra.EmpresaId, "COMPRAS", _mapping.Compras);
+        var codigoHaber = compra.EsCredito
+            ? await ResolverCodigoCuentaAsync(compra.EmpresaId, "PROVEEDORES", _mapping.Proveedores)
+            : await ResolverCodigoCuentaAsync(compra.EmpresaId, "CAJA_PRINCIPAL", _mapping.Caja);
         var faltantes = new List<string>();
         var cuentaDebe = await BuscarCuentaActivaAsync(compra.EmpresaId, codigoDebe, faltantes);
         var cuentaHaber = await BuscarCuentaActivaAsync(compra.EmpresaId, codigoHaber, faltantes);
         var cuentaIva = montoIva > 0m
-            ? await BuscarCuentaActivaAsync(compra.EmpresaId, _mapping.IvaCreditoFiscal, faltantes)
+            ? await BuscarCuentaActivaAsync(compra.EmpresaId,
+                await ResolverCodigoCuentaAsync(compra.EmpresaId, "IVA_CREDITO", _mapping.IvaCreditoFiscal), faltantes)
             : null;
 
         if (faltantes.Count > 0)
@@ -406,7 +424,9 @@ public class MotorAsientosAutomaticos
             {
                 Generada = false,
                 Mensaje = "Plan de cuentas incompleto.",
-                Advertencia = $"No se encontraron activas en el plan de la empresa: {string.Join(", ", faltantes)}. Cree o reactive las cuentas y vuelva a intentar."
+                Advertencia = $"No se encontraron activas en el plan de la empresa: {string.Join(", ", faltantes)}. " +
+                    "Son cuentas base del asiento (caja/proveedores, IVA crédito o compras): créelas o reactívelas en Contabilidad → Plan de Cuentas, " +
+                    "o bien asígneles una cuenta distinta en 🧮 Conceptos → pestaña ⚙️ SISTEMA y vuelva a intentar."
             };
 
         var periodo = await BuscarPeriodoAbiertoAsync(compra.EmpresaId, compra.FechaCompra);
@@ -496,13 +516,15 @@ public class MotorAsientosAutomaticos
                 Advertencia = "El gasto no tiene monto."
             };
 
-        var codigoHaber = gasto.CodigoProv.HasValue ? _mapping.Proveedores : _mapping.Caja;
+        var codigoHaber = gasto.CodigoProv.HasValue
+            ? await ResolverCodigoCuentaAsync(gasto.EmpresaId, "PROVEEDORES", _mapping.Proveedores)
+            : await ResolverCodigoCuentaAsync(gasto.EmpresaId, "CAJA_PRINCIPAL", _mapping.Caja);
         var faltantes = new List<string>();
 
         // Debe: la cuenta del CONCEPTO OPERACIONAL seleccionado (puente con el
         // plan de cuentas de la empresa); si el gasto no trae concepto (datos
-        // antiguos) se usa la cuenta global de gastos del mapping.
-        var codigoDebe = _mapping.Gastos;
+        // antiguos) se usa la cuenta global de gastos (SISTEMA o mapping).
+        var codigoDebe = await ResolverCodigoCuentaAsync(gasto.EmpresaId, "GASTOS", _mapping.Gastos);
         if (gasto.ConceptoOperacionalId.HasValue)
         {
             var conceptoOp = await _context.ConceptosOperacionales
@@ -521,7 +543,9 @@ public class MotorAsientosAutomaticos
             {
                 Generada = false,
                 Mensaje = "Plan de cuentas incompleto.",
-                Advertencia = $"No se encontraron activas en el plan de la empresa: {string.Join(", ", faltantes)}. Cree o reactive las cuentas y vuelva a intentar."
+                Advertencia = $"No se encontraron activas en el plan de la empresa: {string.Join(", ", faltantes)}. " +
+                    "Son cuentas base del asiento (caja/proveedores o gastos): créelas o reactívelas en Contabilidad → Plan de Cuentas, " +
+                    "o bien asígneles una cuenta distinta en 🧮 Conceptos → pestaña ⚙️ SISTEMA y vuelva a intentar."
             };
 
         var periodo = await BuscarPeriodoAbiertoAsync(gasto.EmpresaId, gasto.Fecha);
@@ -557,6 +581,26 @@ public class MotorAsientosAutomaticos
             TotalHaber = monto,
             Mensaje = "Comprobante contable del gasto generado."
         };
+    }
+
+    /// <summary>
+    /// Código de cuenta BASE de una operación: consulta primero el catálogo de
+    /// conceptos de la empresa con TipoOperacion = "SISTEMA" (clave canónica
+    /// tipo IVA_DEBITO, CAJA_PRINCIPAL, CXC_CLIENTES… configurada desde el
+    /// panel 🧮 Conceptos). Si la empresa no tiene ese concepto configurado,
+    /// se usa el mapping global (appsettings) como valor por defecto, de modo
+    /// que ninguna empresa existente deja de contabilizar.
+    /// </summary>
+    private async Task<string> ResolverCodigoCuentaAsync(int empresaId, string claveSistema, string codigoMapping)
+    {
+        var concepto = await _context.ConceptosOperacionales
+            .AsNoTracking()
+            .FirstOrDefaultAsync(c => c.EmpresaId == empresaId
+                && c.TipoOperacion == "SISTEMA"
+                && c.NombreConcepto == claveSistema);
+
+        var codigo = concepto?.CuentaContable?.Trim();
+        return string.IsNullOrWhiteSpace(codigo) ? codigoMapping : codigo;
     }
 
     /// <summary>Cuenta activa por código dentro del plan de la empresa; si no existe se anota en `faltantes`.</summary>
