@@ -22,6 +22,7 @@ import ModuloContable from './Pages/Contabilidad/ModuloContable';
 import RegistroVentasFiscal from './Pages/Fiscal/RegistroVentasFiscal';
 import RegistroComprasFiscal from './Pages/Fiscal/RegistroComprasFiscal';
 import ConceptosOperacionales from './Pages/Fiscal/ConceptosOperacionales';
+import ReporteForma30 from './Pages/Fiscal/ReporteForma30';
 
 function App() {
   // Página por defecto: Módulo Contable. Se recuerda la última vista visitada
@@ -77,6 +78,7 @@ function App() {
       case 'clientes': return <Clientes />;
       case 'ventas-fiscal': return <RegistroVentasFiscal />;
       case 'compras-fiscal': return <RegistroComprasFiscal />;
+      case 'forma30': return <ReporteForma30 />;
       case 'conceptos-fiscal': return <ConceptosOperacionales />;
       case 'contabilidad': return <ModuloContable />;
       default: return <ModuloContable />;
@@ -271,6 +273,9 @@ function App() {
           </button>
           <button className={`nav-button ${vista === 'compras-fiscal' ? 'active' : ''}`} onClick={() => cambiarVista('compras-fiscal')}>
             📗 Registro de Compras
+          </button>
+          <button className={`nav-button ${vista === 'forma30' ? 'active' : ''}`} onClick={() => cambiarVista('forma30')}>
+            🧮 Forma 30 (IVA)
           </button>
           <button className={`nav-button ${vista === 'conceptos-fiscal' ? 'active' : ''}`} onClick={() => cambiarVista('conceptos-fiscal')}>
             🧮 Conceptos Ingresos/Gastos

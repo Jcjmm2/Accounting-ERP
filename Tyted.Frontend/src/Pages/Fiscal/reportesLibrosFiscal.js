@@ -156,12 +156,54 @@ export const estructuraLibroVentas = ({ empresa, periodo, totales, documentos })
     fmtMoneda(sumRet)
   ];
 
+  // --- RESUMEN DE FORMA 30: DÉBITOS FISCALES (se inyecta al final del libro) ---
+  const base16Total = sumBaseC + sumBaseNC;
+  const iva16Total = sumIvaC + sumIvaNC;
+  const totalBaseDeterminacion = sumExento + base16Total;
+
+  const resumenExcel = [
+    [], [], // Espacios en blanco
+    ['', 'DÉBITOS FISCALES', '', '', '', 'BASE IMPONIBLE', '', 'DÉBITO FISCAL'],
+    ['', '1', 'Ventas Internas no Gravadas', '', '', sumExento, '', ''],
+    ['', '2', 'Ventas de Exportación', '', '', 0, '', ''],
+    ['', '3', 'Ventas Internas Gravadas por Alícuota General 16%', '', '', base16Total, '', iva16Total],
+    ['', '4', 'Ventas Internas Gravadas por Alícuota General más Adicional', '', '', 0, '', 0],
+    ['', '5', 'Ventas Internas Gravadas por Alícuota Reducida', '', '', 0, '', 0],
+    ['', '6', 'Total Ventas y Débitos Fiscal para efectos de Determinación', '', '', totalBaseDeterminacion, '', iva16Total],
+    ['', '7', 'Ajustes a los Débitos Fiscales de períodos anteriores', '', '', '', '', 0],
+    ['', '8', 'Certificados de Débitos Fiscales Exonerados', '', '', '', '', 0],
+    ['', '9', 'Total Débitos Fiscales', '', '', totalBaseDeterminacion, '', iva16Total]
+  ];
+
+  // Fusiones del resumen: títulos en la fila 2 y descripciones (c2-c4) por ítem.
+  const resumenMerges = [
+    { s: { r: 2, c: 1 }, e: { r: 2, c: 4 } },
+    { s: { r: 2, c: 5 }, e: { r: 2, c: 6 } }
+  ];
+  for (let r = 3; r <= 11; r += 1) resumenMerges.push({ s: { r, c: 2 }, e: { r, c: 4 } });
+
+  const resumenPdf = {
+    head: [['', 'DÉBITOS FISCALES', 'BASE IMPONIBLE', 'DÉBITO FISCAL']],
+    body: [
+      ['1', 'Ventas Internas no Gravadas', fmtMoneda(sumExento), ''],
+      ['2', 'Ventas de Exportación', fmtMoneda(0), ''],
+      ['3', 'Ventas Internas Gravadas por Alícuota General 16%', fmtMoneda(base16Total), fmtMoneda(iva16Total)],
+      ['4', 'Ventas Internas Gravadas por Alícuota General más Adicional', fmtMoneda(0), fmtMoneda(0)],
+      ['5', 'Ventas Internas Gravadas por Alícuota Reducida', fmtMoneda(0), fmtMoneda(0)],
+      ['6', 'Total Ventas y Débitos Fiscal para efectos de Determinación', fmtMoneda(totalBaseDeterminacion), fmtMoneda(iva16Total)],
+      ['7', 'Ajustes a los Débitos Fiscales de períodos anteriores', '', fmtMoneda(0)],
+      ['8', 'Certificados de Débitos Fiscales Exonerados', '', fmtMoneda(0)],
+      ['9', 'Total Débitos Fiscales', fmtMoneda(totalBaseDeterminacion), fmtMoneda(iva16Total)]
+    ]
+  };
+
   return {
     titulo: 'Libro de Ventas IVA (SENIAT)',
     empresa, periodo,
     columnas, indicesMonto,
     excelHeaders, excelMerges,
-    filas, totales: filaTotales
+    filas, totales: filaTotales,
+    resumenExcel, resumenMerges, resumenPdf
   };
 };
 // ---------------------------------------------------------------------------
@@ -269,12 +311,69 @@ export const estructuraLibroCompras = ({ empresa, periodo, totales, compras, ret
     fmtMoneda(sumRet)
   ];
 
+  // --- RESUMEN DE FORMA 30: CRÉDITOS FISCALES (se inyecta al final del libro) ---
+  const totalBaseCreditos = sumExento + sumB16 + sumB8;
+  const totalIvaCreditos = sumI16 + sumI8;
+
+  const resumenExcel = [
+    [], [], // Espacios en blanco
+    ['', 'CRÉDITOS FISCALES', '', '', '', 'BASE IMPONIBLE', '', 'CRÉDITO FISCAL'],
+    ['', '10', 'Compras no Gravadas y/o sin Derecho a Crédito Fiscal', '', '', sumExento, '', ''],
+    ['', '11', 'Importación Gravadas por Alícuota General', '', '', 0, '', 0],
+    ['', '12', 'Importaciones Gravadas por Alícuota General más Adicional', '', '', 0, '', 0],
+    ['', '13', 'Importaciones Gravadas por Alícuota Reducida', '', '', 0, '', 0],
+    ['', '14', 'Compras Internas Gravadas por Alícuota General 16%', '', '', sumB16, '', sumI16],
+    ['', '15', 'Compras Internas Gravadas por Alícuota General más Adicional', '', '', 0, '', 0],
+    ['', '16', 'Compras Internas Gravadas por Alícuota Reducida 8%', '', '', sumB8, '', sumI8],
+    ['', '17', 'Total Compras y Créditos Fiscales del Período', '', '', totalBaseCreditos, '', totalIvaCreditos],
+    ['', '18', 'Créditos Fiscales Totalmente Deducibles', '', '', '', '', totalIvaCreditos],
+    ['', '19', 'Créditos Fiscales producto de la Aplicación del porcentaje de prorrata', '', '', '', '', 0],
+    ['', '20', 'Total créditos fiscales deducibles', '', '', '', '', totalIvaCreditos],
+    ['', '21', 'Excedente Créditos Fiscales del mes Anterior', '', '', '', '', 0],
+    ['', '22', 'Reintegro Solicitado (sólo Exportadores)', '', '', '', '', 0],
+    ['', '23', 'Reintegro Solicitado (entes exonerados)', '', '', '', '', 0],
+    ['', '24', 'Ajustes a los Créditos Fiscales de períodos anteriores', '', '', '', '', 0],
+    ['', '25', 'Certificados de Débitos Fiscales Exonerados', '', '', '', '', 0],
+    ['', '26', 'Total Créditos Fiscales', '', '', '', '', totalIvaCreditos]
+  ];
+
+  // Fusiones del resumen: títulos en la fila 2 y descripciones (c2-c4) por ítem.
+  const resumenMerges = [
+    { s: { r: 2, c: 1 }, e: { r: 2, c: 4 } },
+    { s: { r: 2, c: 5 }, e: { r: 2, c: 6 } }
+  ];
+  for (let r = 3; r <= 19; r += 1) resumenMerges.push({ s: { r, c: 2 }, e: { r, c: 4 } });
+
+  const resumenPdf = {
+    head: [['', 'CRÉDITOS FISCALES', 'BASE IMPONIBLE', 'CRÉDITO FISCAL']],
+    body: [
+      ['10', 'Compras no Gravadas y/o sin Derecho a Crédito Fiscal', fmtMoneda(sumExento), ''],
+      ['11', 'Importación Gravadas por Alícuota General', fmtMoneda(0), fmtMoneda(0)],
+      ['12', 'Importaciones Gravadas por Alícuota General más Adicional', fmtMoneda(0), fmtMoneda(0)],
+      ['13', 'Importaciones Gravadas por Alícuota Reducida', fmtMoneda(0), fmtMoneda(0)],
+      ['14', 'Compras Internas Gravadas por Alícuota General 16%', fmtMoneda(sumB16), fmtMoneda(sumI16)],
+      ['15', 'Compras Internas Gravadas por Alícuota General más Adicional', fmtMoneda(0), fmtMoneda(0)],
+      ['16', 'Compras Internas Gravadas por Alícuota Reducida 8%', fmtMoneda(sumB8), fmtMoneda(sumI8)],
+      ['17', 'Total Compras y Créditos Fiscales del Período', fmtMoneda(totalBaseCreditos), fmtMoneda(totalIvaCreditos)],
+      ['18', 'Créditos Fiscales Totalmente Deducibles', '', fmtMoneda(totalIvaCreditos)],
+      ['19', 'Créditos Fiscales producto de la Aplicación del porcentaje de prorrata', '', fmtMoneda(0)],
+      ['20', 'Total créditos fiscales deducibles', '', fmtMoneda(totalIvaCreditos)],
+      ['21', 'Excedente Créditos Fiscales del mes Anterior', '', fmtMoneda(0)],
+      ['22', 'Reintegro Solicitado (sólo Exportadores)', '', fmtMoneda(0)],
+      ['23', 'Reintegro Solicitado (entes exonerados)', '', fmtMoneda(0)],
+      ['24', 'Ajustes a los Créditos Fiscales de períodos anteriores', '', fmtMoneda(0)],
+      ['25', 'Certificados de Débitos Fiscales Exonerados', '', fmtMoneda(0)],
+      ['26', 'Total Créditos Fiscales', '', fmtMoneda(totalIvaCreditos)]
+    ]
+  };
+
   return {
     titulo: 'Libro de Compras IVA (SENIAT)',
     empresa, periodo,
     columnas, indicesMonto,
     excelHeaders, excelMerges,
-    filas, totales: filaTotales
+    filas, totales: filaTotales,
+    resumenExcel, resumenMerges, resumenPdf
   };
 };
 // ---------------------------------------------------------------------------
@@ -353,6 +452,9 @@ export const exportarLibroPdf = (estructura) => {
     body: [...estructura.filas, totales],
     columnStyles,
     theme: 'plain',
+    // Ancho explícito: evita el chequeo de auto-ajuste de AutoTable (ruido de
+    // consola con columnas muy largas); las celdas largas se parten en líneas.
+    tableWidth: '100%',
     // Ultra compactación para que las 23 columnas quepan en la hoja.
     styles: { fontSize: 6, cellPadding: 2, textColor: [0, 0, 0] },
     headStyles: { fontStyle: 'bold', borderBottom: '1px solid #000' },
@@ -360,6 +462,29 @@ export const exportarLibroPdf = (estructura) => {
     margin: { top: 95, bottom: 50, left: 20, right: 20 },
     willDrawPage: () => dibujarMembrete()
   });
+
+  // --- TABLA RESUMEN (Forma 30) al final del libro en PDF ---
+  if (estructura.resumenPdf) {
+    autoTable(pdf, {
+      // Separación de 30px desde el final de la tabla principal (si no cabe,
+      // AutoTable salta de página y el membrete se repite vía willDrawPage).
+      startY: pdf.lastAutoTable.finalY + 30,
+      head: estructura.resumenPdf.head,
+      body: estructura.resumenPdf.body,
+      theme: 'plain',
+      tableWidth: 470, // 30 + 260 + 90 + 90: ancho fijo sin auto-chequeo
+      styles: { fontSize: 7, cellPadding: 3, textColor: [0, 0, 0] },
+      headStyles: { fontStyle: 'bold', borderBottom: '1px solid #000' },
+      columnStyles: {
+        0: { cellWidth: 30, fontStyle: 'bold' },
+        1: { cellWidth: 260 },
+        2: { halign: 'right', cellWidth: 90 },
+        3: { halign: 'right', cellWidth: 90 }
+      },
+      margin: { top: 95, bottom: 50, left: 40, right: 40 },
+      willDrawPage: () => dibujarMembrete()
+    });
+  }
 
   // Numeración al pie de cada hoja: "Página X de Y".
   const totalPaginas = pdf.internal.getNumberOfPages();
@@ -399,32 +524,56 @@ export const exportarLibroXls = (estructura) => {
     estructura.totales
   ];
 
+  // El resumen Forma 30 se inyecta al final de la tabla principal; la fila de
+  // inicio sirve además para desplazar sus fusiones de celdas.
+  const filaInicioResumen = datosExcel.length;
+  if (estructura.resumenExcel) datosExcel.push(...estructura.resumenExcel);
+
   const worksheet = XLSX.utils.aoa_to_sheet(datosExcel);
 
-  // Inyección de "merges" si la matriz trae cabeceras complejas.
-  if (estructura.excelMerges) {
-    worksheet['!merges'] = estructura.excelMerges.map((m) => ({
-      // +5 por el desplazamiento del membrete (5 filas arriba)
+  // Fusiones: cabeceras SENIAT (+5 por el membrete) + fusiones del resumen
+  // (desplazadas a la fila donde comienza el resumen dentro de la hoja).
+  const merges = estructura.excelMerges
+    ? estructura.excelMerges.map((m) => ({
       s: { r: m.s.r + 5, c: m.s.c },
       e: { r: m.e.r + 5, c: m.e.c }
-    }));
+    }))
+    : [];
+  if (estructura.resumenExcel && estructura.resumenMerges) {
+    estructura.resumenMerges.forEach((m) => {
+      merges.push({
+        s: { r: m.s.r + filaInicioResumen, c: m.s.c },
+        e: { r: m.e.r + filaInicioResumen, c: m.e.c }
+      });
+    });
   }
+  if (merges.length > 0) worksheet['!merges'] = merges;
 
-  // Conversión y formato de las celdas numéricas contables.
+  // Conversión y formato de las celdas numéricas contables: en la tabla
+  // principal los montos vienen como texto es-VE y se parsean; en el resumen
+  // ya vienen como números nativos y sólo se les aplica el formato #,##0.00.
   const indicesMonto = estructura.indicesMonto || [];
   const primeraFilaDatos = 5 + headerRows.length;
   const range = XLSX.utils.decode_range(worksheet['!ref'] || 'A1');
 
-  for (let R = Math.max(primeraFilaDatos, range.s.r); R <= range.e.r; R += 1) {
-    for (const C of indicesMonto) {
+  for (let R = 0; R <= range.e.r; R += 1) {
+    for (let C = 0; C <= range.e.c; C += 1) {
       const cellAddress = XLSX.utils.encode_cell({ r: R, c: C });
       const celda = worksheet[cellAddress];
-      if (!celda || typeof celda.v !== 'string') continue;
-      const monto = parseMonto(celda.v);
-      if (monto === null) continue;
-      celda.t = 'n';
-      celda.v = monto;
-      celda.z = '#,##0.00';
+      if (!celda) continue;
+
+      if (R >= primeraFilaDatos && R < filaInicioResumen && typeof celda.v === 'string') {
+        if (indicesMonto.includes(C)) {
+          const monto = parseMonto(celda.v);
+          if (monto === null) continue;
+          celda.t = 'n';
+          celda.v = monto;
+          celda.z = '#,##0.00';
+        }
+      } else if (typeof celda.v === 'number') {
+        celda.t = 'n';
+        celda.z = '#,##0.00';
+      }
     }
   }
 
