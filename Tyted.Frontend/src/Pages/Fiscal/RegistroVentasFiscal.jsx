@@ -1,6 +1,12 @@
 import { useState, useContext, useEffect, useCallback } from 'react';
 import { ConfigContext } from '../../Context/ConfigContext';
 import { fiscalApi, mensajeErrorApi } from '../../Services/Fiscal/FiscalApi';
+import {
+  estructuraLibroVentas,
+  exportarLibroPdf,
+  exportarLibroXls,
+  esColumnaMonto
+} from './reportesLibrosFiscal';
 
 // ---------------------------------------------------------------------------
 // HELPERS FISCALES (Libro de Ventas SENIAT)
@@ -102,6 +108,12 @@ export default function RegistroVentasFiscal() {
   const fechaInicio = periodoActivo?.fechaInicio;
   const fechaFin = periodoActivo?.fechaFin;
 
+  // --- CONSULTA Bajo DEMANDA Y PANEL DE REPORTES ---
+  // El libro NO se lista al entrar a la página: el usuario lo carga con el
+  // botón «🔍 Consultas y edición» o al generar un reporte.
+  const [mostrarConsultas, setMostrarConsultas] = useState(false);
+  const [mostrarReporte, setMostrarReporte] = useState(false);
+
   const cargarVentas = useCallback(async () => {
     if (!empresaId || !fechaInicio || !fechaFin) {
       setVentas([]);
@@ -129,8 +141,15 @@ export default function RegistroVentasFiscal() {
     }
   }, [empresaId, fechaInicio, fechaFin]);
 
-  // Recarga automática al cambiar el contexto global (empresa/periodo)
-  useEffect(() => { cargarVentas(); }, [cargarVentas]);
+  // NOTA: el libro ya NO se carga automáticamente al entrar ni al cambiar de
+  // contexto; se consulta bajo demanda (botón «🔍 Consultas y edición» o
+  // «📊 Reportes»). Si el contexto cambia con el libro abierto, se recarga.
+  useEffect(() => {
+    if (mostrarConsultas || mostrarReporte) cargarVentas();
+  }, [cargarVentas, mostrarConsultas, mostrarReporte]);
+
+  // Apertura/cierre del panel de consultas (la carga la dispara el useEffect)
+  const alternarConsultas = () => setMostrarConsultas((v) => !v);
 
   // Resumen del período (formato SENIAT): facturas + resúmenes de la máquina
   const totales = ventas.reduce((acc, v) => {
@@ -454,6 +473,15 @@ export default function RegistroVentasFiscal() {
     }
   };
 
+  // Estructura del reporte (Libro de Ventas) para la vista previa y la
+  // exportación a PDF/Excel; se recalcula con los datos actualmente cargados.
+  const reporteLibro = estructuraLibroVentas({
+    empresa: empresaActiva,
+    periodo: periodoActivo,
+    totales: totalesLibro,
+    documentos: documentosLibro
+  });
+
   const hayContexto = Boolean(empresaId && fechaInicio && fechaFin);
 
   return (
@@ -497,16 +525,41 @@ export default function RegistroVentasFiscal() {
             📋 Resumen de ventas
           </button>
           <button
-            onClick={cargarVentas}
-            disabled={cargando || !hayContexto}
+            onClick={alternarConsultas}
+            disabled={!hayContexto}
             style={{
-              background: '#2563eb', color: '#fff', border: 'none', borderRadius: '8px',
-              padding: '10px 16px', cursor: cargando ? 'wait' : 'pointer', fontWeight: 'bold',
+              background: mostrarConsultas ? '#0ea5e9' : '#2563eb', color: '#fff', border: 'none', borderRadius: '8px',
+              padding: '10px 16px', cursor: hayContexto ? 'pointer' : 'not-allowed', fontWeight: 'bold',
               opacity: hayContexto ? 1 : 0.5
             }}
+            title="Consultar y editar los documentos del libro del periodo (carga bajo demanda)"
           >
-            {cargando ? '⏳ Cargando…' : '🔍 Recargar'}
+            {mostrarConsultas ? '📋 Cerrar consultas' : '🔍 Consultas y edición'}
           </button>
+          <button
+            onClick={() => setMostrarReporte(!mostrarReporte)}
+            disabled={!hayContexto}
+            style={{
+              background: mostrarReporte ? '#f59e0b' : '#d97706', color: '#fff', border: 'none', borderRadius: '8px',
+              padding: '10px 16px', cursor: hayContexto ? 'pointer' : 'not-allowed', fontWeight: 'bold',
+              opacity: hayContexto ? 1 : 0.5
+            }}
+            title="Vista previa del Libro de Ventas con exportación a PDF y Excel"
+          >
+            {mostrarReporte ? '📄 Cerrar reportes' : '📊 Reportes'}
+          </button>
+          {mostrarConsultas && (
+            <button
+              onClick={cargarVentas}
+              disabled={cargando}
+              style={{
+                background: '#475569', color: '#fff', border: 'none', borderRadius: '8px',
+                padding: '10px 16px', cursor: cargando ? 'wait' : 'pointer', fontWeight: 'bold'
+              }}
+            >
+              {cargando ? '⏳ Cargando…' : '🔄 Recargar'}
+            </button>
+          )}
         </div>
       </div>
 
@@ -770,6 +823,81 @@ export default function RegistroVentasFiscal() {
             </div>
           )}
 
+          {/* --- PANEL DE REPORTES: vista previa del libro + PDF/Excel --- */}
+          {mostrarReporte && (
+            <div style={{ background: '#0f172a', padding: '24px', borderRadius: '12px', border: '1px solid #f59e0b', marginBottom: '20px' }}>
+              {/* Botonera de exportación */}
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '20px' }}>
+                <h3 style={{ margin: 0, color: '#fbbf24', fontSize: '1.05rem' }}>📊 Vista previa: {reporteLibro.titulo}</h3>
+                <div style={{ display: 'flex', gap: '10px' }}>
+                  <button
+                    onClick={() => exportarLibroXls(reporteLibro)}
+                    style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#16a34a', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 16px', cursor: 'pointer', fontWeight: 'bold' }}
+                  >
+                    📊 Descargar Excel
+                  </button>
+                  <button
+                    onClick={() => exportarLibroPdf(reporteLibro)}
+                    style={{ display: 'flex', alignItems: 'center', gap: '8px', background: '#dc2626', color: '#fff', border: 'none', borderRadius: '8px', padding: '10px 16px', cursor: 'pointer', fontWeight: 'bold' }}
+                  >
+                    📄 Descargar PDF
+                  </button>
+                </div>
+              </div>
+
+              {cargando ? (
+                <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>⏳ Cargando el libro para el reporte…</div>
+              ) : (
+                <div style={{ background: '#ffffff', color: '#000000', padding: '20px', borderRadius: '8px', overflowX: 'auto' }}>
+                  {/* Membrete del documento */}
+                  <div style={{ marginBottom: '14px', fontSize: '0.85rem' }}>
+                    <div style={{ fontWeight: 'bold' }}>{(empresaActiva?.razonSocial || empresaActiva?.nombre || 'EMPRESA').toUpperCase()}</div>
+                    <div>RIF {empresaActiva?.rif || '—'}</div>
+                    <div>{reporteLibro.titulo} del {formatearFecha(fechaInicio)} al {formatearFecha(fechaFin)}</div>
+                    <div>Expresado en USD (moneda base)</div>
+                  </div>
+
+                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>
+                    <thead>
+                      <tr style={{ borderBottom: '1.5px solid #000' }}>
+                        {reporteLibro.columnas.map((col, idx) => (
+                          <th key={col} style={{ textAlign: esColumnaMonto(reporteLibro, idx) ? 'right' : 'left', padding: '8px 4px', fontWeight: 'bold' }}>{col}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {reporteLibro.filas.length === 0 ? (
+                        <tr>
+                          <td colSpan={reporteLibro.columnas.length} style={{ textAlign: 'center', padding: '20px', color: '#64748b' }}>
+                            No hay documentos en el periodo para generar el libro.
+                          </td>
+                        </tr>
+                      ) : reporteLibro.filas.map((fila, idxFila) => (
+                        <tr key={`rep-${idxFila}`} style={{ borderBottom: '1px solid #e5e7eb' }}>
+                          {fila.map((celda, idxCelda) => (
+                            <td key={idxCelda} style={{ textAlign: esColumnaMonto(reporteLibro, idxCelda) ? 'right' : 'left', padding: '5px 4px' }}>
+                              {celda}
+                            </td>
+                          ))}
+                        </tr>
+                      ))}
+                    </tbody>
+                    <tfoot>
+                      <tr style={{ borderTop: '1.5px solid #000', fontWeight: 'bold' }}>
+                        {reporteLibro.totales.map((total, idx) => (
+                          <td key={idx} style={{ textAlign: esColumnaMonto(reporteLibro, idx) ? 'right' : 'left', padding: '10px 4px' }}>{total}</td>
+                        ))}
+                      </tr>
+                    </tfoot>
+                  </table>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* --- CONSULTA Y EDICIÓN DEL LIBRO (bajo demanda) --- */}
+          {mostrarConsultas && (
+            <>
           {/* Resumen del período (exentas, base gravada, débito fiscal) */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px', marginBottom: '20px' }}>
             {[
@@ -954,6 +1082,8 @@ export default function RegistroVentasFiscal() {
                 </tbody>
               </table>
             </div>
+          )}
+            </>
           )}
         </>
       )}

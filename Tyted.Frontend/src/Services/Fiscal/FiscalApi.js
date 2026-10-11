@@ -144,6 +144,24 @@ export const fiscalApi = {
     return response.data;
   },
 
+  // Alta de concepto (requiere rol Administrador/Sistema en el backend).
+  crearConcepto: async (concepto) => {
+    const response = await api.post('/conceptos-operacionales', concepto);
+    return response.data;
+  },
+
+  // Edición de concepto (nombre, cuenta contable y tipo de operación).
+  actualizarConcepto: async (id, concepto) => {
+    const response = await api.put(`/conceptos-operacionales/${id}`, concepto);
+    return response.data;
+  },
+
+  // Baja de concepto: el backend la bloquea si el concepto ya está en uso.
+  eliminarConcepto: async (id) => {
+    const response = await api.delete(`/conceptos-operacionales/${id}`);
+    return response.data;
+  },
+
   // -------------------------------------------------------------------------
   // RESÚMENES DE VENTAS DE LA MÁQUINA FISCAL (cierre Z, Libro de Ventas SENIAT):
   // N° control de la máquina + N° Z + rango de facturas; 1 asiento por resumen.
