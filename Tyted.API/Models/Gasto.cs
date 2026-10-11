@@ -25,6 +25,16 @@ namespace Tyted.API.Models
         [StringLength(100)]
         public string? Categoria { get; set; }
 
+        /// <summary>
+        /// Concepto operacional seleccionado en el formulario (puente con el
+        /// plan de cuentas). Su CuentaContable define la cuenta del Debe al
+        /// contabilizar. Opcional por compatibilidad con gastos antiguos.
+        /// </summary>
+        public int? ConceptoOperacionalId { get; set; }
+
+        [ForeignKey(nameof(ConceptoOperacionalId))]
+        public ConceptoOperacional? ConceptoOperacional { get; set; }
+
         /// <summary>Proveedor opcional (si se paga/compra a un terceo registrado).</summary>
         public int? CodigoProv { get; set; }
 

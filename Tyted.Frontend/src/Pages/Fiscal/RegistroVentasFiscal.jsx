@@ -69,8 +69,34 @@ export default function RegistroVentasFiscal() {
     numeroControl: ''
   });
   const [lineas, setLineas] = useState([]);
-  const [buscadorProd, setBuscadorProd] = useState('');
-  const [resultadosProd, setResultadosProd] = useState([]);
+  // Conceptos de ingreso (catálogo por empresa, tipo VENTA): sustituyen al
+  // buscador de productos en el módulo fiscal (ventas sin inventario). Su
+  // CuentaContable genera el Haber del asiento contable por línea.
+  const [conceptosIngreso, setConceptosIngreso] = useState([]);
+  const [nuevaLinea, setNuevaLinea] = useState({
+    conceptoId: '',
+    descripcion: '',
+    cantidad: 1,
+    precio: '',
+    tasaIVA: 16
+  });
+
+  // --- RESUMEN DE VENTAS DE LA MÁQUINA FISCAL (cierre Z, Libro SENIAT) ---
+  const [resumenes, setResumenes] = useState([]);
+  const [mostrarResumen, setMostrarResumen] = useState(false);
+  const [guardandoResumen, setGuardandoResumen] = useState(false);
+  const [contabilizarResumenAuto, setContabilizarResumenAuto] = useState(true);
+  const [formResumen, setFormResumen] = useState({
+    fecha: new Date().toISOString().slice(0, 10),
+    numeroControlMaquina: '',
+    numeroZ: '',
+    facturaDesde: '',
+    facturaHasta: '',
+    tipoTransaccion: '01',
+    exento: '',
+    baseGravada: '',
+    iva: ''
+  });
 
   const empresaId = Number(empresaActiva?.id ?? 0);
   const fechaInicio = periodoActivo?.fechaInicio;
@@ -79,12 +105,22 @@ export default function RegistroVentasFiscal() {
   const cargarVentas = useCallback(async () => {
     if (!empresaId || !fechaInicio || !fechaFin) {
       setVentas([]);
+      setResumenes([]);
       return;
     }
     setCargando(true);
     try {
       const data = await fiscalApi.getVentas({ fechaInicio, fechaFin, empresaId });
       setVentas(Array.isArray(data) ? data : (data?.$values || []));
+      // Resúmenes de la máquina fiscal (cierre Z) del mismo periodo/empresa;
+      // un fallo aquí no debe impedir ver las facturas del libro.
+      try {
+        const res = await fiscalApi.getResumenesVentas({ fechaInicio, fechaFin, empresaId });
+        setResumenes(Array.isArray(res) ? res : (res?.$values || []));
+      } catch (errorRes) {
+        console.warn('Error cargando los resúmenes de ventas:', errorRes);
+        setResumenes([]);
+      }
     } catch (error) {
       console.error('Error cargando el Libro de Ventas:', error);
       alert(`❌ No se pudo cargar el Libro de Ventas:\n${mensajeErrorApi(error)}`);
@@ -96,7 +132,7 @@ export default function RegistroVentasFiscal() {
   // Recarga automática al cambiar el contexto global (empresa/periodo)
   useEffect(() => { cargarVentas(); }, [cargarVentas]);
 
-  // Resumen del período (formato SENIAT)
+  // Resumen del período (formato SENIAT): facturas + resúmenes de la máquina
   const totales = ventas.reduce((acc, v) => {
     const d = desgloseVenta(v);
     acc.documentos += 1;
@@ -107,6 +143,36 @@ export default function RegistroVentasFiscal() {
     if (v.isAnulada) acc.anuladas += 1;
     return acc;
   }, { documentos: 0, exento: 0, baseGravada: 0, iva: 0, total: 0, anuladas: 0 });
+
+  const totalesResumen = resumenes.reduce((acc, r) => {
+    acc.documentos += 1;
+    acc.exento += Number(r.exento ?? 0);
+    acc.baseGravada += Number(r.baseGravada ?? 0);
+    acc.iva += Number(r.iva ?? 0);
+    acc.total += Number(r.total ?? 0);
+    if (r.isAnulada) acc.anuladas += 1;
+    return acc;
+  }, { documentos: 0, exento: 0, baseGravada: 0, iva: 0, total: 0, anuladas: 0 });
+
+  const totalesLibro = {
+    documentos: totales.documentos + totalesResumen.documentos,
+    exento: totales.exento + totalesResumen.exento,
+    baseGravada: totales.baseGravada + totalesResumen.baseGravada,
+    iva: totales.iva + totalesResumen.iva,
+    total: totales.total + totalesResumen.total,
+    anuladas: totales.anuladas + totalesResumen.anuladas
+  };
+
+  // Documentos del libro fusionados y ordenados por fecha: facturas (Ventas) +
+  // resúmenes de la máquina fiscal (cierre Z).
+  const documentosLibro = [
+    ...ventas.map((v) => ({ esResumen: false, dato: v })),
+    ...resumenes.map((r) => ({ esResumen: true, dato: r }))
+  ].sort((a, b) => {
+    const fa = new Date(a.dato.fechaVenta || a.dato.fecha).getTime();
+    const fb = new Date(b.dato.fechaVenta || b.dato.fecha).getTime();
+    return fb - fa;
+  });
 
   const abrirEdicion = (v) => {
     setEditandoId(v.ventaId);
@@ -166,6 +232,14 @@ export default function RegistroVentasFiscal() {
   }, { subtotal: 0, iva: 0 });
   totalesForm.total = totalesForm.subtotal + totalesForm.iva;
 
+  // Montos del formulario de resumen (total = exento + base gravada + IVA)
+  const montosResumenForm = {
+    exento: Number(formResumen.exento) || 0,
+    baseGravada: Number(formResumen.baseGravada) || 0,
+    iva: Number(formResumen.iva) || 0
+  };
+  montosResumenForm.total = montosResumenForm.exento + montosResumenForm.baseGravada + montosResumenForm.iva;
+
   const abrirFormVentaFiscal = async () => {
     setFormVenta({
       fecha: new Date().toISOString().slice(0, 10),
@@ -174,8 +248,8 @@ export default function RegistroVentasFiscal() {
       numeroControl: ''
     });
     setLineas([]);
-    setBuscadorProd('');
-    setResultadosProd([]);
+    setNuevaLinea({ conceptoId: '', descripcion: '', cantidad: 1, precio: '', tasaIVA: 16 });
+    setMostrarResumen(false);
     setMostrarForm(true);
     if (clientes.length === 0) {
       try {
@@ -185,36 +259,43 @@ export default function RegistroVentasFiscal() {
         console.warn('Error cargando clientes:', error);
       }
     }
-  };
-
-  const buscarProdFiscal = async (valor) => {
-    setBuscadorProd(valor);
-    if (valor.trim().length < 2) { setResultadosProd([]); return; }
-    try {
-      const data = await fiscalApi.buscarProductos(valor, Number(tasa) || 1);
-      const unicos = [];
-      const vistos = new Set();
-      (Array.isArray(data) ? data : []).forEach((p) => {
-        if (!vistos.has(p.codigoProd)) { vistos.add(p.codigoProd); unicos.push(p); }
-      });
-      setResultadosProd(unicos);
-    } catch {
-      setResultadosProd([]);
+    // Categorías de ingreso (conceptos tipo VENTA) de la empresa activa:
+    // sustituyen al buscador de productos en la venta fiscal declarativa.
+    if (conceptosIngreso.length === 0) {
+      try {
+        const data = await fiscalApi.getConceptos({ empresaId, tipo: 'VENTA' });
+        setConceptosIngreso(Array.isArray(data) ? data : (data?.$values || []));
+      } catch (error) {
+        console.warn('Error cargando conceptos de ingreso:', error);
+      }
     }
   };
 
-  const agregarLinea = (prod) => {
-    setLineas(prev => [...prev, {
-      idProductoUnidad: prod.idProductoUnidad,
-      codigoProd: prod.codigoProd,
-      descripcion: prod.descripcion || 'PRODUCTO',
-      unidad: prod.unidad || 'UND',
-      precio: Number(prod.precioUSD || prod.precioMonedaBase || 0),
-      cantidad: 1,
-      tasaIVA: Number(prod.porcentajeIva || 0)
-    }]);
-    setBuscadorProd('');
-    setResultadosProd([]);
+  // --- RESUMEN DE VENTAS DE LA MÁQUINA FISCAL (cierre Z) ---
+  const abrirFormResumen = () => {
+    setFormResumen({
+      fecha: new Date().toISOString().slice(0, 10),
+      numeroControlMaquina: '',
+      numeroZ: '',
+      facturaDesde: '',
+      facturaHasta: '',
+      tipoTransaccion: '01',
+      exento: '',
+      baseGravada: '',
+      iva: ''
+    });
+    setMostrarForm(false);
+    setMostrarResumen(true);
+  };
+
+  // Agrega una línea al formulario de factura única basada en un CONCEPTO de
+  // ingreso (sin inventario, sin productos): descripción libre + precio + IVA.
+  const agregarLineaNueva = () => {
+    if (!nuevaLinea.conceptoId) { alert('⚠️ Seleccione la categoría de ingreso (concepto).'); return; }
+    if (!(Number(nuevaLinea.cantidad) > 0)) { alert('⚠️ La cantidad debe ser mayor a cero.'); return; }
+    if (!(Number(nuevaLinea.precio) > 0)) { alert('⚠️ Asigne un precio a la línea.'); return; }
+    setLineas((prev) => [...prev, { ...nuevaLinea }]);
+    setNuevaLinea({ conceptoId: '', descripcion: '', cantidad: 1, precio: '', tasaIVA: 16 });
   };
 
   const modificarLinea = (idx, campo, valor) => {
@@ -252,9 +333,11 @@ export default function RegistroVentasFiscal() {
         tasaDeCambio: Number(tasa) || 1,
         tasaDia: Number(tasa) || 1,
         detalles: lineas.map(l => ({
-          codigoProd: l.codigoProd,
-          idProductoUnidad: Number(l.idProductoUnidad),
-          nombreUnidad: l.unidad,
+          // Líneas por CONCEPTO DE INGRESO (sin inventario): el backend valida
+          // el concepto (tipo VENTA, misma empresa) y su CuentaContable genera
+          // el Haber del asiento contable.
+          conceptoOperacionalId: Number(l.conceptoId),
+          descripcionFiscal: l.descripcion || null,
           cantidad: Number(l.cantidad),
           precioUnitarioMonedaBase: Number(l.precio),
           tasaIVA: Number(l.tasaIVA)
@@ -278,6 +361,96 @@ export default function RegistroVentasFiscal() {
       alert(`❌ No se pudo registrar la venta fiscal:\n${mensajeErrorApi(error)}`);
     } finally {
       setGuardando(false);
+    }
+  };
+
+  // -------------------------------------------------------------------------
+  // ALTA DE RESUMEN DE VENTAS DE LA MÁQUINA FISCAL (cierre Z)
+  // -------------------------------------------------------------------------
+  const guardarResumen = async () => {
+    const { fecha, numeroControlMaquina, numeroZ, facturaDesde, facturaHasta, exento, baseGravada, iva } = formResumen;
+    if (!fecha) { alert('⚠️ Indique la fecha del resumen (cierre Z).'); return; }
+    if (!numeroControlMaquina.trim()) { alert('⚠️ Indique el N° de control de la máquina fiscal.'); return; }
+    if (!numeroZ.trim()) { alert('⚠️ Indique el N° Z.'); return; }
+    if (!facturaDesde.trim() || !facturaHasta.trim()) { alert('⚠️ Indique el rango de facturas del resumen (Desde/Hasta).'); return; }
+    if (/^\d+$/.test(facturaDesde.trim()) && /^\d+$/.test(facturaHasta.trim())
+      && Number(facturaDesde.trim()) > Number(facturaHasta.trim())) {
+      alert('⚠️ La factura «Desde» no puede ser mayor que la «Hasta».');
+      return;
+    }
+
+    const montoExento = Number(exento) || 0;
+    const montoBase = Number(baseGravada) || 0;
+    const montoIva = Number(iva) || 0;
+    if (montoExento + montoBase + montoIva <= 0) {
+      alert('⚠️ Registre los montos del resumen (exento, base gravada e IVA).');
+      return;
+    }
+
+    const confirmado = window.confirm(
+      `Registrar el resumen de ventas Z ${numeroZ} (${facturaDesde} – ${facturaHasta}) por ${fmt(montoExento + montoBase + montoIva)}?\n\n` +
+      'Documento declarativo del Libro de Ventas SENIAT: NO afecta caja ni inventario.' +
+      (contabilizarResumenAuto ? '\nSe generará además UN comprobante contable por resumen (Debe Caja | Haber Ingresos + IVA).' : '')
+    );
+    if (!confirmado) return;
+
+    setGuardandoResumen(true);
+    try {
+      const creado = await fiscalApi.crearResumenVenta({
+        empresaId,
+        fecha: `${fecha}T12:00:00`,
+        numeroControlMaquina: numeroControlMaquina.trim(),
+        numeroZ: numeroZ.trim(),
+        facturaDesde: facturaDesde.trim(),
+        facturaHasta: facturaHasta.trim(),
+        exento: montoExento,
+        baseGravada: montoBase,
+        iva: montoIva,
+        total: montoExento + montoBase + montoIva,
+        tipoTransaccion: formResumen.tipoTransaccion
+      });
+
+      if (contabilizarResumenAuto && creado?.id) {
+        try {
+          const resp = await fiscalApi.contabilizarResumenVenta(creado.id);
+          if (!resp.generada) alert(`⚠️ Resumen registrado, pero el comprobante no se generó:\n${resp.advertencia || resp.mensaje || ''}`);
+        } catch (errorC) {
+          alert(`⚠️ Resumen registrado; el comprobante contable falló:\n${mensajeErrorApi(errorC)}`);
+        }
+      }
+
+      alert('✅ Resumen de ventas de la máquina fiscal registrado.');
+      setMostrarResumen(false);
+      await cargarVentas();
+    } catch (error) {
+      console.error('Error creando el resumen de ventas:', error);
+      alert(`❌ No se pudo registrar el resumen:\n${mensajeErrorApi(error)}`);
+    } finally {
+      setGuardandoResumen(false);
+    }
+  };
+
+  const contabilizarResumen = async (r) => {
+    const confirmado = window.confirm(
+      `Generar el comprobante contable del resumen Z ${r.numeroZ} (${r.facturaDesde} – ${r.facturaHasta})?\n\n` +
+      'Partida doble: Debe Caja | Haber Ingresos + IVA Débito Fiscal. Idempotente: no se duplicará.'
+    );
+    if (!confirmado) return;
+
+    setProcesandoId(`R${r.id}`);
+    try {
+      const resp = await fiscalApi.contabilizarResumenVenta(r.id);
+      if (resp.generada) {
+        alert(`✅ Comprobante ${resp.numeroComprobante} generado.\nDebe/Haber: ${fmt(resp.totalDebe)}`);
+      } else {
+        alert(`⚠️ ${resp.mensaje || 'No se generó el comprobante.'}\n${resp.advertencia || ''}`);
+      }
+      await cargarVentas();
+    } catch (error) {
+      console.error('Error contabilizando el resumen de ventas:', error);
+      alert(`❌ No se pudo contabilizar el resumen:\n${mensajeErrorApi(error)}`);
+    } finally {
+      setProcesandoId(null);
     }
   };
 
@@ -307,9 +480,21 @@ export default function RegistroVentasFiscal() {
               padding: '10px 16px', cursor: hayContexto && !cargando ? 'pointer' : 'not-allowed',
               fontWeight: 'bold', opacity: hayContexto ? 1 : 0.5
             }}
-            title="Registrar una venta fiscal declarativa (sin caja ni inventario)"
+            title="Registrar una factura fiscal única (declarativa, sin caja ni inventario)"
           >
-            ➕ Nueva venta fiscal
+            ➕ Factura única
+          </button>
+          <button
+            onClick={abrirFormResumen}
+            disabled={!hayContexto || cargando}
+            style={{
+              background: '#7c3aed', color: '#fff', border: 'none', borderRadius: '8px',
+              padding: '10px 16px', cursor: hayContexto && !cargando ? 'pointer' : 'not-allowed',
+              fontWeight: 'bold', opacity: hayContexto ? 1 : 0.5
+            }}
+            title="Registrar el resumen de ventas de la máquina fiscal (N° Z + rango de facturas)"
+          >
+            📋 Resumen de ventas
           </button>
           <button
             onClick={cargarVentas}
@@ -334,9 +519,10 @@ export default function RegistroVentasFiscal() {
           {/* --- FORMULARIO DE ALTA DE VENTA FISCAL (sin caja/inventario) --- */}
           {mostrarForm && (
             <div style={{ background: '#1e293b', border: '1px solid #16a34a', borderRadius: '12px', padding: '20px', marginBottom: '20px' }}>
-              <h3 style={{ margin: '0 0 4px 0', color: '#34d399', fontSize: '1.05rem' }}>➕ Nueva venta fiscal</h3>
+              <h3 style={{ margin: '0 0 4px 0', color: '#34d399', fontSize: '1.05rem' }}>➕ Factura única (venta fiscal)</h3>
               <p style={{ margin: '0 0 14px 0', color: '#94a3b8', fontSize: '0.8rem' }}>
-                Documento declarativo: NO afecta el Punto de Venta ni el inventario (sin caja, sin descuento de stock, sin kardex).
+                Documento declarativo por factura: NO afecta el Punto de Venta ni el inventario (sin caja, sin descuento de stock, sin kardex).
+                Las líneas se registran por <b>categorías de ingreso</b> (conceptos contables de la empresa), no por productos.
               </p>
 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '12px', marginBottom: '14px' }}>
@@ -365,31 +551,91 @@ export default function RegistroVentasFiscal() {
                 </div>
               </div>
 
-              <div style={{ position: 'relative', marginBottom: '10px' }}>
-                <input
-                  type="text"
-                  value={buscadorProd}
-                  onChange={(e) => buscarProdFiscal(e.target.value)}
-                  placeholder="🔍 Buscar producto para agregar una línea…"
-                  style={{ ...inputChico, width: '100%' }}
-                />
-                {resultadosProd.length > 0 && (
-                  <div style={{ position: 'absolute', left: 0, right: 0, top: '100%', zIndex: 30, background: '#0f172a', border: '1px solid #334155', borderRadius: '8px', maxHeight: '220px', overflowY: 'auto' }}>
-                    {resultadosProd.map((p) => (
-                      <div key={`${p.idProductoUnidad}-${p.codigoProd}`} onClick={() => agregarLinea(p)} style={{ padding: '8px 12px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #1f2937' }}>
-                        <span style={{ fontSize: '0.8rem' }}>{p.descripcion} <b style={{ color: '#94a3b8' }}>({p.unidad})</b></span>
-                        <b style={{ color: '#34d399' }}>${Number(p.precioUSD || p.precioMonedaBase || 0).toFixed(2)} · IVA {p.porcentajeIva || 0}%</b>
-                      </div>
+              {/* Mini-formulario de líneas por CONCEPTO DE INGRESO (sin inventario) */}
+              <div style={{ background: '#0f172a', padding: '12px', borderRadius: '8px', border: '1px solid #334155', marginBottom: '14px', display: 'flex', gap: '10px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                <div style={{ flex: '1 1 200px' }}>
+                  <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Categoría de Ingreso</label>
+                  <select
+                    value={nuevaLinea.conceptoId}
+                    onChange={(e) => {
+                      const concepto = conceptosIngreso.find((c) => String(c.id) === e.target.value);
+                      setNuevaLinea({
+                        ...nuevaLinea,
+                        conceptoId: e.target.value,
+                        descripcion: concepto ? concepto.nombreConcepto : '' // Autocompleta la descripción
+                      });
+                    }}
+                    style={{ ...inputChico, width: '100%' }}
+                  >
+                    <option value="">Seleccione…</option>
+                    {conceptosIngreso.map((c) => (
+                      <option key={c.id} value={c.id}>{c.nombreConcepto} (Cta: {c.cuentaContable})</option>
                     ))}
-                  </div>
-                )}
+                  </select>
+                </div>
+
+                <div style={{ flex: '2 1 250px' }}>
+                  <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Descripción (Libre)</label>
+                  <input
+                    type="text"
+                    value={nuevaLinea.descripcion}
+                    onChange={(e) => setNuevaLinea({ ...nuevaLinea, descripcion: e.target.value })}
+                    placeholder="Ej: Facturación mensual Internet"
+                    style={{ ...inputChico, width: '100%' }}
+                  />
+                </div>
+
+                <div style={{ width: '70px' }}>
+                  <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Cant.</label>
+                  <input
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    value={nuevaLinea.cantidad}
+                    onChange={(e) => setNuevaLinea({ ...nuevaLinea, cantidad: e.target.value })}
+                    style={{ ...inputChico, width: '100%' }}
+                  />
+                </div>
+
+                <div style={{ width: '90px' }}>
+                  <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Precio $</label>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={nuevaLinea.precio}
+                    onChange={(e) => setNuevaLinea({ ...nuevaLinea, precio: e.target.value })}
+                    style={{ ...inputChico, width: '100%' }}
+                  />
+                </div>
+
+                <div style={{ width: '70px' }}>
+                  <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>IVA %</label>
+                  <select
+                    value={nuevaLinea.tasaIVA}
+                    onChange={(e) => setNuevaLinea({ ...nuevaLinea, tasaIVA: Number(e.target.value) })}
+                    style={{ ...inputChico, width: '100%' }}
+                  >
+                    <option value={0}>0%</option>
+                    <option value={8}>8%</option>
+                    <option value={16}>16%</option>
+                  </select>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={agregarLineaNueva}
+                  style={{ background: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', padding: '6px 12px', height: '31px', cursor: 'pointer', fontWeight: 'bold' }}
+                >
+                  + Agregar
+                </button>
               </div>
 
               {lineas.length > 0 && (
                 <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem', marginBottom: '12px' }}>
                   <thead>
                     <tr style={{ color: '#93c5fd', textAlign: 'left' }}>
-                      <th style={{ padding: '6px' }}>Producto</th>
+                      <th style={{ padding: '6px' }}>Concepto / Descripción</th>
                       <th style={{ padding: '6px' }}>Cant.</th>
                       <th style={{ padding: '6px' }}>Precio $</th>
                       <th style={{ padding: '6px' }}>IVA %</th>
@@ -398,9 +644,18 @@ export default function RegistroVentasFiscal() {
                     </tr>
                   </thead>
                   <tbody>
-                    {lineas.map((l, idx) => (
-                      <tr key={`${l.idProductoUnidad}-${idx}`} style={{ borderTop: '1px solid #1f2937' }}>
-                        <td style={{ padding: '6px' }}>{l.descripcion} <span style={{ color: '#64748b' }}>({l.unidad})</span></td>
+                    {lineas.map((l, idx) => {
+                      const conceptoLinea = conceptosIngreso.find((c) => String(c.id) === String(l.conceptoId));
+                      return (
+                      <tr key={`linea-${idx}`} style={{ borderTop: '1px solid #1f2937' }}>
+                        <td style={{ padding: '6px' }}>
+                          {l.descripcion || '—'}
+                          {conceptoLinea && (
+                            <span style={{ display: 'block', color: '#64748b', fontSize: '0.72rem' }}>
+                              {conceptoLinea.nombreConcepto} · Cta {conceptoLinea.cuentaContable}
+                            </span>
+                          )}
+                        </td>
                         <td style={{ padding: '6px' }}>
                           <input type="number" min="0.001" step="0.001" value={l.cantidad} onChange={(e) => modificarLinea(idx, 'cantidad', e.target.value)} style={{ ...inputChico, width: '80px' }} />
                         </td>
@@ -419,7 +674,8 @@ export default function RegistroVentasFiscal() {
                           <button onClick={() => quitarLinea(idx)} title="Quitar línea" style={{ background: '#7f1d1d', color: '#fff', border: 'none', borderRadius: '5px', padding: '3px 8px', cursor: 'pointer' }}>🗑️</button>
                         </td>
                       </tr>
-                    ))}
+                      );
+                    })}
                   </tbody>
                 </table>
               )}
@@ -443,15 +699,86 @@ export default function RegistroVentasFiscal() {
             </div>
           )}
 
+          {/* --- FORMULARIO DE RESUMEN DE VENTAS DE LA MÁQUINA FISCAL (cierre Z) --- */}
+          {mostrarResumen && (
+            <div style={{ background: '#1e293b', border: '1px solid #7c3aed', borderRadius: '12px', padding: '20px', marginBottom: '20px' }}>
+              <h3 style={{ margin: '0 0 4px 0', color: '#a78bfa', fontSize: '1.05rem' }}>📋 Resumen de ventas · máquina fiscal (cierre Z)</h3>
+              <p style={{ margin: '0 0 14px 0', color: '#94a3b8', fontSize: '0.8rem' }}>
+                Documento declarativo del Libro de Ventas SENIAT: registra el N° de control de la máquina, el N° Z y el rango de
+                facturas emitidas del día. NO afecta caja ni inventario. Cada resumen genera <b>UN</b> comprobante contable (Debe Caja | Haber Ingresos + IVA).
+              </p>
+
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px', marginBottom: '14px' }}>
+                <div>
+                  <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Fecha (cierre Z)</label>
+                  <input type="date" value={formResumen.fecha} onChange={(e) => setFormResumen({ ...formResumen, fecha: e.target.value })} style={inputChico} />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>N° Control máquina</label>
+                  <input type="text" value={formResumen.numeroControlMaquina} onChange={(e) => setFormResumen({ ...formResumen, numeroControlMaquina: e.target.value })} placeholder="Z1F0006326" style={inputChico} />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>N° Z</label>
+                  <input type="text" value={formResumen.numeroZ} onChange={(e) => setFormResumen({ ...formResumen, numeroZ: e.target.value })} placeholder="0163" style={inputChico} />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Factura Desde</label>
+                  <input type="text" value={formResumen.facturaDesde} onChange={(e) => setFormResumen({ ...formResumen, facturaDesde: e.target.value })} placeholder="00000940" style={inputChico} />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Factura Hasta</label>
+                  <input type="text" value={formResumen.facturaHasta} onChange={(e) => setFormResumen({ ...formResumen, facturaHasta: e.target.value })} placeholder="00000952" style={inputChico} />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Tipo (SENIAT)</label>
+                  <select value={formResumen.tipoTransaccion} onChange={(e) => setFormResumen({ ...formResumen, tipoTransaccion: e.target.value })} style={inputChico}>
+                    {TIPOS_TRANSACCION.map((t) => <option key={t.valor} value={t.valor}>{t.etiqueta}</option>)}
+                  </select>
+                </div>
+
+                <div>
+                  <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Ventas Exentas $</label>
+                  <input type="number" min="0" step="0.01" value={formResumen.exento} onChange={(e) => setFormResumen({ ...formResumen, exento: e.target.value })} placeholder="0.00" style={inputChico} />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Base Gravada $</label>
+                  <input type="number" min="0" step="0.01" value={formResumen.baseGravada} onChange={(e) => setFormResumen({ ...formResumen, baseGravada: e.target.value })} placeholder="0.00" style={inputChico} />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>IVA $</label>
+                  <input type="number" min="0" step="0.01" value={formResumen.iva} onChange={(e) => setFormResumen({ ...formResumen, iva: e.target.value })} placeholder="0.00" style={inputChico} />
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
+                <div style={{ fontSize: '0.9rem' }}>
+                  <b>Exento:</b> ${montosResumenForm.exento.toFixed(2)} · <b>Base:</b> ${montosResumenForm.baseGravada.toFixed(2)} ·{' '}
+                  <b>IVA:</b> ${montosResumenForm.iva.toFixed(2)} ·{' '}
+                  <b style={{ color: '#a78bfa', fontSize: '1.05rem' }}>${montosResumenForm.total.toFixed(2)}</b>
+                </div>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                  <label style={{ fontSize: '0.8rem', color: '#cbd5e1', display: 'flex', gap: '6px', alignItems: 'center' }}>
+                    <input type="checkbox" checked={contabilizarResumenAuto} onChange={(e) => setContabilizarResumenAuto(e.target.checked)} />
+                    🧾 Contabilizar automáticamente (1 asiento por resumen)
+                  </label>
+                  <button onClick={() => setMostrarResumen(false)} style={{ background: '#475569', color: '#fff', border: 'none', borderRadius: '8px', padding: '9px 16px', cursor: 'pointer', fontWeight: 'bold' }}>Cancelar</button>
+                  <button onClick={guardarResumen} disabled={guardandoResumen} style={{ background: '#16a34a', color: '#fff', border: 'none', borderRadius: '8px', padding: '9px 18px', cursor: guardandoResumen ? 'wait' : 'pointer', fontWeight: 'bold', opacity: guardandoResumen ? 0.6 : 1 }}>
+                    {guardandoResumen ? '⏳ Guardando…' : '💾 Guardar resumen'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {/* Resumen del período (exentas, base gravada, débito fiscal) */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px', marginBottom: '20px' }}>
             {[
-              { etiqueta: 'Documentos', valor: totales.documentos, color: '#60a5fa' },
-              { etiqueta: 'Ventas Exentas', valor: totales.exento, color: '#94a3b8' },
-              { etiqueta: 'Base Gravada', valor: totales.baseGravada, color: '#34d399' },
-              { etiqueta: 'IVA Débito Fiscal', valor: totales.iva, color: '#fbbf24' },
-              { etiqueta: 'Total Ventas', valor: totales.total, color: '#fff' },
-              { etiqueta: 'Anuladas', valor: totales.anuladas, color: '#f87171' }
+              { etiqueta: 'Documentos', valor: totalesLibro.documentos, color: '#60a5fa' },
+              { etiqueta: 'Ventas Exentas', valor: totalesLibro.exento, color: '#94a3b8' },
+              { etiqueta: 'Base Gravada', valor: totalesLibro.baseGravada, color: '#34d399' },
+              { etiqueta: 'IVA Débito Fiscal', valor: totalesLibro.iva, color: '#fbbf24' },
+              { etiqueta: 'Total Ventas', valor: totalesLibro.total, color: '#fff' },
+              { etiqueta: 'Anuladas', valor: totalesLibro.anuladas, color: '#f87171' }
             ].map((c) => (
               <div key={c.etiqueta} style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: '10px', padding: '12px' }}>
                 <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: '4px' }}>{c.etiqueta}</div>
@@ -464,9 +791,9 @@ export default function RegistroVentasFiscal() {
 
           {cargando ? (
             <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>⏳ Cargando Libro de Ventas…</div>
-          ) : ventas.length === 0 ? (
+          ) : documentosLibro.length === 0 ? (
             <div style={{ background: '#0f172a', border: '1px dashed #475569', padding: '30px', textAlign: 'center', borderRadius: '12px', color: '#94a3b8' }}>
-              No hay ventas registradas en el periodo seleccionado.
+              No hay facturas ni resúmenes de ventas registrados en el periodo seleccionado.
             </div>
           ) : (
             <div style={{ background: '#111827', borderRadius: '12px', overflowX: 'auto', border: '1px solid #334155' }}>
@@ -478,6 +805,8 @@ export default function RegistroVentasFiscal() {
                     <th style={thStyle}>N° Factura</th>
                     <th style={thStyle}>Cliente (RIF)</th>
                     <th style={thStyle}>N° Control</th>
+                    <th style={thStyle}>N° Z</th>
+                    <th style={thStyle}>Rango (Desde – Hasta)</th>
                     <th style={{ ...thStyle, textAlign: 'right' }}>Exento</th>
                     <th style={{ ...thStyle, textAlign: 'right' }}>Base Gravada</th>
                     <th style={{ ...thStyle, textAlign: 'right' }}>IVA</th>
@@ -487,7 +816,55 @@ export default function RegistroVentasFiscal() {
                   </tr>
                 </thead>
                 <tbody>
-                  {ventas.map((v) => {
+                  {documentosLibro.map(({ esResumen, dato: doc }) => {
+                    // --- FILA: RESUMEN DE VENTAS DE LA MÁQUINA FISCAL (cierre Z) ---
+                    if (esResumen) {
+                      return (
+                        <tr key={`resumen-${doc.id}`} style={{ background: '#1b1630' }}>
+                          <td style={tdStyle}>{formatearFecha(doc.fecha)}</td>
+                          <td style={tdStyle}>
+                            <span style={{ background: '#2e1a47', color: '#c4b5fd', padding: '2px 8px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 'bold' }}>
+                              {doc.tipoTransaccion || '01'}
+                            </span>
+                          </td>
+                          <td style={{ ...tdStyle, fontFamily: 'monospace', color: '#a78bfa' }}>Resumen</td>
+                          <td style={tdStyle}>
+                            <b>Resumen Diario de Ventas</b>
+                            <span style={{ display: 'block', color: '#94a3b8', fontSize: '0.75rem' }}>Máquina fiscal · SIN RIF</span>
+                          </td>
+                          <td style={{ ...tdStyle, fontFamily: 'monospace' }}>{doc.numeroControlMaquina}</td>
+                          <td style={{ ...tdStyle, fontFamily: 'monospace', color: '#a78bfa', fontWeight: 'bold' }}>{doc.numeroZ}</td>
+                          <td style={{ ...tdStyle, fontFamily: 'monospace' }}>{doc.facturaDesde} – {doc.facturaHasta}</td>
+                          <td style={{ ...tdStyle, textAlign: 'right' }}>{fmt(doc.exento)}</td>
+                          <td style={{ ...tdStyle, textAlign: 'right' }}>{fmt(doc.baseGravada)}</td>
+                          <td style={{ ...tdStyle, textAlign: 'right', color: '#fbbf24' }}>{fmt(doc.iva)}</td>
+                          <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 'bold' }}>{fmt(doc.total)}</td>
+                          <td style={tdStyle}>
+                            {doc.asientoContableId
+                              ? <span style={{ color: '#34d399', fontWeight: 'bold' }}>✅ Asiento #{doc.asientoContableId}</span>
+                              : <span style={{ color: '#64748b' }}>— sin comprobante</span>}
+                          </td>
+                          <td style={{ ...tdStyle, textAlign: 'center' }}>
+                            <button
+                              onClick={() => contabilizarResumen(doc)}
+                              disabled={Boolean(doc.asientoContableId) || procesandoId !== null}
+                              title={doc.asientoContableId ? 'Ya tiene comprobante (no se duplica)' : 'Generar el comprobante contable del resumen (1 asiento)'}
+                              style={{
+                                background: doc.asientoContableId ? '#064e3b' : '#7c3aed', color: '#fff', border: 'none',
+                                borderRadius: '5px', padding: '5px 9px',
+                                cursor: doc.asientoContableId || procesandoId !== null ? 'not-allowed' : 'pointer',
+                                opacity: doc.asientoContableId ? 0.6 : 1
+                              }}
+                            >
+                              {procesandoId === `R${doc.id}` ? '⏳' : '🧾'}
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    }
+
+                    // --- FILA: FACTURA FISCAL (VENTA) ---
+                    const v = doc;
                     const d = desgloseVenta(v);
                     const editando = editandoId === v.ventaId;
                     const cliente = v.cliente || {};
@@ -527,6 +904,9 @@ export default function RegistroVentasFiscal() {
                             />
                           ) : (v.numeroControl || '—')}
                         </td>
+                        {/* N° Z y rango de facturas: propios de los resúmenes de la máquina fiscal */}
+                        <td style={{ ...tdStyle, fontFamily: 'monospace', color: '#64748b' }}>—</td>
+                        <td style={{ ...tdStyle, fontFamily: 'monospace', color: '#64748b' }}>—</td>
                         <td style={{ ...tdStyle, textAlign: 'right' }}>{fmt(d.exento)}</td>
                         <td style={{ ...tdStyle, textAlign: 'right' }}>{fmt(d.baseGravada)}</td>
                         <td style={{ ...tdStyle, textAlign: 'right', color: '#fbbf24' }}>{fmt(d.iva)}</td>

@@ -416,6 +416,40 @@ namespace Tyted.API.Migrations
                     b.ToTable("ComprasDetalle");
                 });
 
+            modelBuilder.Entity("Tyted.API.Models.ConceptoOperacional", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("CuentaContable")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<int>("EmpresaId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("NombreConcepto")
+                        .IsRequired()
+                        .HasMaxLength(150)
+                        .HasColumnType("nvarchar(150)");
+
+                    b.Property<string>("TipoOperacion")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EmpresaId", "NombreConcepto")
+                        .IsUnique();
+
+                    b.ToTable("ConceptosOperacionales");
+                });
+
             modelBuilder.Entity("Tyted.API.Models.CuentaContable", b =>
                 {
                     b.Property<int>("Id")
@@ -634,6 +668,9 @@ namespace Tyted.API.Migrations
                         .HasMaxLength(300)
                         .HasColumnType("nvarchar(300)");
 
+                    b.Property<int?>("ConceptoOperacionalId")
+                        .HasColumnType("int");
+
                     b.Property<int>("EmpresaId")
                         .HasColumnType("int");
 
@@ -661,6 +698,8 @@ namespace Tyted.API.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("CodigoProv");
+
+                    b.HasIndex("ConceptoOperacionalId");
 
                     b.ToTable("Gastos");
                 });
@@ -1091,6 +1130,77 @@ namespace Tyted.API.Migrations
                     b.ToTable("Proveedores");
                 });
 
+            modelBuilder.Entity("Tyted.API.Models.ResumenVentaFiscal", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("AsientoContableId")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("BaseGravada")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<int>("EmpresaId")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("Exento")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<string>("FacturaDesde")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("FacturaHasta")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<DateTime>("Fecha")
+                        .HasColumnType("datetime2");
+
+                    b.Property<bool>("IsAnulada")
+                        .HasColumnType("bit");
+
+                    b.Property<decimal>("Iva")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<string>("NumeroControlMaquina")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("nvarchar(30)");
+
+                    b.Property<string>("NumeroZ")
+                        .IsRequired()
+                        .HasMaxLength(10)
+                        .HasColumnType("nvarchar(10)");
+
+                    b.Property<string>("Origen")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("TipoTransaccion")
+                        .HasMaxLength(2)
+                        .HasColumnType("nvarchar(2)");
+
+                    b.Property<decimal>("Total")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<string>("Usuario")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EmpresaId", "Fecha");
+
+                    b.ToTable("ResumenesVentasFiscales");
+                });
+
             modelBuilder.Entity("Tyted.API.Models.RetencionIvaEmitida", b =>
                 {
                     b.Property<int>("Id")
@@ -1370,11 +1480,17 @@ namespace Tyted.API.Migrations
                         .HasColumnType("decimal(18, 4)");
 
                     b.Property<string>("CodigoProd")
-                        .IsRequired()
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
 
-                    b.Property<int>("IdProductoUnidad")
+                    b.Property<int?>("ConceptoOperacionalId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("DescripcionFiscal")
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
+
+                    b.Property<int?>("IdProductoUnidad")
                         .HasColumnType("int");
 
                     b.Property<decimal>("IvaLineaMonedaExt")
@@ -1410,6 +1526,8 @@ namespace Tyted.API.Migrations
                     b.HasKey("IdDetalle");
 
                     b.HasIndex("CodigoProd");
+
+                    b.HasIndex("ConceptoOperacionalId");
 
                     b.HasIndex("IdProductoUnidad");
 
@@ -1519,6 +1637,17 @@ namespace Tyted.API.Migrations
                     b.Navigation("Producto");
                 });
 
+            modelBuilder.Entity("Tyted.API.Models.ConceptoOperacional", b =>
+                {
+                    b.HasOne("Tyted.API.Models.Empresa", "Empresa")
+                        .WithMany()
+                        .HasForeignKey("EmpresaId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Empresa");
+                });
+
             modelBuilder.Entity("Tyted.API.Models.CuentaContable", b =>
                 {
                     b.HasOne("Tyted.API.Models.CuentaContable", "Padre")
@@ -1556,6 +1685,13 @@ namespace Tyted.API.Migrations
                     b.HasOne("Tyted.API.Models.Proveedor", "Proveedor")
                         .WithMany()
                         .HasForeignKey("CodigoProv");
+
+                    b.HasOne("Tyted.API.Models.ConceptoOperacional", "ConceptoOperacional")
+                        .WithMany()
+                        .HasForeignKey("ConceptoOperacionalId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("ConceptoOperacional");
 
                     b.Navigation("Proveedor");
                 });
@@ -1697,21 +1833,24 @@ namespace Tyted.API.Migrations
                 {
                     b.HasOne("Tyted.API.Models.Producto", "Producto")
                         .WithMany()
-                        .HasForeignKey("CodigoProd")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .HasForeignKey("CodigoProd");
+
+                    b.HasOne("Tyted.API.Models.ConceptoOperacional", "ConceptoOperacional")
+                        .WithMany()
+                        .HasForeignKey("ConceptoOperacionalId")
+                        .OnDelete(DeleteBehavior.SetNull);
 
                     b.HasOne("Tyted.API.Models.ProductosUnidad", "ProductoUnidad")
                         .WithMany()
-                        .HasForeignKey("IdProductoUnidad")
-                        .OnDelete(DeleteBehavior.Cascade)
-                        .IsRequired();
+                        .HasForeignKey("IdProductoUnidad");
 
                     b.HasOne("Tyted.API.Models.Venta", "Venta")
                         .WithMany("Detalles")
                         .HasForeignKey("VentaId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+
+                    b.Navigation("ConceptoOperacional");
 
                     b.Navigation("Producto");
 

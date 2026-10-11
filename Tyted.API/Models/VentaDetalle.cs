@@ -12,15 +12,28 @@ namespace Tyted.API.Models
         [Required]
         public int VentaId { get; set; }
 
-        [Required]
-        [StringLength(100)] // Aumentado a 100 para coincidir exactamente con tu SQL
-        public string CodigoProd { get; set; } = string.Empty;
+        // --- LÍNEA POR PRODUCTO (POS y venta fiscal con inventario) ---
+        // Opcional: las líneas de venta fiscal por CONCEPTO de ingreso (módulo
+        // fiscal, sin inventario) no traen producto ni unidad; el nombre
+        // responde a DescripcionFiscal.
+        [StringLength(100)]
+        public string? CodigoProd { get; set; }
 
-        [Required]
-        public int IdProductoUnidad { get; set; }
+        public int? IdProductoUnidad { get; set; }
 
         // En SQL es nvarchar(MAX) según tu reporte (-1), permitimos nulos
         public string? NombreUnidad { get; set; }
+
+        // --- LÍNEA POR CONCEPTO DE INGRESO (módulo fiscal, sin inventario) ---
+        /// <summary>Concepto operacional (tipo VENTA) de la línea; su CuentaContable genera el Haber.</summary>
+        public int? ConceptoOperacionalId { get; set; }
+
+        [ForeignKey(nameof(ConceptoOperacionalId))]
+        public ConceptoOperacional? ConceptoOperacional { get; set; }
+
+        /// <summary>Descripción libre del renglón para el Libro de Ventas (ej: "Facturación mensual Internet").</summary>
+        [StringLength(300)]
+        public string? DescripcionFiscal { get; set; }
 
         [Column(TypeName = "decimal(18, 4)")]
         public decimal Cantidad { get; set; }

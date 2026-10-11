@@ -81,10 +81,13 @@ export default function RegistroComprasFiscal() {
   const [mostrarFormGasto, setMostrarFormGasto] = useState(false);
   const [guardandoGasto, setGuardandoGasto] = useState(false);
   const [contabilizarGastoAuto, setContabilizarGastoAuto] = useState(true);
+  // Conceptos de operación tipo GASTO (catálogo por empresa, puente con el
+  // plan de cuentas): reemplazan la lista estática de categorías.
+  const [conceptosGasto, setConceptosGasto] = useState([]);
   const [formGasto, setFormGasto] = useState({
     fecha: new Date().toISOString().slice(0, 10),
     concepto: '',
-    categoria: 'SERVICIO',
+    conceptoId: '',
     codigoProv: '',
     monto: ''
   });
@@ -358,26 +361,37 @@ export default function RegistroComprasFiscal() {
     setFormGasto({
       fecha: new Date().toISOString().slice(0, 10),
       concepto: '',
-      categoria: 'SERVICIO',
+      conceptoId: '',
       codigoProv: '',
       monto: ''
     });
     setMostrarFormGasto(true);
+
+    // Proveedores (una sola vez)
     if (proveedores.length === 0) {
       fiscalApi.getProveedores()
         .then((data) => setProveedores(Array.isArray(data) ? data : (data?.$values || [])))
         .catch((error) => console.warn('Error cargando proveedores:', error));
     }
+
+    // Conceptos de operación tipo GASTO de la empresa activa (catálogo
+    // dinámico que sustituye la lista estática de categorías)
+    if (conceptosGasto.length === 0) {
+      fiscalApi.getConceptos({ empresaId, tipo: 'GASTO' })
+        .then((data) => setConceptosGasto(Array.isArray(data) ? data : (data?.$values || [])))
+        .catch((error) => console.warn('Error cargando conceptos de gasto:', error));
+    }
   };
 
   const guardarGasto = async () => {
     if (!formGasto.concepto.trim()) { alert('⚠️ Indique el concepto del gasto.'); return; }
+    if (!formGasto.conceptoId) { alert('⚠️ Seleccione el concepto contable (GASTO).'); return; }
     if (!(Number(formGasto.monto) > 0)) { alert('⚠️ El monto debe ser mayor a cero.'); return; }
 
     const confirmado = window.confirm(
       `Registrar el gasto «${formGasto.concepto}» por ${fmt(formGasto.monto)}?\n\n` +
       'El gasto es un documento fiscal propio: NO toca inventario ni compras.' +
-      (contabilizarGastoAuto ? ' Se generará su comprobante contable (Debe Gastos / Haber Caja o Proveedores).' : '')
+      (contabilizarGastoAuto ? ' Se generará su comprobante contable (Debe el concepto seleccionado / Haber Caja o Proveedores).' : '')
     );
     if (!confirmado) return;
 
@@ -387,7 +401,9 @@ export default function RegistroComprasFiscal() {
         empresaId,
         fecha: `${formGasto.fecha}T12:00:00`,
         concepto: formGasto.concepto.trim(),
-        categoria: formGasto.categoria,
+        // Concepto operacional (puente con el plan de cuentas): su CuentaContable
+        // define la cuenta del Debe del comprobante contable.
+        conceptoOperacionalId: Number(formGasto.conceptoId),
         codigoProv: formGasto.codigoProv ? Number(formGasto.codigoProv) : null,
         monto: Number(formGasto.monto),
         tipoTransaccion: '01'
@@ -791,9 +807,16 @@ export default function RegistroComprasFiscal() {
                       <input type="text" value={formGasto.concepto} onChange={(e) => setFormGasto({ ...formGasto, concepto: e.target.value })} placeholder="Ej: Pago de servicios públicos" style={inputChico} />
                     </div>
                     <div>
-                      <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Categoría</label>
-                      <select value={formGasto.categoria} onChange={(e) => setFormGasto({ ...formGasto, categoria: e.target.value })} style={inputChico}>
-                        {['SERVICIO', 'PERSONAL', 'ALQUILER', 'MANTENIMIENTO', 'OTROS'].map((c) => <option key={c} value={c}>{c}</option>)}
+                      <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Concepto Contable</label>
+                      <select
+                        value={formGasto.conceptoId}
+                        onChange={(e) => setFormGasto({ ...formGasto, conceptoId: e.target.value })}
+                        style={inputChico}
+                      >
+                        <option value="">Seleccione un concepto…</option>
+                        {conceptosGasto.map((c) => (
+                          <option key={c.id} value={c.id}>{c.nombreConcepto} (Cta: {c.cuentaContable})</option>
+                        ))}
                       </select>
                     </div>
                     <div>

@@ -215,16 +215,36 @@ namespace Tyted.API.Services
 
                 foreach (var detalle in venta.Detalles)
                 {
-                    var producto = await _context.Productos
-                        .FirstOrDefaultAsync(p => p.CodigoProd == detalle.CodigoProd)
-                        ?? throw new Exception($"Producto {detalle.CodigoProd} no existe.");
-                    var unidad = await _context.ProductosUnidad
-                        .FirstOrDefaultAsync(u => u.IdProductoUnidad == detalle.IdProductoUnidad)
-                        ?? throw new Exception($"Unidad no encontrada para {detalle.CodigoProd}.");
                     if (detalle.Cantidad <= 0)
                         throw new Exception("Cantidad inválida en las líneas de la venta fiscal.");
 
-                    detalle.NombreUnidad = unidad.NombreUnidad;
+                    if (detalle.ConceptoOperacionalId.HasValue)
+                    {
+                        // Línea por CONCEPTO DE INGRESO (declarativa, sin
+                        // inventario): valida el concepto (tipo VENTA y de la
+                        // misma empresa); su CuentaContable genera el Haber del
+                        // asiento contable.
+                        var concepto = await _context.ConceptosOperacionales
+                            .FirstOrDefaultAsync(c => c.Id == detalle.ConceptoOperacionalId.Value
+                                && c.EmpresaId == venta.EmpresaId
+                                && c.TipoOperacion == "VENTA")
+                            ?? throw new Exception(
+                                $"Concepto de ingreso {detalle.ConceptoOperacionalId} inválido para la empresa {venta.EmpresaId}.");
+                        detalle.NombreUnidad ??= "SERVICIO";
+                    }
+                    else
+                    {
+                        // Línea por PRODUCTO (flujo anterior con maestro de productos)
+                        if (string.IsNullOrWhiteSpace(detalle.CodigoProd))
+                            throw new Exception("La línea no tiene producto ni concepto de ingreso.");
+                        var producto = await _context.Productos
+                            .FirstOrDefaultAsync(p => p.CodigoProd == detalle.CodigoProd)
+                            ?? throw new Exception($"Producto {detalle.CodigoProd} no existe.");
+                        var unidad = await _context.ProductosUnidad
+                            .FirstOrDefaultAsync(u => u.IdProductoUnidad == detalle.IdProductoUnidad)
+                            ?? throw new Exception($"Unidad no encontrada para {detalle.CodigoProd}.");
+                        detalle.NombreUnidad = unidad.NombreUnidad;
+                    }
 
                     var linea = Math.Round(detalle.PrecioUnitarioMonedaBase * detalle.Cantidad, 2);
                     var ivaLinea = Math.Round(linea * (detalle.TasaIVA / 100m), 2);

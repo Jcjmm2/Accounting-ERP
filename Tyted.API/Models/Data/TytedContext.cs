@@ -44,6 +44,10 @@ namespace Tyted.API.Data
         // --- FISCAL (IVA SENIAT) ---
         public DbSet<RetencionIvaEmitida> RetencionesIvaEmitidas { get; set; } = default!;
         public DbSet<Gasto> Gastos { get; set; } = default!;
+        /// <summary>Resúmenes de la máquina fiscal (cierre Z) del Libro de Ventas SENIAT.</summary>
+        public DbSet<ResumenVentaFiscal> ResumenesVentasFiscales { get; set; } = default!;
+        /// <summary>Conceptos de operación (GASTO/VENTA/COMPRA) por empresa: puente al plan de cuentas.</summary>
+        public DbSet<ConceptoOperacional> ConceptosOperacionales { get; set; } = default!;
 
         // --- CONTABILIDAD ---
         public DbSet<CuentaContable> CuentasContables { get; set; } = default!;
@@ -126,6 +130,35 @@ namespace Tyted.API.Data
                 .WithMany(p => p.Asientos)
                 .HasForeignKey(a => a.PeriodoContableId)
                 .OnDelete(DeleteBehavior.Restrict);
+
+            // --- FISCAL: CONCEPTOS DE OPERACIÓN (puente UI ↔ plan de cuentas) ---
+            modelBuilder.Entity<ConceptoOperacional>()
+                .HasIndex(c => new { c.EmpresaId, c.NombreConcepto })
+                .IsUnique();
+
+            modelBuilder.Entity<ConceptoOperacional>()
+                .HasOne(c => c.Empresa)
+                .WithMany()
+                .HasForeignKey(c => c.EmpresaId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            // Gasto → concepto (borrado en cascada del enlace, no del gasto)
+            modelBuilder.Entity<Gasto>()
+                .HasOne(g => g.ConceptoOperacional)
+                .WithMany()
+                .HasForeignKey(g => g.ConceptoOperacionalId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // Línea de venta fiscal → concepto de ingreso
+            modelBuilder.Entity<VentaDetalle>()
+                .HasOne(d => d.ConceptoOperacional)
+                .WithMany()
+                .HasForeignKey(d => d.ConceptoOperacionalId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // Resumen de ventas de la máquina fiscal (índice de consulta del libro)
+            modelBuilder.Entity<ResumenVentaFiscal>()
+                .HasIndex(r => new { r.EmpresaId, r.Fecha });
 
             // 3. CONFIGURACIÓN DE RELACIONES Y SEEDING (Omitido para brevedad, mantener igual)
             // ... (Tus relaciones y DataSeed de Usuario, Empresa, etc.)

@@ -133,6 +133,41 @@ export const fiscalApi = {
   },
 
   // -------------------------------------------------------------------------
+  // CONCEPTOS DE OPERACIÓN (por empresa): puente entre los formularios del
+  // módulo fiscal y el plan de cuentas. tipo: 'GASTO' | 'VENTA' | 'COMPRA'
+  // -------------------------------------------------------------------------
+  getConceptos: async ({ empresaId, tipo } = {}) => {
+    const params = {};
+    if (empresaId) params.empresaId = empresaId;
+    if (tipo) params.tipo = tipo;
+    const response = await api.get('/conceptos-operacionales', { params });
+    return response.data;
+  },
+
+  // -------------------------------------------------------------------------
+  // RESÚMENES DE VENTAS DE LA MÁQUINA FISCAL (cierre Z, Libro de Ventas SENIAT):
+  // N° control de la máquina + N° Z + rango de facturas; 1 asiento por resumen.
+  // -------------------------------------------------------------------------
+  getResumenesVentas: async ({ fechaInicio, fechaFin, empresaId } = {}) => {
+    const params = {};
+    if (fechaInicio) params.fechaInicio = fechaInicio;
+    if (fechaFin) params.fechaFin = fechaFin;
+    if (empresaId) params.empresaId = empresaId;
+    const response = await api.get('/resumenes-ventas-fiscal', { params });
+    return response.data;
+  },
+
+  crearResumenVenta: async (resumen) => {
+    const response = await api.post('/resumenes-ventas-fiscal', resumen);
+    return response.data;
+  },
+
+  contabilizarResumenVenta: async (id) => {
+    const response = await api.post(`/resumenes-ventas-fiscal/${id}/contabilizar`);
+    return response.data;
+  },
+
+  // -------------------------------------------------------------------------
   // MAESTROS para los formularios de alta fiscal (clientes, proveedores,
   // búsqueda de productos con precios e IVA del día)
   // -------------------------------------------------------------------------

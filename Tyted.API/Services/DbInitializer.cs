@@ -1,3 +1,6 @@
+using System.Data;
+using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Storage;
 using Tyted.API.Models;
 using Tyted.API.Data;
 using BCrypt.Net;
@@ -6,9 +9,34 @@ namespace Tyted.API.Services
 {
     public static class DbInitializer
     {
+        // -----------------------------------------------------------------------
+        // PLAN A — APLICACIÓN DE MIGRACIONES (reemplaza a EnsureCreated)
+        //
+        // EnsureCreated() NO hace nada cuando la BD ya existe, por lo que las
+        // migraciones pendientes (p. ej. AddOrigenYGastosFiscales que agrega las
+        // columnas Origen a Ventas/Compras y la tabla Gastos) nunca se aplicaban
+        // y EF fallaba con "Invalid column name 'Origen'".
+        //
+        // Además, las BDs legacy fueron creadas por EnsureCreated SIN la tabla
+        // __EFMigrationsHistory; si Migrate() se llamara sin más, intentaría
+        // ejecutar todas las migraciones desde cero y colisionaría con las
+        // tablas existentes. Por eso se hace un BOOTSTRAP del historial: se
+        // marcan como aplicadas las migraciones cuyo esquema ya existe en la BD
+        // legacy y Migrate() aplica solo las realmente pendientes (y las futuras).
+        // -----------------------------------------------------------------------
+
+        /// <summary>
+        /// Última migración reflejada en el esquema de la BD legacy (verificado
+        /// en esta BD: existe RetencionesIvaEmitidas y faltaba la columna Origen).
+        /// </summary>
+        private const string UltimaMigracionLegacy = "20261010153407_AddRetencionesIva";
+
+        /// <summary>Migración inmediatamente posterior al esquema legacy (Origen + Gastos).</summary>
+        private const string MigracionOrigenYGastos = "20261010163913_AddOrigenYGastosFiscales";
+
         public static void Initialize(TytedContext context, bool seedDevelopmentDefaults = false)
         {
-            context.Database.EnsureCreated();
+            AplicarMigraciones(context);
 
             // 1. Tasas de IVA (Configuración Venezuela)
             if (!context.TasasIVA.Any())
@@ -115,6 +143,182 @@ namespace Tyted.API.Services
                     });
                 }
                 // If no ADMIN_SEED_PASSWORD is provided, do not create a default admin user.
+            }
+
+            // 6. CONCEPTOS DE OPERACIÓN por empresa (puente UI ↔ plan de cuentas):
+            //    gastos, ingresos y compras fiscales se contabilizan contra la
+            //    cuenta asociada al concepto seleccionado (semilla idempotente).
+            SembrarConceptosOperacionales(context);
+
+            context.SaveChanges();
+        }
+
+        // -------------------------------------------------------------------------
+        // PLAN A: APLICACIÓN DE MIGRACIONES + BOOTSTRAP DEL HISTORIAL LEGACY
+        // -------------------------------------------------------------------------
+        private static void AplicarMigraciones(TytedContext context)
+        {
+            // Si la BD aún no existe, Migrate() la crea con el esquema completo y
+            // su historial; no hay nada que sembrar.
+            if (!context.Database.CanConnect())
+            {
+                context.Database.Migrate();
+                return;
+            }
+
+            var migraciones = context.Database.GetMigrations().ToList();
+
+            if (!ExisteTabla(context, "__EFMigrationsHistory"))
+            {
+                // BD legacy creada con EnsureCreated(): tiene tablas pero ningún
+                // historial. Marcamos como aplicadas las migraciones reflejadas en
+                // el esquema actual; Migrate() aplicará solo las pendientes reales.
+                var hayTablas = Convert.ToInt32(EjecutarEscalar(context,
+                    "SELECT COUNT(*) FROM sys.tables WHERE is_ms_shipped = 0")) > 0;
+
+                if (hayTablas)
+                {
+                    var indice = migraciones.IndexOf(UltimaMigracionLegacy);
+                    if (indice < 0)
+                        throw new InvalidOperationException(
+                            $"No se encontró la migración base del bootstrap '{UltimaMigracionLegacy}'.");
+
+                    var aplicadas = migraciones.Take(indice + 1).ToList();
+
+                    // Si la BD legacy YA tiene el esquema de la migración siguiente
+                    // (aplicada manualmente), marcamos también esa.
+                    if (migraciones.Contains(MigracionOrigenYGastos)
+                        && ColumnaExiste(context, "Ventas", "Origen")
+                        && ColumnaExiste(context, "Compras", "Origen")
+                        && ExisteTabla(context, "Gastos"))
+                    {
+                        aplicadas.Add(MigracionOrigenYGastos);
+                    }
+
+                    CrearTablaHistorial(context);
+                    InsertarMigracionesAplicadas(context, aplicadas);
+                }
+            }
+
+            context.Database.Migrate();
+        }
+
+        /// <summary>Ejecuta un SELECT escalar (devuelve null si no hay resultado).</summary>
+        private static object? EjecutarEscalar(TytedContext context, string sql)
+        {
+            var conexion = context.Database.GetDbConnection();
+            var abiertaAqui = conexion.State != ConnectionState.Open;
+            if (abiertaAqui) conexion.Open();
+            try
+            {
+                using var comando = conexion.CreateCommand();
+                var transaccion = context.Database.CurrentTransaction?.GetDbTransaction();
+                if (transaccion != null) comando.Transaction = transaccion;
+                comando.CommandText = sql;
+                return comando.ExecuteScalar();
+            }
+            finally
+            {
+                if (abiertaAqui) conexion.Close();
+            }
+        }
+
+        /// <summary>Ejecuta un lote de sentencias DDL/DML sin leer resultados.</summary>
+        private static void EjecutarSentencia(TytedContext context, string sql)
+        {
+            var conexion = context.Database.GetDbConnection();
+            var abiertaAqui = conexion.State != ConnectionState.Open;
+            if (abiertaAqui) conexion.Open();
+            try
+            {
+                using var comando = conexion.CreateCommand();
+                var transaccion = context.Database.CurrentTransaction?.GetDbTransaction();
+                if (transaccion != null) comando.Transaction = transaccion;
+                comando.CommandText = sql;
+                comando.ExecuteNonQuery();
+            }
+            finally
+            {
+                if (abiertaAqui) conexion.Close();
+            }
+        }
+
+        private static bool ExisteTabla(TytedContext context, string nombre)
+            => Convert.ToInt32(EjecutarEscalar(context,
+                $"SELECT CASE WHEN OBJECT_ID(N'[dbo].[{nombre}]', N'U') IS NULL THEN 0 ELSE 1 END")) == 1;
+
+        private static bool ColumnaExiste(TytedContext context, string tabla, string columna)
+            => Convert.ToInt32(EjecutarEscalar(context,
+                $"SELECT CASE WHEN COL_LENGTH(N'[dbo].[{tabla}]', N'{columna}') IS NULL THEN 0 ELSE 1 END")) == 1;
+
+        /// <summary>Crea __EFMigrationsHistory con la forma exacta de EF Core (SQL Server).</summary>
+        private static void CrearTablaHistorial(TytedContext context)
+        {
+            EjecutarSentencia(context, @"
+IF OBJECT_ID(N'[dbo].[__EFMigrationsHistory]', N'U') IS NULL
+BEGIN
+    CREATE TABLE [dbo].[__EFMigrationsHistory] (
+        [MigrationId] nvarchar(150) NOT NULL,
+        [ProductVersion] nvarchar(32) NOT NULL,
+        CONSTRAINT [PK___EFMigrationsHistory] PRIMARY KEY ([MigrationId])
+    );
+END");
+        }
+
+        private static void InsertarMigracionesAplicadas(TytedContext context, IEnumerable<string> migraciones)
+        {
+            foreach (var id in migraciones)
+            {
+                EjecutarSentencia(context, $@"
+IF NOT EXISTS (SELECT 1 FROM [dbo].[__EFMigrationsHistory] WHERE [MigrationId] = N'{id}')
+    INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion]) VALUES (N'{id}', N'10.0.1');");
+            }
+        }
+
+        // -------------------------------------------------------------------------
+        // CONCEPTOS DE OPERACIÓN (semilla por empresa, idempotente)
+        // -------------------------------------------------------------------------
+        /// <summary>
+        /// Catálogo base de conceptos por empresa (GASTO/VENTA/COMPRA) atado al
+        /// plan VEN-NIF. Solo si la empresa aún no tiene conceptos. Si una cuenta
+        /// no existe en el plan de la empresa, el motor contable responde con una
+        /// advertencia (no bloquea el registro).
+        /// </summary>
+        private static void SembrarConceptosOperacionales(TytedContext context)
+        {
+            var semilla = new (string Nombre, string Tipo, string Cuenta)[]
+            {
+                // GASTOS (plan 5.1)
+                ("Uniformes", "GASTO", "5.1.1.1.14"),
+                ("Hospedaje", "GASTO", "5.1.1.1.19"),
+                ("Servicios de terceros", "GASTO", "5.1.1.1.17"),
+                ("Gas, luz, agua y aseo", "GASTO", "5.1.2.1.01"),
+                ("Servicio de telefonía", "GASTO", "5.1.2.1.02"),
+                ("Alquileres", "GASTO", "5.1.2.1.11"),
+                // INGRESOS / VENTAS (plan 4.1.1.1)
+                ("Servicios de Internet Satelital", "VENTA", "4.1.1.1.01"),
+                ("Servicios de Internet Residencial", "VENTA", "4.1.1.1.02"),
+                ("Venta de Equipos", "VENTA", "4.1.1.1.03"),
+                // COMPRAS (catálogo listo para uso futuro)
+                ("Compra de equipos Internet Satelital", "COMPRA", "5.1.1.1.16")
+            };
+
+            var empresas = context.Empresa.Select(e => e.Id).ToList();
+            foreach (var empresaId in empresas)
+            {
+                if (context.ConceptosOperacionales.Any(c => c.EmpresaId == empresaId))
+                    continue; // la empresa ya tiene su catálogo: no duplicar
+
+                foreach (var (nombre, tipo, cuenta) in semilla)
+                {
+                    context.ConceptosOperacionales.Add(new ConceptoOperacional
+                    {
+                        EmpresaId = empresaId,
+                        NombreConcepto = nombre,
+                        TipoOperacion = tipo,
+                        CuentaContable = cuenta
+                    });
+                }
             }
 
             context.SaveChanges();

@@ -115,6 +115,58 @@ public class MotorAsientosAutomaticos
             ? await BuscarCuentaActivaAsync(venta.EmpresaId, _mapping.IvaDebitoFiscal, faltantes)
             : null;
 
+        // --- LÍNEAS POR CONCEPTO DE INGRESO (módulo fiscal, sin inventario) ---
+        // Cuando la venta trae líneas con ConceptoOperacionalId, el Haber de
+        // ingresos se divide por la CuentaContable de cada concepto (catálogo
+        // por empresa); las líneas sin concepto (POS/producto) conservan la
+        // cuenta global de ingresos del mapping.
+        var cuentasIngresoResueltas = new List<(CuentaContable Cuenta, decimal Monto)>();
+        var idsConceptos = venta.Detalles
+            .Where(d => d.ConceptoOperacionalId.HasValue)
+            .Select(d => d.ConceptoOperacionalId.Value)
+            .Distinct()
+            .ToList();
+        if (idsConceptos.Count > 0)
+        {
+            var cuentasPorConcepto = await _context.ConceptosOperacionales
+                .AsNoTracking()
+                .Where(c => idsConceptos.Contains(c.Id)
+                    && c.EmpresaId == venta.EmpresaId
+                    && c.TipoOperacion == "VENTA")
+                .ToDictionaryAsync(c => c.Id, c => c.CuentaContable);
+
+            var acumulado = new Dictionary<string, decimal>(StringComparer.Ordinal);
+            foreach (var detalle in venta.Detalles)
+            {
+                var codigoCuenta = _mapping.IngresosVentas;
+                if (detalle.ConceptoOperacionalId.HasValue
+                    && cuentasPorConcepto.TryGetValue(detalle.ConceptoOperacionalId.Value, out var ctaConcepto)
+                    && !string.IsNullOrWhiteSpace(ctaConcepto))
+                {
+                    codigoCuenta = ctaConcepto;
+                }
+                var baseLinea = Math.Round(Math.Abs(detalle.PrecioUnitarioMonedaBase * detalle.Cantidad), 2);
+                acumulado[codigoCuenta] = acumulado.TryGetValue(codigoCuenta, out var acum)
+                    ? acum + baseLinea
+                    : baseLinea;
+            }
+
+            // Ajuste de redondeo: la suma de los grupos debe casar exactamente
+            // con la base total del documento (partida doble al centavo).
+            var diferencia = montoBase - acumulado.Values.Sum();
+            if (acumulado.Count > 0 && Math.Abs(diferencia) >= 0.001m)
+                acumulado[acumulado.Keys.First()] += diferencia;
+
+            foreach (var kvp in acumulado)
+            {
+                var cuenta = cuentaIngresos?.CodigoCuenta == kvp.Key
+                    ? cuentaIngresos
+                    : await BuscarCuentaActivaAsync(venta.EmpresaId, kvp.Key, faltantes);
+                if (cuenta != null)
+                    cuentasIngresoResueltas.Add((cuenta, kvp.Value));
+            }
+        }
+
         if (faltantes.Count > 0)
             return new MotorAsientosResponse
             {
@@ -131,7 +183,21 @@ public class MotorAsientosAutomaticos
             // Venta normal: Debe Caja/CxC (total) | Haber Ingresos + IVA Débito
             lineas.Add(new AsientoDetalle { CuentaContableId = cuentaDebe!.Id, Debe = montoTotal, Haber = 0m });
             if (montoBase > 0m)
-                lineas.Add(new AsientoDetalle { CuentaContableId = cuentaIngresos!.Id, Debe = 0m, Haber = montoBase });
+            {
+                if (cuentasIngresoResueltas.Count == 0)
+                {
+                    lineas.Add(new AsientoDetalle { CuentaContableId = cuentaIngresos!.Id, Debe = 0m, Haber = montoBase });
+                }
+                else
+                {
+                    // Haber por cuenta de concepto (una línea por cuenta)
+                    foreach (var (cuentaConcepto, montoConcepto) in cuentasIngresoResueltas)
+                    {
+                        if (montoConcepto > 0m)
+                            lineas.Add(new AsientoDetalle { CuentaContableId = cuentaConcepto.Id, Debe = 0m, Haber = montoConcepto });
+                    }
+                }
+            }
             if (montoIva > 0m)
                 lineas.Add(new AsientoDetalle { CuentaContableId = cuentaIva!.Id, Debe = 0m, Haber = montoIva });
         }
@@ -174,6 +240,112 @@ public class MotorAsientosAutomaticos
             Mensaje = esNotaCredito
                 ? "Comprobante contable de la nota de crédito/anulación generado."
                 : "Comprobante contable de la venta generado."
+        };
+    }
+
+    /// <summary>
+    /// Comprobante del RESUMEN DE VENTAS de la máquina fiscal (cierre Z del
+    /// Libro de Ventas SENIAT): UN asiento por resumen. Debe Caja por el TOTAL
+    /// | Haber Ingresos (exento + base gravada) + IVA Débito Fiscal. Idempotente
+    /// por AsientoContableId: nunca se duplica el comprobante.
+    /// </summary>
+    public async Task<MotorAsientosResponse> GenerarAsientoResumenVentaAsync(ResumenVentaFiscal resumen, int usuarioId = 1)
+    {
+        if (resumen.AsientoContableId.HasValue)
+            return new MotorAsientosResponse
+            {
+                Generada = false,
+                AsientoId = resumen.AsientoContableId.Value,
+                Mensaje = "El resumen de ventas ya tiene comprobante contable.",
+                Advertencia = $"Ya contabilizado (asiento {resumen.AsientoContableId.Value}): no se duplica el comprobante."
+            };
+
+        if (resumen.IsAnulada)
+            return new MotorAsientosResponse
+            {
+                Generada = false,
+                Mensaje = "Resumen de ventas anulado.",
+                Advertencia = "Los resúmenes anulados no se contabilizan."
+            };
+
+        var montoExento = Math.Abs(resumen.Exento);
+        var montoBase = Math.Abs(resumen.BaseGravada);
+        var montoIva = Math.Abs(resumen.Iva);
+        var montoTotal = Math.Abs(resumen.Total) > 0.005m
+            ? Math.Abs(resumen.Total)
+            : montoExento + montoBase + montoIva;
+
+        if (montoTotal <= 0.005m)
+            return new MotorAsientosResponse
+            {
+                Generada = false,
+                Mensaje = "Sin montos que contabilizar.",
+                Advertencia = "El resumen de ventas no tiene montos."
+            };
+
+        // Integridad de partida doble: el total debe casar con exento + base + IVA
+        if (Math.Abs(montoTotal - (montoExento + montoBase + montoIva)) > 0.005m)
+            return new MotorAsientosResponse
+            {
+                Generada = false,
+                Mensaje = "Los montos del resumen no cuadran.",
+                Advertencia = "Total ≠ Exento + Base gravada + IVA. Corrija los montos del resumen antes de contabilizar."
+            };
+
+        var faltantes = new List<string>();
+        var cuentaDebe = await BuscarCuentaActivaAsync(resumen.EmpresaId, _mapping.Caja, faltantes);
+        var cuentaIngresos = await BuscarCuentaActivaAsync(resumen.EmpresaId, _mapping.IngresosVentas, faltantes);
+        var cuentaIva = montoIva > 0m
+            ? await BuscarCuentaActivaAsync(resumen.EmpresaId, _mapping.IvaDebitoFiscal, faltantes)
+            : null;
+
+        if (faltantes.Count > 0)
+            return new MotorAsientosResponse
+            {
+                Generada = false,
+                Mensaje = "Plan de cuentas incompleto.",
+                Advertencia = $"No se encontraron activas en el plan de la empresa: {string.Join(", ", faltantes)}. Cree o reactive las cuentas y vuelva a intentar."
+            };
+
+        var periodo = await BuscarPeriodoAbiertoAsync(resumen.EmpresaId, resumen.Fecha);
+
+        var montoIngresos = montoExento + montoBase;
+        var lineas = new List<AsientoDetalle>
+        {
+            new() { CuentaContableId = cuentaDebe!.Id, Debe = montoTotal, Haber = 0m }
+        };
+        if (montoIngresos > 0m)
+            lineas.Add(new AsientoDetalle { CuentaContableId = cuentaIngresos!.Id, Debe = 0m, Haber = montoIngresos });
+        if (montoIva > 0m)
+            lineas.Add(new AsientoDetalle { CuentaContableId = cuentaIva!.Id, Debe = 0m, Haber = montoIva });
+
+        var concepto = $"RESUMEN VENTAS Z{resumen.NumeroZ} [{resumen.TipoTransaccion}] " +
+                       $"{resumen.FacturaDesde}-{resumen.FacturaHasta} total {montoTotal:0.00}";
+        var asiento = await _asientos.CrearAsientoAsync(new AsientoContable
+        {
+            EmpresaId = resumen.EmpresaId,
+            PeriodoContableId = periodo.Id,
+            NumeroComprobante = string.Empty,
+            FechaComprobante = resumen.Fecha,
+            Concepto = concepto.Length > 500 ? concepto[..500] : concepto,
+            TipoComprobante = "Diario",
+            Estado = "Aprobado",
+            UsuarioId = usuarioId,
+            Detalles = lineas
+        });
+
+        // Vínculo resumen ↔ comprobante (idempotencia)
+        resumen.AsientoContableId = asiento.Id;
+        await _context.SaveChangesAsync();
+
+        return new MotorAsientosResponse
+        {
+            Generada = true,
+            AsientoId = asiento.Id,
+            NumeroComprobante = asiento.NumeroComprobante,
+            TotalDebe = montoTotal,
+            TotalHaber = montoTotal,
+            Mensaje = "Comprobante contable del resumen de ventas generado."
         };
     }
 
@@ -326,7 +498,22 @@ public class MotorAsientosAutomaticos
 
         var codigoHaber = gasto.CodigoProv.HasValue ? _mapping.Proveedores : _mapping.Caja;
         var faltantes = new List<string>();
-        var cuentaDebe = await BuscarCuentaActivaAsync(gasto.EmpresaId, _mapping.Gastos, faltantes);
+
+        // Debe: la cuenta del CONCEPTO OPERACIONAL seleccionado (puente con el
+        // plan de cuentas de la empresa); si el gasto no trae concepto (datos
+        // antiguos) se usa la cuenta global de gastos del mapping.
+        var codigoDebe = _mapping.Gastos;
+        if (gasto.ConceptoOperacionalId.HasValue)
+        {
+            var conceptoOp = await _context.ConceptosOperacionales
+                .AsNoTracking()
+                .FirstOrDefaultAsync(c => c.Id == gasto.ConceptoOperacionalId.Value
+                    && c.EmpresaId == gasto.EmpresaId);
+            if (conceptoOp != null && !string.IsNullOrWhiteSpace(conceptoOp.CuentaContable))
+                codigoDebe = conceptoOp.CuentaContable;
+        }
+
+        var cuentaDebe = await BuscarCuentaActivaAsync(gasto.EmpresaId, codigoDebe, faltantes);
         var cuentaHaber = await BuscarCuentaActivaAsync(gasto.EmpresaId, codigoHaber, faltantes);
 
         if (faltantes.Count > 0)

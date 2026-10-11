@@ -51,6 +51,26 @@ public class GastoService
         if (gasto.EmpresaId <= 0)
             throw new InvalidOperationException("Indique la empresa a la que pertenece el gasto.");
 
+        // Concepto operacional (puente con el plan de cuentas): debe ser de la
+        // misma empresa y de tipo GASTO. Su CuentaContable define el Debe al
+        // contabilizar (fallback a la cuenta global de gastos si no hay concepto).
+        if (gasto.ConceptoOperacionalId.HasValue)
+        {
+            var concepto = await _context.ConceptosOperacionales.FirstOrDefaultAsync(c =>
+                c.Id == gasto.ConceptoOperacionalId.Value
+                && c.EmpresaId == gasto.EmpresaId
+                && c.TipoOperacion == "GASTO");
+
+            if (concepto is null)
+                throw new InvalidOperationException(
+                    $"El concepto operacional {gasto.ConceptoOperacionalId} no existe, no es de tipo GASTO o no pertenece a la empresa {gasto.EmpresaId}.");
+
+            // Mantiene la columna histórica Categoria en sincronía con el nombre
+            // del concepto seleccionado (la tabla de gastos la sigue mostrando).
+            if (string.IsNullOrWhiteSpace(gasto.Categoria))
+                gasto.Categoria = concepto.NombreConcepto;
+        }
+
         if (gasto.Fecha == default)
             gasto.Fecha = DateHelper.GetVenezuelaTime();
 
