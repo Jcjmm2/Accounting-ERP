@@ -872,7 +872,7 @@ export default function RegistroVentasFiscal() {
                     <thead>
                       <tr style={{ borderBottom: '1.5px solid #000' }}>
                         {reporteLibro.columnas.map((col, idx) => (
-                          <th key={col} style={{ textAlign: esColumnaMonto(reporteLibro, idx) ? 'right' : 'left', padding: '8px 4px', fontWeight: 'bold' }}>{col}</th>
+                          <th key={`col-${idx}`} style={{ textAlign: esColumnaMonto(reporteLibro, idx) ? 'right' : 'left', padding: '8px 4px', fontWeight: 'bold' }}>{col}</th>
                         ))}
                       </tr>
                     </thead>
