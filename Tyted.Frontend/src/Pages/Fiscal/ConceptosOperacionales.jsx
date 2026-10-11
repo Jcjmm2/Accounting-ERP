@@ -99,6 +99,20 @@ export default function ConceptosOperacionales() {
   const cuentasAptas = cuentas.filter((c) => c.activa && c.esMovimiento);
   const cuentasInactivas = cuentas.filter((c) => !c.activa);
 
+  // Cuenta actualmente asignada en el formulario. El match es EXACTO por
+  // código, igual que lo hace el backend (FirstOrDefault por CodigoCuenta).
+  const codigoAsignado = form.cuentaContable.trim();
+  const cuentaAsignada = cuentas.find((c) => c.codigo === codigoAsignado);
+  const cuentaEsPadre = Boolean(cuentaAsignada && !cuentaAsignada.esMovimiento);
+
+  // Código guardado que NO existe en el plan de la empresa (p. ej. la semilla
+  // apunta a 1.1.3.01 / 1.1.5.01 / 2.1.1.01 y ese plan nunca los tuvo). El
+  // motor de asientos no lo encontraría, así que se bloquea el guardado hasta
+  // reasignar una cuenta real. La guarda de cuentas.length evita un falso
+  // positivo mientras el plan de cuentas todavía carga.
+  const cuentaInexistente = Boolean(codigoAsignado) && cuentas.length > 0 && !cuentaAsignada;
+  const cuentaBloqueada = cuentaEsPadre || cuentaInexistente;
+
   const cuentasFiltradas = (() => {
     const termino = busquedaCuenta.trim().toLowerCase();
     let base = cuentasAptas;
@@ -106,17 +120,13 @@ export default function ConceptosOperacionales() {
       base = base.filter((c) =>
         c.codigo.toLowerCase().includes(termino) || c.nombre.toLowerCase().includes(termino));
     }
-    // Se incluye la cuenta actualmente asignada aunque sea padre, para que el
-    // usuario visualice por qué el asiento automático falla.
-    const asignada = cuentas.find((c) => c.codigo === form.cuentaContable.trim());
-    if (asignada && !base.some((c) => c.id === asignada.id)) {
-      return [asignada, ...base];
+    // Se incluye la cuenta actualmente asignada aunque sea padre o inactiva,
+    // para que el usuario visualice por qué el asiento automático falla.
+    if (cuentaAsignada && !base.some((c) => c.id === cuentaAsignada.id)) {
+      return [cuentaAsignada, ...base];
     }
     return base;
   })();
-
-  const cuentaAsignada = cuentas.find((c) => c.codigo === form.cuentaContable.trim());
-  const cuentaEsPadre = Boolean(cuentaAsignada && !cuentaAsignada.esMovimiento);
 
   const nombreCuentaDe = (codigo) => {
     const cta = cuentas.find((c) => c.codigo === String(codigo || '').trim());
@@ -131,12 +141,19 @@ export default function ConceptosOperacionales() {
 
   const abrirEdicion = (concepto) => {
     setEditandoId(concepto.id);
+    const cuenta = String(concepto.cuentaContable || '').trim();
     setForm({
       nombreConcepto: concepto.nombreConcepto || '',
       tipoOperacion: concepto.tipoOperacion || tipoActivo,
-      cuentaContable: concepto.cuentaContable || ''
+      cuentaContable: cuenta
     });
-    setBusquedaCuenta(concepto.cuentaContable || '');
+    // NO se pre-llena la búsqueda con el código guardado: si ese código no
+    // existe en el plan (claves sembradas p. ej. CXC_CLIENTES = 1.1.3.01 o
+    // PROVEEDORES = 2.1.1.01) el filtro devolvía 0 cuentas y el <select>
+    // quedaba vacío, imposibilitando modificar el concepto. Se muestra el plan
+    // completo y la cuenta asignada queda arriba del todo (o como opción
+    // ⚠️ NO EXISTE cuando el código no está en el plan).
+    setBusquedaCuenta('');
   };
 
   const cancelar = () => {
@@ -154,6 +171,14 @@ export default function ConceptosOperacionales() {
       alert(
         '⚠️ La cuenta seleccionada es una cuenta PADRE/TÍTULO y no admite movimientos.\n\n' +
         'Elija una cuenta HIJA de movimiento para que el asiento automático pueda generar la partida doble.'
+      );
+      return;
+    }
+    if (cuentaInexistente) {
+      alert(
+        `⚠️ El código «${cuenta}» no existe en el plan de cuentas de la empresa.\n\n` +
+        'Seleccione una cuenta REAL del plan para que el motor de asientos pueda resolverla ' +
+        '(con un código inexistente el comprobante automático fallará).'
       );
       return;
     }
@@ -368,17 +393,20 @@ export default function ConceptosOperacionales() {
                   <select
                     value={form.cuentaContable}
                     onChange={(e) => setForm({ ...form, cuentaContable: e.target.value })}
-                    style={{ ...inputChico, width: '100%', border: cuentaEsPadre ? '1px solid #f87171' : undefined }}
+                    style={{ ...inputChico, width: '100%', border: cuentaBloqueada ? '1px solid #f87171' : undefined }}
                   >
                     <option value="">Seleccione la cuenta…</option>
-                    {cuentaAsignada && !cuentaAsignada.esMovimiento && (
-                      <option value={cuentaAsignada.codigo}>
-                        ⚠️ {cuentaAsignada.codigo} - {cuentaAsignada.nombre} (CUENTA PADRE, NO APTA)
+                    {/* Código guardado ausente del plan: se muestra como opción
+                        para que el valor actual sea visible y reemplazable. */}
+                    {cuentaInexistente && (
+                      <option value={codigoAsignado}>
+                        ⚠️ {codigoAsignado} — NO EXISTE en el plan (corrija la cuenta)
                       </option>
                     )}
                     {cuentasFiltradas.map((c) => (
                       <option key={c.id} value={c.codigo}>
                         {c.codigo} - {c.nombre}
+                        {!c.esMovimiento ? ' (CUENTA PADRE, NO APTA)' : (!c.activa ? ' (INACTIVA)' : '')}
                       </option>
                     ))}
                   </select>
@@ -408,8 +436,17 @@ export default function ConceptosOperacionales() {
                 </div>
               )}
 
+              {/* Advertencia si el código guardado no existe en el plan */}
+              {cuentaInexistente && (
+                <div style={{ background: '#2d1215', border: '1px solid #f87171', color: '#fca5a5', padding: '10px 14px', borderRadius: '8px', fontSize: '0.82rem', marginBottom: '12px' }}>
+                  ⚠️ El código <b>{codigoAsignado}</b> <b>no existe en el plan de cuentas</b> de esta empresa.
+                  Seleccione una cuenta real de la lista para poder guardar: con este código el motor de asientos
+                  no encontraría la contrapartida y el comprobante automático fallará.
+                </div>
+              )}
+
               {/* Cuenta seleccionada (resumen) */}
-              {form.cuentaContable && !cuentaEsPadre && (
+              {form.cuentaContable && !cuentaBloqueada && (
                 <div style={{ background: '#0f172a', border: '1px solid #16a34a', color: '#86efac', padding: '10px 14px', borderRadius: '8px', fontSize: '0.82rem', marginBottom: '12px' }}>
                   ✅ Cuenta asignada: <b>{form.cuentaContable}</b>
                   {cuentaAsignada?.nombre ? ` - ${cuentaAsignada.nombre}` : ''}
@@ -421,11 +458,21 @@ export default function ConceptosOperacionales() {
                 <button onClick={cancelar} style={{ background: '#475569', color: '#fff', border: 'none', borderRadius: '8px', padding: '9px 16px', cursor: 'pointer', fontWeight: 'bold' }}>Cancelar</button>
                 <button
                   onClick={guardar}
-                  disabled={guardando || cuentaEsPadre}
+                  disabled={guardando || cuentaBloqueada}
+                  title={
+                    guardando ? 'Guardando…'
+                      : cuentaEsPadre ? 'No se puede guardar: la cuenta asignada es un padre/título sin movimientos.'
+                      : cuentaInexistente ? 'No se puede guardar: el código asignado no existe en el plan de cuentas.'
+                      : 'Guardar el concepto con la cuenta seleccionada'
+                  }
                   style={{
                     background: '#16a34a', color: '#fff', border: 'none', borderRadius: '8px', padding: '9px 18px',
-                    cursor: guardar || cuentaEsPadre ? 'not-allowed' : 'pointer', fontWeight: 'bold',
-                    opacity: guardar || cuentaEsPadre ? 0.6 : 1
+                    // IMPORTANTE: usar el estado `guardando` (boolean), NO la
+                    // función `guardar` (siempre truthy): con la función el
+                    // botón quedaba permanentemente en opacidad 0.6 y cursor
+                    // "no permitido" aunque estuviera habilitado.
+                    cursor: guardando || cuentaBloqueada ? 'not-allowed' : 'pointer', fontWeight: 'bold',
+                    opacity: guardando || cuentaBloqueada ? 0.6 : 1
                   }}
                 >
                   {guardando ? '⏳ Guardando…' : '💾 Guardar concepto'}
