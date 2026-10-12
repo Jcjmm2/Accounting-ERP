@@ -30,15 +30,16 @@ const TIPOS_TRANSACCION = [
 ];
 
 // Desglose fiscal: exentas (líneas con IVA 0), base gravada e IVA débito.
+// INMUTABILIDAD FISCAL: se leen los montos congelados en Bolívares (*MonedaExt).
 const desgloseVenta = (venta) => {
   const lineas = venta?.detalles?.$values || venta?.detalles || [];
-  const base = Number(venta?.subtotalMonedaBase ?? 0)
-    || lineas.reduce((s, l) => s + Number(l.subtotalLineaMonedaBase ?? 0), 0);
-  const iva = Number(venta?.ivaMonedaBase ?? 0);
-  const total = Number(venta?.totalMonedaBase ?? 0) || base + iva;
+  const base = Number(venta?.subtotalMonedaExt ?? 0)
+    || lineas.reduce((s, l) => s + Number(l.subtotalLineaMonedaExt ?? 0), 0);
+  const iva = Number(venta?.ivaMonedaExt ?? 0);
+  const total = Number(venta?.totalMonedaExt ?? 0) || base + iva;
   const exento = lineas
     .filter((l) => Number(l.tasaIVA ?? 0) === 0)
-    .reduce((s, l) => s + Number(l.subtotalLineaMonedaBase ?? 0), 0);
+    .reduce((s, l) => s + Number(l.subtotalLineaMonedaExt ?? 0), 0);
   return { base, exento, baseGravada: Math.max(base - exento, 0), iva, total };
 };
 
@@ -865,7 +866,7 @@ export default function RegistroVentasFiscal() {
                     <div style={{ fontWeight: 'bold' }}>{(empresaActiva?.razonSocial || empresaActiva?.nombre || 'EMPRESA').toUpperCase()}</div>
                     <div>RIF {empresaActiva?.rif || '—'}</div>
                     <div>{reporteLibro.titulo} del {formatearFecha(fechaInicio)} al {formatearFecha(fechaFin)}</div>
-                    <div>Expresado en USD (moneda base)</div>
+                    <div>Expresado en Bs. (moneda fiscal)</div>
                   </div>
 
                   <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>

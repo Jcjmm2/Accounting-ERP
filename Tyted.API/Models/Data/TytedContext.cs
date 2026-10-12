@@ -44,6 +44,8 @@ namespace Tyted.API.Data
         // --- FISCAL (IVA SENIAT) ---
         public DbSet<RetencionIvaEmitida> RetencionesIvaEmitidas { get; set; } = default!;
         public DbSet<Gasto> Gastos { get; set; } = default!;
+        /// <summary>Retenciones de ISLR emitidas (valor legal en Bolívares, inmutables).</summary>
+        public DbSet<RetencionIslrEmitida> RetencionesIslrEmitidas { get; set; } = default!;
         /// <summary>Resúmenes de la máquina fiscal (cierre Z) del Libro de Ventas SENIAT.</summary>
         public DbSet<ResumenVentaFiscal> ResumenesVentasFiscales { get; set; } = default!;
         /// <summary>Conceptos de operación (GASTO/VENTA/COMPRA) por empresa: puente al plan de cuentas.</summary>

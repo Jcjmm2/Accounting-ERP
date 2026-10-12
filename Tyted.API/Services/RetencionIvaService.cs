@@ -70,8 +70,20 @@ public class RetencionIvaService
             throw new InvalidOperationException("La compra ya tiene un comprobante de retención de IVA emitido (una sola retención vigente por factura).");
 
         var iva = compra.IvaMonedaBase;
-        if (iva <= 0m)
+
+        // INMUTABILIDAD FISCAL: el monto retenido se deriva SIEMPRE del IVA en
+        // Bolívares congelado de la factura (IvaMonedaExt), nunca del IVA en USD
+        // multiplicado por la tasa del día. Fallback para compras antiguas sin
+        // backfill (IvaMonedaExt = 0): reconstruye Bs. con la tasa de la factura.
+        var tasaFactura = compra.TasaDeCambio > 0 ? compra.TasaDeCambio : 1m;
+        var ivaBs = compra.IvaMonedaExt > 0m
+            ? compra.IvaMonedaExt
+            : Math.Round(iva * tasaFactura, 4, MidpointRounding.AwayFromZero);
+
+        if (iva <= 0m && ivaBs <= 0m)
             throw new InvalidOperationException("La factura no tiene IVA: no hay retención que emitir.");
+
+        var montoRetenidoBs = Math.Round(ivaBs * porcentaje / 100m, 2, MidpointRounding.AwayFromZero);
 
         var fecha = DateTime.Now;
         var retencion = new RetencionIvaEmitida
@@ -84,11 +96,21 @@ public class RetencionIvaService
             ProveedorNombre = compra.Proveedor?.Razonsocial ?? string.Empty,
             NumeroFactura = compra.NumeroFactura ?? string.Empty,
             NumeroControl = compra.NumeroControl,
+            // Montos en moneda base (USD) — referencia histórica
             MontoFactura = compra.TotalMonedaBase,
             BaseImponible = compra.SubtotalMonedaBase,
             IvaCalculado = iva,
             PorcentajeRetencion = porcentaje,
             MontoRetenido = Math.Round(iva * porcentaje / 100m, 2),
+            // Montos congelados en Bolívares (Bs.) — valor legal SENIAT
+            MontoFacturaBs = compra.TotalMonedaExt > 0m
+                ? compra.TotalMonedaExt
+                : Math.Round(compra.TotalMonedaBase * tasaFactura, 4, MidpointRounding.AwayFromZero),
+            BaseImponibleBs = compra.SubtotalMonedaExt > 0m
+                ? compra.SubtotalMonedaExt
+                : Math.Round(compra.SubtotalMonedaBase * tasaFactura, 4, MidpointRounding.AwayFromZero),
+            IvaCalculadoBs = ivaBs,
+            MontoRetenidoBs = montoRetenidoBs,
             Estado = "Emitida"
         };
 

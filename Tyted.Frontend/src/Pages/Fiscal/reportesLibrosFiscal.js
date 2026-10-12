@@ -105,15 +105,17 @@ export const estructuraLibroVentas = ({ empresa, periodo, totales, documentos })
     }
 
     // --- FACTURA FISCAL (VENTA) ---
+    // INMUTABILIDAD FISCAL: se leen los montos congelados en Bolívares
+    // (*MonedaExt) que envía el backend; el frontend NO convierte con tasa.
     const cliente = doc.cliente || {};
     const lineas = doc?.detalles?.$values || doc?.detalles || [];
-    const base = Number(doc?.subtotalMonedaBase ?? 0)
-      || lineas.reduce((s, l) => s + Number(l.subtotalLineaMonedaBase ?? 0), 0);
-    const iva = Number(doc?.ivaMonedaBase ?? 0);
-    const total = Number(doc?.totalMonedaBase ?? 0) || base + iva;
+    const base = Number(doc?.subtotalMonedaExt ?? 0)
+      || lineas.reduce((s, l) => s + Number(l.subtotalLineaMonedaExt ?? 0), 0);
+    const iva = Number(doc?.ivaMonedaExt ?? 0);
+    const total = Number(doc?.totalMonedaExt ?? 0) || base + iva;
     const exento = lineas
       .filter((l) => Number(l.tasaIVA ?? 0) === 0)
-      .reduce((s, l) => s + Number(l.subtotalLineaMonedaBase ?? 0), 0);
+      .reduce((s, l) => s + Number(l.subtotalLineaMonedaExt ?? 0), 0);
     const baseGravada = Math.max(base - exento, 0);
 
     // Segregación: CONTRIBUYENTE (J/G) vs NO CONTRIBUYENTE (V/E/P o sin RIF).
@@ -247,19 +249,21 @@ export const estructuraLibroCompras = ({ empresa, periodo, totales, compras, ret
   let sumTotal = 0, sumExento = 0, sumB16 = 0, sumI16 = 0, sumB8 = 0, sumI8 = 0, sumRet = 0;
 
   const filas = compras.map((c) => {
+    // INMUTABILIDAD FISCAL: montos congelados en Bolívares (*MonedaExt) del
+    // backend; sin conversiones en JavaScript.
     const lineas = c?.detalles?.$values || c?.detalles || [];
-    const base = Number(c?.subtotalMonedaBase ?? 0)
-      || lineas.reduce((s, l) => s + Number(l.subtotalLineaMonedaBase ?? 0), 0);
-    const iva = Number(c?.ivaMonedaBase ?? 0);
-    const total = Number(c?.totalMonedaBase ?? 0) || base + iva;
+    const base = Number(c?.subtotalMonedaExt ?? 0)
+      || lineas.reduce((s, l) => s + Number(l.subtotalLineaMonedaExt ?? 0), 0);
+    const iva = Number(c?.ivaMonedaExt ?? 0);
+    const total = Number(c?.totalMonedaExt ?? 0) || base + iva;
     const porTasa = (tasa) => lineas
       .filter((l) => Number(l.tasaIVA ?? 0) === tasa)
-      .reduce((s, l) => s + Number(l.subtotalLineaMonedaBase ?? 0), 0);
+      .reduce((s, l) => s + Number(l.subtotalLineaMonedaExt ?? 0), 0);
     // IVA por alícuota calculado línea a línea: cuadra exactamente con el
     // crédito fiscal registrado en la factura (sin descuadres por redondeo).
     const ivaPorTasa = (tasa) => lineas
       .filter((l) => Number(l.tasaIVA ?? 0) === tasa)
-      .reduce((s, l) => s + Number(l.subtotalLineaMonedaBase ?? 0) * (tasa / 100), 0);
+      .reduce((s, l) => s + Number(l.subtotalLineaMonedaExt ?? 0) * (tasa / 100), 0);
 
     let exento = porTasa(0);
     let base16 = porTasa(16);
@@ -277,7 +281,8 @@ export const estructuraLibroCompras = ({ empresa, periodo, totales, compras, ret
     const retencion = typeof retencionPorCompra?.get === 'function'
       ? retencionPorCompra.get(Number(c.id))
       : null;
-    const montoRet = retencion ? Number(retencion.montoRetenido) : 0;
+    // Monto retenido YA en Bolívares (Bs.) congelado por el backend.
+    const montoRet = retencion ? Number(retencion.montoRetenidoBs ?? retencion.montoRetenido ?? 0) : 0;
 
     sumTotal += total;
     sumExento += exento;
@@ -388,11 +393,12 @@ export const estructuraLibroGastos = ({ empresa, periodo, gastos }) => {
     g.concepto || '—',
     g.categoria || '—',
     g.proveedor?.razonsocial || '—',
-    fmtMoneda(g.monto),
+    // Monto congelado en Bolívares (Bs.); fallback al monto histórico (tasa 1).
+    fmtMoneda(g.montoMonedaExt ?? g.monto),
     g.asientoContableId ? `Asiento #${g.asientoContableId}` : 'Sin comprobante'
   ]);
 
-  const totalGastos = gastos.reduce((s, g) => s + Number(g.monto ?? 0), 0);
+  const totalGastos = gastos.reduce((s, g) => s + Number(g.montoMonedaExt ?? g.monto ?? 0), 0);
 
   return {
     titulo: 'Libro de Gastos Fiscales',
@@ -431,7 +437,7 @@ export const exportarLibroPdf = (estructura) => {
     pdf.text(`RIF ${empresa?.rif || 'J-000000000'}`, 40, 48);
     pdf.text(`${estructura.titulo} del ${formatearFechaLibro(periodo?.fechaInicio)} al ${formatearFechaLibro(periodo?.fechaFin)}`, 40, 60);
     pdf.setFont('helvetica', 'normal');
-    pdf.text('Expresado en USD (moneda base)', 40, 72);
+    pdf.text('Expresado en Bs. (moneda fiscal)', 40, 72);
   };
 
   // Alineación: columnas de monto a la derecha, resto a la izquierda.
@@ -517,7 +523,7 @@ export const exportarLibroXls = (estructura) => {
     [`${(empresa?.razonSocial || empresa?.nombre || 'EMPRESA').toUpperCase()}`],
     [`RIF ${empresa?.rif || 'J-000000000'}`],
     [`${estructura.titulo} del ${formatearFechaLibro(periodo?.fechaInicio)} al ${formatearFechaLibro(periodo?.fechaFin)}`],
-    ['Expresado en USD (moneda base)'],
+    ['Expresado en Bs. (moneda fiscal)'],
     [], // fila en blanco de separación
     ...headerRows,
     ...estructura.filas,

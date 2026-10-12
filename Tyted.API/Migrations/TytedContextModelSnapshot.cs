@@ -680,12 +680,21 @@ namespace Tyted.API.Migrations
                     b.Property<bool>("IsAnulada")
                         .HasColumnType("bit");
 
+                    b.Property<decimal>("IvaMonedaExt")
+                        .HasColumnType("decimal(18, 4)");
+
                     b.Property<decimal>("Monto")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<decimal>("MontoMonedaExt")
                         .HasColumnType("decimal(18, 4)");
 
                     b.Property<string>("Origen")
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)");
+
+                    b.Property<decimal>("TasaDeCambio")
+                        .HasColumnType("decimal(18, 4)");
 
                     b.Property<string>("TipoTransaccion")
                         .HasMaxLength(2)
@@ -1201,6 +1210,71 @@ namespace Tyted.API.Migrations
                     b.ToTable("ResumenesVentasFiscales");
                 });
 
+            modelBuilder.Entity("Tyted.API.Models.RetencionIslrEmitida", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal>("BaseImponibleBs")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<int?>("CompraId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("EmpresaId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("Estado")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<DateTime>("FechaRetencion")
+                        .HasColumnType("datetime2");
+
+                    b.Property<decimal>("MontoRetenidoBs")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<decimal>("MontoRetenidoUsd")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<string>("NumeroComprobante")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<string>("NumeroControl")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("NumeroFactura")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<decimal>("PorcentajeRetencion")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<string>("ProveedorNombre")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<string>("ProveedorRif")
+                        .HasMaxLength(20)
+                        .HasColumnType("nvarchar(20)");
+
+                    b.Property<decimal>("TasaDeCambio")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CompraId");
+
+                    b.ToTable("RetencionesIslrEmitidas");
+                });
+
             modelBuilder.Entity("Tyted.API.Models.RetencionIvaEmitida", b =>
                 {
                     b.Property<int>("Id")
@@ -1210,6 +1284,9 @@ namespace Tyted.API.Migrations
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
                     b.Property<decimal>("BaseImponible")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<decimal>("BaseImponibleBs")
                         .HasColumnType("decimal(18, 4)");
 
                     b.Property<int?>("CompraId")
@@ -1229,10 +1306,19 @@ namespace Tyted.API.Migrations
                     b.Property<decimal>("IvaCalculado")
                         .HasColumnType("decimal(18, 4)");
 
+                    b.Property<decimal>("IvaCalculadoBs")
+                        .HasColumnType("decimal(18, 4)");
+
                     b.Property<decimal>("MontoFactura")
                         .HasColumnType("decimal(18, 4)");
 
+                    b.Property<decimal>("MontoFacturaBs")
+                        .HasColumnType("decimal(18, 4)");
+
                     b.Property<decimal>("MontoRetenido")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<decimal>("MontoRetenidoBs")
                         .HasColumnType("decimal(18, 4)");
 
                     b.Property<string>("NumeroComprobante")
@@ -1807,6 +1893,15 @@ namespace Tyted.API.Migrations
                     b.Navigation("Producto");
 
                     b.Navigation("UnidadMedida");
+                });
+
+            modelBuilder.Entity("Tyted.API.Models.RetencionIslrEmitida", b =>
+                {
+                    b.HasOne("Tyted.API.Models.Compra", "Compra")
+                        .WithMany()
+                        .HasForeignKey("CompraId");
+
+                    b.Navigation("Compra");
                 });
 
             modelBuilder.Entity("Tyted.API.Models.RetencionIvaEmitida", b =>

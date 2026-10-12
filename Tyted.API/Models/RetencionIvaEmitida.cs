@@ -57,6 +57,29 @@ namespace Tyted.API.Models
         /// <summary>Monto retenido al proveedor = IVA × porcentaje.</summary>
         public decimal MontoRetenido { get; set; }
 
+        // ------------------------------------------------------------------
+        // DUALIDAD FISCAL (Inmutabilidad Fiscal): equivalente exacto en
+        // Bolívares (Bs.) congelado al momento de emitir la retención, a la
+        // tasa de la factura original (Compras.TasaDeCambio). Es el valor
+        // legal para el SENIAT y NO se recalcula con la tasa del día.
+        // ------------------------------------------------------------------
+
+        /// <summary>Total de la factura en Bolívares (Bs.), congelado de Compra.TotalMonedaExt.</summary>
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal MontoFacturaBs { get; set; }
+
+        /// <summary>Base imponible gravada en Bolívares (Bs.), congelado de Compra.SubtotalMonedaExt.</summary>
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal BaseImponibleBs { get; set; }
+
+        /// <summary>IVA de la factura en Bolívares (Bs.), congelado de Compra.IvaMonedaExt.</summary>
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal IvaCalculadoBs { get; set; }
+
+        /// <summary>Monto retenido en Bolívares (Bs.): el valor legal para el SENIAT.</summary>
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal MontoRetenidoBs { get; set; }
+
         /// <summary>Emitida | Anulada.</summary>
         [Required, StringLength(20)]
         public string Estado { get; set; } = "Emitida";

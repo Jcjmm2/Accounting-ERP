@@ -26,16 +26,17 @@ const TIPOS_TRANSACCION = [
 ];
 
 // Desglose por alícuota (Providencia 0049): exentas, base reducida 8%,
-// base general 16% y crédito fiscal total.
+// base general 16% y crédito fiscal total. Se leen los montos congelados en
+// Bolívares (*MonedaExt) del backend; el frontend NO convierte con tasa.
 const desgloseCompra = (compra) => {
   const lineas = compra?.detalles?.$values || compra?.detalles || [];
-  const base = Number(compra?.subtotalMonedaBase ?? 0)
-    || lineas.reduce((s, l) => s + Number(l.subtotalLineaMonedaBase ?? 0), 0);
-  const iva = Number(compra?.ivaMonedaBase ?? 0);
-  const total = Number(compra?.totalMonedaBase ?? 0) || base + iva;
+  const base = Number(compra?.subtotalMonedaExt ?? 0)
+    || lineas.reduce((s, l) => s + Number(l.subtotalLineaMonedaExt ?? 0), 0);
+  const iva = Number(compra?.ivaMonedaExt ?? 0);
+  const total = Number(compra?.totalMonedaExt ?? 0) || base + iva;
   const porTasa = (tasa) => lineas
     .filter((l) => Number(l.tasaIVA ?? 0) === tasa)
-    .reduce((s, l) => s + Number(l.subtotalLineaMonedaBase ?? 0), 0);
+    .reduce((s, l) => s + Number(l.subtotalLineaMonedaExt ?? 0), 0);
   const exento = porTasa(0);
   const base8 = porTasa(8);
   const base16 = porTasa(16);
@@ -154,9 +155,10 @@ export default function RegistroComprasFiscal() {
     }
   }, [empresaId, fechaInicio, fechaFin]);
 
-  // Retención vigente por factura (una sola por compra) y total retenido
+  // Retención vigente por factura (una sola por compra) y total retenido.
+  // Monto en Bolívares (Bs.) congelado por el backend (montoRetenidoBs).
   const retencionPorCompra = new Map(retenciones.map((r) => [Number(r.compraId), r]));
-  const totalRetenido = retenciones.reduce((s, r) => s + Number(r.montoRetenido ?? 0), 0);
+  const totalRetenido = retenciones.reduce((s, r) => s + Number(r.montoRetenidoBs ?? r.montoRetenido ?? 0), 0);
 
   // NOTA: el libro ya NO se carga automáticamente al entrar ni al cambiar de
   // contexto; se consulta bajo demanda (botón «🔍 Consultas y edición» o
@@ -251,7 +253,7 @@ export default function RegistroComprasFiscal() {
       const r = await fiscalApi.emitirRetencionIva({ compraId: c.id, empresaId, porcentaje });
       alert(
         `✅ Comprobante de retención ${r.numeroComprobante} emitido.\n` +
-        `IVA: ${fmt(r.ivaCalculado)} · Retenido (${r.porcentajeRetencion}%): ${fmt(r.montoRetenido)}`
+        `IVA (Bs.): ${fmt(r.ivaCalculadoBs ?? r.ivaCalculado)} · Retenido (${r.porcentajeRetencion}%): ${fmt(r.montoRetenidoBs ?? r.montoRetenido)} Bs.`
       );
       await cargarCompras(); // recarga compras y retenciones
     } catch (error) {
@@ -617,7 +619,7 @@ export default function RegistroComprasFiscal() {
                 <div style={{ fontWeight: 'bold' }}>{(empresaActiva?.razonSocial || empresaActiva?.nombre || 'EMPRESA').toUpperCase()}</div>
                 <div>RIF {empresaActiva?.rif || '—'}</div>
                 <div>{reporteLibro.titulo} del {formatearFecha(fechaInicio)} al {formatearFecha(fechaFin)}</div>
-                <div>Expresado en USD (moneda base)</div>
+                <div>Expresado en Bs. (moneda fiscal)</div>
               </div>
 
               <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.8rem' }}>

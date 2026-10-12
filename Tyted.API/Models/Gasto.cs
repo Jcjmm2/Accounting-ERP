@@ -41,8 +41,27 @@ namespace Tyted.API.Models
         [ForeignKey(nameof(CodigoProv))]
         public Proveedor? Proveedor { get; set; }
 
-        /// <summary>Monto en moneda base (USD).</summary>
+        /// <summary>Monto en moneda base (USD). Es el monto "congelado" de la factura.</summary>
         public decimal Monto { get; set; }
+
+        // ------------------------------------------------------------------
+        // DUALIDAD FISCAL (Inmutabilidad Fiscal): todo documento que genere
+        // impuestos o retenciones guarda su equivalente exacto en Bolívares
+        // (Bs.) al momento de su creación. El SENIAT audita el histórico, por
+        // lo que estos montos NUNCA se recalculan con la tasa del día.
+        // ------------------------------------------------------------------
+
+        /// <summary>Tasa Bs./USD congelada al momento de crear el gasto.</summary>
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal TasaDeCambio { get; set; } = 1m;
+
+        /// <summary>Monto total en Bolívares (Bs.) congelado = Monto × TasaDeCambio.</summary>
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal MontoMonedaExt { get; set; } // Bs.
+
+        /// <summary>IVA del gasto en Bolívares (Bs.) si aplica. 0 cuando no hay IVA.</summary>
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal IvaMonedaExt { get; set; } // Bs. (Si aplica)
 
         /// <summary>Tipo de transacción SENIAT: 01-Registro, 02-Complemento, 03-Anulación.</summary>
         [StringLength(2)]

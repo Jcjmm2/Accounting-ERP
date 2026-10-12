@@ -4,6 +4,24 @@ import React, { createContext, useState, useEffect, useCallback } from 'react';
 // eslint-disable-next-line react-refresh/only-export-components -- Convención del proyecto: contexto y provider se exportan juntos
 export const ConfigContext = createContext();
 
+// ---------------------------------------------------------------------------
+// CRITERIO MULTIMONEDA (Inmutabilidad Fiscal)
+// La "Moneda Base" del sistema es USD y `tasa` (Bs./USD) es la TASA OPERATIVA
+// del día. Sus usos legítimos son:
+//   1) Módulos gerenciales/operativos (Dashboard, CxC, Reportes, POS): mostrar
+//      equivalencias al bolívar al momento de consulta.
+//   2) Congelar la `TasaDeCambio` de un documento AL MOMENTO DE CREARLO (POS,
+//      compras, ventas y gastos fiscales), de modo que los campos *MonedaExt
+//      (Bs.) queden grabados y sean inmutables.
+//
+// PROHIBIDO en el módulo FISCAL (Libros, Forma 30, retenciones, declaraciones):
+//   multiplicar montos por `tasa` para derivar cifras tributarias. Todo monto
+//   fiscal (base, IVA, retención) proviene DEL BACKEND ya congelado en Bs. en
+//   las columnas *MonedaExt / *RetenidoBs, calculado a la tasa del documento
+//   original. El SENIAT audita el histórico: una tasa del día no debe reescribir
+//   un impuesto ya devengado.
+// ---------------------------------------------------------------------------
+
 const buildDefaultEmpresa = () => ({
   id: 1,
   nombre: 'Empresa principal',
@@ -80,6 +98,9 @@ const extraerIdUsuarioDesdeToken = (token) => {
 export const ConfigProvider = ({ children }) => {
   const baseApiUrl = (import.meta.env.VITE_API_URL || 'http://localhost:5077/api').replace(/\/+$/, '');
   const [API_URL] = useState(baseApiUrl);
+  // Tasa operativa del día (Bs./USD). Sólo para gerencia/POS y para congelar la
+  // TasaDeCambio al crear documentos. NUNCA se usa para derivar montos fiscales
+  // (ver bloque "CRITERIO MULTIMONEDA" al inicio de este archivo).
   const [tasa, setTasa] = useState(0);
   const [user, setUser] = useState(null);
   const [empresas, setEmpresas] = useState([]);

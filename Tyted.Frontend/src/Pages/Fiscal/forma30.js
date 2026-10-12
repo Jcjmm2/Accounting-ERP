@@ -22,7 +22,7 @@ const acumularLineas = (lineas, baseDoc, ivaDoc, acc) => {
     return;
   }
   lineas.forEach((l) => {
-    const b = num(l?.subtotalLineaMonedaBase);
+    const b = num(l?.subtotalLineaMonedaExt);
     const t = num(l?.tasaIVA);
     if (t === 0) acc.exento += b;
     else if (t === 8) { acc.base8 += b; acc.iva8 += b * 0.08; }
@@ -33,6 +33,7 @@ const acumularLineas = (lineas, baseDoc, ivaDoc, acc) => {
 // --- DÉBITOS FISCALES (Libro de Ventas) -------------------------------------
 // Los resúmenes Z no guardan alícuota: se asumen 16% (criterio SENIAT).
 // Los documentos anulados quedan FUERA del débito fiscal.
+// INMUTABILIDAD FISCAL: se leen los montos congelados en Bolívares (*MonedaExt).
 export const desgloseDebitos = (ventas = [], resumenes = []) => {
   const acc = { exento: 0, base16: 0, iva16: 0, base8: 0, iva8: 0 };
   let documentos = 0, anuladas = 0;
@@ -41,9 +42,9 @@ export const desgloseDebitos = (ventas = [], resumenes = []) => {
     if (v?.isAnulada) { anuladas += 1; return; }
     documentos += 1;
     const lineas = v?.detalles?.$values || v?.detalles || [];
-    const base = num(v?.subtotalMonedaBase)
-      || lineas.reduce((s, l) => s + num(l?.subtotalLineaMonedaBase), 0);
-    acumularLineas(lineas, base, num(v?.ivaMonedaBase), acc);
+    const base = num(v?.subtotalMonedaExt)
+      || lineas.reduce((s, l) => s + num(l?.subtotalLineaMonedaExt), 0);
+    acumularLineas(lineas, base, num(v?.ivaMonedaExt), acc);
   });
 
   resumenes.forEach((r) => {
@@ -66,9 +67,9 @@ export const desgloseCreditos = (compras = []) => {
     if (c?.isAnulada) { anuladas += 1; return; }
     documentos += 1;
     const lineas = c?.detalles?.$values || c?.detalles || [];
-    const base = num(c?.subtotalMonedaBase)
-      || lineas.reduce((s, l) => s + num(l?.subtotalLineaMonedaBase), 0);
-    acumularLineas(lineas, base, num(c?.ivaMonedaBase), acc);
+    const base = num(c?.subtotalMonedaExt)
+      || lineas.reduce((s, l) => s + num(l?.subtotalLineaMonedaExt), 0);
+    acumularLineas(lineas, base, num(c?.ivaMonedaExt), acc);
   });
 
   return { documentos, anuladas, ...acc };
@@ -119,8 +120,9 @@ export const calcularForma30 = ({
   // Referencia informativa: retenciones EMITIDAS por la empresa a proveedores.
   // NO se restan del total a pagar (el crédito fiscal es el IVA completo; en
   // la casilla 66 aplican las retenciones practicadas A la empresa).
+  // Se usa el monto congelado en Bolívares (montoRetenidoBs), valor legal SENIAT.
   const retencionesEmitidasTotal = retencionesEmitidas
-    .reduce((s, r) => s + num(r?.montoRetenido), 0);
+    .reduce((s, r) => s + num(r?.montoRetenidoBs ?? r?.montoRetenido), 0);
 
   return {
     deb, cre,
@@ -184,7 +186,7 @@ const membreteForma30 = (empresa, periodo) => ([
   [`${(empresa?.razonSocial || empresa?.nombre || 'EMPRESA').toUpperCase()}`],
   [`RIF ${empresa?.rif || 'J-000000000'}`],
   [`FORMA 30 — Determinación y Pago del IVA · Periodo ${periodo?.nombre || ''} (${formatearFechaLibro(periodo?.fechaInicio)} al ${formatearFechaLibro(periodo?.fechaFin)})`],
-  ['Expresado en USD (moneda base)']
+  ['Expresado en Bs. (moneda fiscal)']
 ]);
 
 export const exportarForma30Xls = ({ empresa, periodo, calculos }) => {
@@ -234,7 +236,7 @@ export const exportarForma30Pdf = ({ empresa, periodo, calculos }) => {
     pdf.setFont('helvetica', 'normal');
     pdf.text(`RIF ${empresa?.rif || 'J-000000000'}`, 40, 54);
     pdf.text(`FORMA 30 — Determinación y Pago del IVA · Periodo ${periodo?.nombre || ''}`, 40, 68);
-    pdf.text(`${formatearFechaLibro(periodo?.fechaInicio)} al ${formatearFechaLibro(periodo?.fechaFin)} · Expresado en USD`, 40, 80);
+    pdf.text(`${formatearFechaLibro(periodo?.fechaInicio)} al ${formatearFechaLibro(periodo?.fechaFin)} · Expresado en Bs.`, 40, 80);
   };
 
   secciones.forEach((s, idx) => {

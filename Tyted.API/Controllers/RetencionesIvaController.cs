@@ -7,8 +7,8 @@ namespace Tyted.API.Controllers;
 
 /// <summary>
 /// API de Retenciones de IVA emitidas (Libro de Compras SENIAT, plan BE-TAX-201):
-/// consulta por periodo/empresa y emisión del comprobante oficial (75%/100%)
-/// con correlativo SENIAT AAAAMM + 8 dígitos.
+/// consulta por periodo/empresa y emision del comprobante oficial (75%/100%)
+/// con correlativo SENIAT AAAAMM + 8 digitos.
 /// </summary>
 [Route("api/retenciones-iva")]
 [ApiController]
@@ -33,7 +33,7 @@ public class RetencionesIvaController : ControllerBase
         return Ok(lista);
     }
 
-    /// <summary>Emite el comprobante de retención del IVA de una factura de compra.</summary>
+    /// <summary>Emite el comprobante de retencion del IVA de una factura de compra.</summary>
     [HttpPost]
     public async Task<ActionResult<RetencionIvaEmitida>> Emitir([FromBody] EmitirRetencionIvaRequest request)
     {
@@ -54,7 +54,7 @@ public class RetencionesIvaController : ControllerBase
     }
 }
 
-/// <summary>Solicitud de emisión de un comprobante de retención de IVA.</summary>
+/// <summary>Solicitud de emision de un comprobante de retencion de IVA.</summary>
 public class EmitirRetencionIvaRequest
 {
     public int CompraId { get; set; }
