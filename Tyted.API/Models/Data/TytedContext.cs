@@ -24,6 +24,8 @@ namespace Tyted.API.Data
         public DbSet<EmpresaConfig> EmpresaConfigs { get; set; } = default!;
         public DbSet<Empresa> Empresa { get; set; } = default!;
         public DbSet<Usuario> Usuarios { get; set; } = default!;
+        /// <summary>Acceso Multi-Empresa: qué empresas puede ver cada usuario.</summary>
+        public DbSet<UsuarioEmpresa> UsuariosEmpresas { get; set; } = default!;
         public DbSet<Cliente> Clientes { get; set; } = default!;
         public DbSet<CajaSesion> CajaSesiones { get; set; }
         public DbSet<VentaPago> VentasPagos { get; set; }
@@ -61,6 +63,25 @@ namespace Tyted.API.Data
         protected override void OnModelCreating(ModelBuilder modelBuilder)
         {
             base.OnModelCreating(modelBuilder);
+
+            // 0. MULTI-EMPRESA (MULTI-TENANT): tabla intermedia Usuario<->Empresa
+            // Clave compuesta (UsuarioId, EmpresaId) + índices y borrado en cascada.
+            modelBuilder.Entity<UsuarioEmpresa>(entity =>
+            {
+                entity.HasKey(ue => new { ue.UsuarioId, ue.EmpresaId });
+
+                entity.HasOne(ue => ue.Usuario)
+                      .WithMany(u => u.EmpresasAsignadas)
+                      .HasForeignKey(ue => ue.UsuarioId)
+                      .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasOne(ue => ue.Empresa)
+                      .WithMany()
+                      .HasForeignKey(ue => ue.EmpresaId)
+                      .OnDelete(DeleteBehavior.Cascade);
+
+                entity.HasIndex(ue => ue.EmpresaId);
+            });
 
             // 1. CONFIGURACIÓN GLOBAL DE DECIMALES (18, 4)
             foreach (var entityType in modelBuilder.Model.GetEntityTypes())

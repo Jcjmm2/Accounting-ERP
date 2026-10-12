@@ -20,12 +20,14 @@ public class GastosController : ControllerBase
     private readonly GastoService _gastoService;
     private readonly MotorAsientosAutomaticos _motor;
     private readonly TytedContext _context;
+    private readonly EmpresaAccessService _access;
 
-    public GastosController(GastoService gastoService, MotorAsientosAutomaticos motor, TytedContext context)
+    public GastosController(GastoService gastoService, MotorAsientosAutomaticos motor, TytedContext context, EmpresaAccessService access)
     {
         _gastoService = gastoService;
         _motor = motor;
         _context = context;
+        _access = access;
     }
 
     /// <summary>Gastos del periodo/empresa activos (filtros opcionales).</summary>
@@ -35,6 +37,10 @@ public class GastosController : ControllerBase
         [FromQuery] DateTime? fechaInicio,
         [FromQuery] DateTime? fechaFin)
     {
+        // AISLAMIENTO POR EMPRESA
+        if (empresaId.HasValue)
+            await _access.ValidarAccesoAsync(User, empresaId.Value);
+
         var lista = await _gastoService.GetListAsync(empresaId, fechaInicio, fechaFin);
         return Ok(lista);
     }
@@ -45,6 +51,8 @@ public class GastosController : ControllerBase
     {
         if (gasto is null)
             return BadRequest(new { message = "El cuerpo de la petición no es un gasto válido." });
+
+        await _access.ValidarAccesoAsync(User, gasto.EmpresaId);
 
         try
         {

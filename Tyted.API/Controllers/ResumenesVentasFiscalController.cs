@@ -21,11 +21,13 @@ namespace Tyted.API.Controllers
         private readonly TytedContext _context;
         // Motor de asientos automáticos: 1 comprobante por resumen (idempotente).
         private readonly MotorAsientosAutomaticos _motor;
+        private readonly EmpresaAccessService _access;
 
-        public ResumenesVentasFiscalController(TytedContext context, MotorAsientosAutomaticos motor)
+        public ResumenesVentasFiscalController(TytedContext context, MotorAsientosAutomaticos motor, EmpresaAccessService access)
         {
             _context = context;
             _motor = motor;
+            _access = access;
         }
 
         // GET: api/resumenes-ventas-fiscal?fechaInicio=&fechaFin=&empresaId=
@@ -35,6 +37,10 @@ namespace Tyted.API.Controllers
             [FromQuery] DateTime? fechaFin,
             [FromQuery] int? empresaId)
         {
+            // AISLAMIENTO POR EMPRESA
+            if (empresaId.HasValue)
+                await _access.ValidarAccesoAsync(User, empresaId.Value);
+
             var query = _context.ResumenesVentasFiscales
                 .AsNoTracking()
                 .AsQueryable();
@@ -66,6 +72,8 @@ namespace Tyted.API.Controllers
                 return BadRequest(new { message = "Indique el rango de facturas (Desde/Hasta) del resumen." });
             if (resumen.EmpresaId <= 0)
                 return BadRequest(new { message = "Indique la empresa a la que pertenece el resumen." });
+
+            await _access.ValidarAccesoAsync(User, resumen.EmpresaId);
 
             // El rango debe ser coherente (comparación numérica; los números
             // vienen con relleno de ceros, p. ej. 00000940 <= 00000952).

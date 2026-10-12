@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Tyted.API.Data;
 using Tyted.API.Models;
+using Tyted.API.Services;
 
 namespace Tyted.API.Controllers
 {
@@ -18,10 +19,12 @@ namespace Tyted.API.Controllers
     public class ConceptosOperacionalesController : ControllerBase
     {
         private readonly TytedContext _context;
+        private readonly EmpresaAccessService _access;
 
-        public ConceptosOperacionalesController(TytedContext context)
+        public ConceptosOperacionalesController(TytedContext context, EmpresaAccessService access)
         {
             _context = context;
+            _access = access;
         }
 
         // GET: api/conceptos-operacionales?empresaId=1&tipo=GASTO
@@ -30,6 +33,10 @@ namespace Tyted.API.Controllers
             [FromQuery] int? empresaId,
             [FromQuery] string? tipo)
         {
+            // AISLAMIENTO POR EMPRESA
+            if (empresaId.HasValue)
+                await _access.ValidarAccesoAsync(User, empresaId.Value);
+
             var query = _context.ConceptosOperacionales
                 .AsNoTracking()
                 .AsQueryable();
@@ -62,6 +69,8 @@ namespace Tyted.API.Controllers
         {
             if (concepto is null || string.IsNullOrWhiteSpace(concepto.NombreConcepto))
                 return BadRequest(new { message = "El nombre del concepto es obligatorio." });
+
+            await _access.ValidarAccesoAsync(User, concepto.EmpresaId);
 
             concepto.TipoOperacion = (concepto.TipoOperacion ?? "GASTO").ToUpper();
             if (!new[] { "COMPRA", "VENTA", "GASTO", "SISTEMA" }.Contains(concepto.TipoOperacion))

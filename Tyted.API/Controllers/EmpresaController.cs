@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.AspNetCore.Authorization;
 using Tyted.API.Data;
 using Tyted.API.Models;
+using Tyted.API.Services;
 
 namespace Tyted.API.Controllers
 {
@@ -12,21 +13,76 @@ namespace Tyted.API.Controllers
     public class EmpresaController : ControllerBase
     {
         private readonly TytedContext _context;
+        private readonly EmpresaAccessService _access;
 
-        public EmpresaController(TytedContext context)
+        public EmpresaController(TytedContext context, EmpresaAccessService access)
         {
             _context = context;
+            _access = access;
         }
 
         // --- MÉTODOS PARA DATOS DE LA EMPRESA (Encabezado) ---
 
+        /// <summary>
+        /// Empresas visibles para el usuario autenticado (selector global).
+        /// AdministradorSistema: TODAS. Demás roles: sólo las asignadas.
+        /// La empresa predeterminada del usuario se ordena de PRIMERA.
+        /// </summary>
         [HttpGet]
         public async Task<ActionResult<IEnumerable<Empresa>>> GetEmpresas()
         {
-            var empresas = await _context.Empresa
-                .OrderBy(e => e.RazonSocial)
-                .ToListAsync();
+            var usuarioId = _access.GetUsuarioId(User);
+            if (usuarioId == null) return Unauthorized();
 
+            // IDs permitidos (null => todas, para AdministradorSistema)
+            var permitidas = await _access.EmpresasPermitidasAsync(usuarioId.Value);
+
+            var query = _context.Empresa.AsQueryable();
+            if (permitidas != null)
+                query = query.Where(e => permitidas.Contains(e.Id));
+
+            var empresas = await query.OrderBy(e => e.RazonSocial).ToListAsync();
+
+            // Ordenar de primera la empresa predeterminada del usuario (si la tiene
+            // en su lista visible). Así el frontend, al tomar lista[0] sin valor
+            // guardado en localStorage, selecciona la correcta.
+            var predeterminadaId = await _context.Usuarios
+                .AsNoTracking()
+                .Where(u => u.Id == usuarioId.Value)
+                .Select(u => u.EmpresaPredeterminadaId)
+                .FirstOrDefaultAsync();
+
+            if (predeterminadaId.HasValue)
+            {
+                empresas = empresas
+                    .OrderByDescending(e => e.Id == predeterminadaId.Value)
+                    .ThenBy(e => e.RazonSocial)
+                    .ToList();
+            }
+
+            return Ok(empresas);
+        }
+
+        /// <summary>
+        /// Catálogo COMPLETO de empresas, restringido a administradores. Lo usa
+        /// la pantalla de Usuarios para asignar accesos (no depende del selector
+        /// filtrado, evitando acoplar "catálogo que asigno" con "selector en el
+        /// que trabajo"). Un Administrador (no Sistema) sólo ve aquí las suyas.
+        /// </summary>
+        [HttpGet("todas")]
+        [Authorize(Roles = "AdministradorSistema,Administrador")]
+        public async Task<ActionResult<IEnumerable<Empresa>>> GetTodasLasEmpresas()
+        {
+            var usuarioId = _access.GetUsuarioId(User);
+            if (usuarioId == null) return Unauthorized();
+
+            var permitidas = await _access.EmpresasPermitidasAsync(usuarioId.Value);
+
+            var query = _context.Empresa.AsQueryable();
+            if (permitidas != null)
+                query = query.Where(e => permitidas.Contains(e.Id));
+
+            var empresas = await query.OrderBy(e => e.RazonSocial).ToListAsync();
             return Ok(empresas);
         }
 

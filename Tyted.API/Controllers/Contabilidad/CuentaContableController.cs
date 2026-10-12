@@ -11,15 +11,21 @@ namespace Tyted.API.Controllers.Contabilidad;
 public class CuentaContableController : ControllerBase
 {
     private readonly PlanCuentasService _service;
+    private readonly EmpresaAccessService _access;
 
-    public CuentaContableController(PlanCuentasService service)
+    public CuentaContableController(PlanCuentasService service, EmpresaAccessService access)
     {
         _service = service;
+        _access = access;
     }
 
     [HttpGet("cuentas")]
         public async Task<ActionResult<List<CuentaContable>>> GetCuentas([FromQuery] int? empresaId)
         {
+            // AISLAMIENTO POR EMPRESA
+            if (empresaId.HasValue)
+                await _access.ValidarAccesoAsync(User, empresaId.Value);
+
             // Se pasa empresaId al servicio para filtrar las cuentas de la empresa activa
             var cuentas = await _service.GetCuentasAsync(empresaId);
             return Ok(cuentas);
@@ -28,6 +34,8 @@ public class CuentaContableController : ControllerBase
     [HttpPost("cuentas")]
     public async Task<ActionResult<CuentaContable>> CrearCuenta([FromBody] CuentaContable cuenta)
     {
+        await _access.ValidarAccesoAsync(User, cuenta.EmpresaId);
+
         try
         {
             var creada = await _service.CrearCuentaAsync(cuenta);
@@ -45,6 +53,8 @@ public class CuentaContableController : ControllerBase
     [HttpPut("cuentas/{id:int}")]
     public async Task<ActionResult<CuentaContable>> ActualizarCuenta(int id, [FromBody] CuentaContable cuenta)
     {
+        await _access.ValidarAccesoAsync(User, cuenta.EmpresaId);
+
         try
         {
             var actualizada = await _service.ActualizarCuentaAsync(id, cuenta);

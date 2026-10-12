@@ -1438,6 +1438,9 @@ namespace Tyted.API.Migrations
                     b.Property<bool>("Activo")
                         .HasColumnType("bit");
 
+                    b.Property<int?>("EmpresaPredeterminadaId")
+                        .HasColumnType("int");
+
                     b.Property<string>("NombreCompleto")
                         .HasColumnType("nvarchar(max)");
 
@@ -1454,6 +1457,21 @@ namespace Tyted.API.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("Usuarios");
+                });
+
+            modelBuilder.Entity("Tyted.API.Models.UsuarioEmpresa", b =>
+                {
+                    b.Property<int>("UsuarioId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("EmpresaId")
+                        .HasColumnType("int");
+
+                    b.HasKey("UsuarioId", "EmpresaId");
+
+                    b.HasIndex("EmpresaId");
+
+                    b.ToTable("UsuariosEmpresas");
                 });
 
             modelBuilder.Entity("Tyted.API.Models.Venta", b =>
@@ -1913,6 +1931,25 @@ namespace Tyted.API.Migrations
                     b.Navigation("Compra");
                 });
 
+            modelBuilder.Entity("Tyted.API.Models.UsuarioEmpresa", b =>
+                {
+                    b.HasOne("Tyted.API.Models.Empresa", "Empresa")
+                        .WithMany()
+                        .HasForeignKey("EmpresaId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Tyted.API.Models.Usuario", "Usuario")
+                        .WithMany("EmpresasAsignadas")
+                        .HasForeignKey("UsuarioId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Empresa");
+
+                    b.Navigation("Usuario");
+                });
+
             modelBuilder.Entity("Tyted.API.Models.Venta", b =>
                 {
                     b.HasOne("Tyted.API.Models.Cliente", "Cliente")
@@ -2005,6 +2042,11 @@ namespace Tyted.API.Migrations
             modelBuilder.Entity("Tyted.API.Models.Proveedor", b =>
                 {
                     b.Navigation("Compras");
+                });
+
+            modelBuilder.Entity("Tyted.API.Models.Usuario", b =>
+                {
+                    b.Navigation("EmpresasAsignadas");
                 });
 
             modelBuilder.Entity("Tyted.API.Models.Venta", b =>

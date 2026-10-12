@@ -215,6 +215,13 @@ export const ConfigProvider = ({ children }) => {
         return;
       }
 
+      // MULTI-TENANT: el backend devuelve SÓLO las empresas visibles para el
+      // usuario (AdministradorSistema: todas; resto: las asignadas), con la
+      // predeterminada de primera. Si el id guardado en localStorage no está en
+      // esa lista (p. ej. cambió de usuario en el mismo navegador o se le
+      // revocó una empresa), se cae a la primera de la lista visible en vez de
+      // confiar en un id ajeno. Así el usuario nunca ve una empresa fuera de
+      // sus permisos.
       const empresaIdGuardada = Number(localStorage.getItem('empresaActivaId') || listaEmpresas[0]?.id || 1);
       const empresaSel = listaEmpresas.find(e => Number(e.id) === empresaIdGuardada) || listaEmpresas[0] || buildDefaultEmpresa();
 

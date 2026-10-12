@@ -11,16 +11,22 @@ namespace Tyted.API.Controllers.Contabilidad;
 public class AsientosController : ControllerBase
 {
     private readonly AsientoContableService _service;
+    private readonly EmpresaAccessService _access;
 
-    public AsientosController(AsientoContableService service)
+    public AsientosController(AsientoContableService service, EmpresaAccessService access)
     {
         _service = service;
+        _access = access;
     }
 
     // MEJORA 1: Se añade el parámetro opcional para filtrar por el periodo activo
     [HttpGet("asientos")]
     public async Task<ActionResult<List<AsientoContable>>> GetAsientos([FromQuery] int? periodoContableId, [FromQuery] int? empresaId)
     {
+        // AISLAMIENTO POR EMPRESA
+        if (empresaId.HasValue)
+            await _access.ValidarAccesoAsync(User, empresaId.Value);
+
         // Filtros opcionales: el frontend puede traer los asientos de un periodo y/o de la empresa activa
         var asientos = await _service.GetAsientosAsync(periodoContableId, empresaId);
         return Ok(asientos);
@@ -35,6 +41,8 @@ public class AsientosController : ControllerBase
         {
             return BadRequest(new { message = "El cuerpo de la petición no es un asiento válido. Verifica que 'id' no sea null y que los campos obligatorios estén presentes." });
         }
+
+        await _access.ValidarAccesoAsync(User, asiento.EmpresaId);
 
         try
         {
@@ -61,6 +69,8 @@ public class AsientosController : ControllerBase
         {
             return BadRequest(new { message = "Inconsistencia de datos: El ID de la ruta no coincide con el cuerpo de la petición." });
         }
+
+        await _access.ValidarAccesoAsync(User, asiento.EmpresaId);
 
         try
         {
@@ -94,6 +104,8 @@ public class AsientosController : ControllerBase
 
         if (request.EmpresaId <= 0)
             return BadRequest(new { message = "Indique la empresa a la que pertenece el periodo (empresaId)." });
+
+        await _access.ValidarAccesoAsync(User, request.EmpresaId);
 
         try
         {

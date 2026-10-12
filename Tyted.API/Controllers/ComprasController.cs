@@ -17,12 +17,14 @@ namespace Tyted.API.Controllers
         // Motor de asientos automáticos: genera el comprobante contable de la
         // compra (integración administrativo-contable, plan BE-F4).
         private readonly MotorAsientosAutomaticos _motor;
+        private readonly EmpresaAccessService _access;
 
-        public ComprasController(TytedContext context, CompraService compraService, MotorAsientosAutomaticos motor)
+        public ComprasController(TytedContext context, CompraService compraService, MotorAsientosAutomaticos motor, EmpresaAccessService access)
         {
             _context = context;
             _compraService = compraService;
             _motor = motor;
+            _access = access;
         }
 
         // GET: api/Compras
@@ -33,6 +35,10 @@ namespace Tyted.API.Controllers
             [FromQuery] int? empresaId,
             [FromQuery] string? origen)
         {
+            // AISLAMIENTO POR EMPRESA
+            if (empresaId.HasValue)
+                await _access.ValidarAccesoAsync(User, empresaId.Value);
+
             // Filtros opcionales del Libro de Compras fiscal: rango del periodo
             // contable activo, aislamiento multiempresa y origen del documento.
             var query = _context.Compras
@@ -68,6 +74,8 @@ namespace Tyted.API.Controllers
         {
             if (compra is null)
                 return BadRequest(new { message = "El cuerpo de la petición no es una compra válida." });
+
+            await _access.ValidarAccesoAsync(User, compra.EmpresaId);
 
             try
             {

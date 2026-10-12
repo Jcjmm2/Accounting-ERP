@@ -145,7 +145,9 @@ public class AsientoRegistroTests
     public async Task CrearAsiento_CuerpoNulo_DevuelveBadRequest()
     {
         await using var context = CrearContexto();
-        var controller = new AsientosController(new AsientoContableService(context));
+        var controller = new AsientosController(
+            new AsientoContableService(context),
+            new EmpresaAccessService(context));
 
         var resultado = await controller.CrearAsiento(null!);
 

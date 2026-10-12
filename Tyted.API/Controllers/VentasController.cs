@@ -17,12 +17,14 @@ namespace Tyted.API.Controllers
         // Motor de asientos automáticos: genera el comprobante contable de la
         // venta (integración administrativo-contable, plan BE-F4).
         private readonly MotorAsientosAutomaticos _motor;
+        private readonly EmpresaAccessService _access;
 
-        public VentasController(VentaService ventaService, TytedContext context, MotorAsientosAutomaticos motor)
+        public VentasController(VentaService ventaService, TytedContext context, MotorAsientosAutomaticos motor, EmpresaAccessService access)
         {
             _ventaService = ventaService;
             _context = context;
             _motor = motor;
+            _access = access;
         }
         // --- GESTIÓN DE VENTAS ---
 
@@ -33,6 +35,10 @@ namespace Tyted.API.Controllers
             [FromQuery] int? empresaId,
             [FromQuery] string? origen)
         {
+            // AISLAMIENTO POR EMPRESA
+            if (empresaId.HasValue)
+                await _access.ValidarAccesoAsync(User, empresaId.Value);
+
             // Filtros opcionales del Libro de Ventas fiscal: rango del periodo
             // contable activo, aislamiento multiempresa y origen del documento
             // ("POS" para el historial del caja, sin parámetros = todas).
@@ -56,6 +62,8 @@ namespace Tyted.API.Controllers
         {
             if (venta is null)
                 return BadRequest(new { message = "El cuerpo de la petición no es una venta válida." });
+
+            await _access.ValidarAccesoAsync(User, venta.EmpresaId);
 
             try
             {

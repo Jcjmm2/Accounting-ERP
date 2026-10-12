@@ -1,5 +1,6 @@
 using System.Net;
 using System.Text.Json;
+using Tyted.API.Services;
 
 namespace Tyted.API.Middleware
 {
@@ -29,6 +30,7 @@ namespace Tyted.API.Middleware
                 response.StatusCode = error switch
                 {
                     KeyNotFoundException => (int)HttpStatusCode.NotFound, // 404
+                    ForbiddenAccessException => (int)HttpStatusCode.Forbidden, // 403 (autorización por empresa)
                     UnauthorizedAccessException => (int)HttpStatusCode.Unauthorized, // 401
                     _ => (int)HttpStatusCode.InternalServerError, // 500 para el resto
                 };

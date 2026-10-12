@@ -11,15 +11,21 @@ namespace Tyted.API.Controllers.Contabilidad;
 public class PeriodosContablesController : ControllerBase
 {
     private readonly PeriodoContableService _service;
+    private readonly EmpresaAccessService _access;
 
-    public PeriodosContablesController(PeriodoContableService service)
+    public PeriodosContablesController(PeriodoContableService service, EmpresaAccessService access)
     {
         _service = service;
+        _access = access;
     }
 
     [HttpGet("periodos")]
     public async Task<ActionResult<List<PeriodoContable>>> GetPeriodos([FromQuery] int? empresaId)
     {
+        // AISLAMIENTO POR EMPRESA
+        if (empresaId.HasValue)
+            await _access.ValidarAccesoAsync(User, empresaId.Value);
+
         // Ahora pasa el empresaId al servicio para aislar la data
         var periodos = await _service.GetPeriodosAsync(empresaId);
         return Ok(periodos);
@@ -34,6 +40,8 @@ public class PeriodosContablesController : ControllerBase
             {
                 throw new InvalidOperationException("El cuerpo de la petición no puede estar vacío.");
             }
+
+            await _access.ValidarAccesoAsync(User, periodo.EmpresaId);
 
             PeriodoContable creado;
 

@@ -18,5 +18,14 @@ namespace Tyted.API.Models
         public string Rol { get; set; } = "AdministradorSistema";
         
         public bool Activo { get; set; } = true;
+
+        // --- MULTI-EMPRESA (MULTI-TENANT) ---
+        // Empresa que se carga por defecto al iniciar sesión (debe pertenecer
+        // a EmpresasAsignadas). Nullable por compatibilidad con usuarios previos.
+        public int? EmpresaPredeterminadaId { get; set; }
+
+        // Empresas a las que el usuario tiene acceso (tabla intermedia).
+        // El AdministradorSistema ignora esta lista y ve todas por rol.
+        public ICollection<UsuarioEmpresa>? EmpresasAsignadas { get; set; }
     }
 }

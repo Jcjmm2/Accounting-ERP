@@ -13,10 +13,12 @@ namespace Tyted.API.Controllers.Contabilidad;
 public class ReportesContablesController : ControllerBase
 {
     private readonly ReportesContablesService _service;
+    private readonly EmpresaAccessService _access;
 
-    public ReportesContablesController(ReportesContablesService service)
+    public ReportesContablesController(ReportesContablesService service, EmpresaAccessService access)
     {
         _service = service;
+        _access = access;
     }
 
     [HttpGet("resumen")]
@@ -33,6 +35,10 @@ public class ReportesContablesController : ControllerBase
     {
         try
         {
+            // AISLAMIENTO POR EMPRESA
+            if (empresaId.HasValue)
+                await _access.ValidarAccesoAsync(User, empresaId.Value);
+
             // empresaId (opcional) valida que el periodo pertenezca a la empresa activa
             var data = await _service.GetBalanceComprobacionAsync(periodoId, empresaId);
             return Ok(data);
@@ -55,6 +61,10 @@ public class ReportesContablesController : ControllerBase
     {
         try
         {
+            // AISLAMIENTO POR EMPRESA
+            if (empresaId.HasValue)
+                await _access.ValidarAccesoAsync(User, empresaId.Value);
+
             // empresaId (opcional) valida que el periodo pertenezca a la empresa activa
             var asiento = await _service.GetAsientoTemporalSituacionFinancieraAsync(periodoId, empresaId);
             return Ok(asiento);
@@ -72,6 +82,10 @@ public class ReportesContablesController : ControllerBase
         [FromQuery] DateTime? fechaFin = null,
         [FromQuery] int? empresaId = null)
     {
+        // AISLAMIENTO POR EMPRESA
+        if (empresaId.HasValue)
+            await _access.ValidarAccesoAsync(User, empresaId.Value);
+
         // empresaId (opcional) acota los movimientos a la empresa activa
         var data = await _service.GetLibroMayorAsync(cuentaId, fechaInicio, fechaFin, empresaId);
         return Ok(data);

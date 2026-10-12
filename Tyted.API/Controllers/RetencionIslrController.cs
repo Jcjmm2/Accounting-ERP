@@ -17,10 +17,12 @@ namespace Tyted.API.Controllers;
 public class RetencionIslrController : ControllerBase
 {
     private readonly RetencionIslrService _service;
+    private readonly EmpresaAccessService _access;
 
-    public RetencionIslrController(RetencionIslrService service)
+    public RetencionIslrController(RetencionIslrService service, EmpresaAccessService access)
     {
         _service = service;
+        _access = access;
     }
 
     /// <summary>Retenciones ISLR del periodo/empresa activos (filtros opcionales).</summary>
@@ -30,6 +32,10 @@ public class RetencionIslrController : ControllerBase
         [FromQuery] DateTime? fechaInicio,
         [FromQuery] DateTime? fechaFin)
     {
+        // AISLAMIENTO POR EMPRESA: si se pide una empresa concreta, validar acceso.
+        if (empresaId.HasValue)
+            await _access.ValidarAccesoAsync(User, empresaId.Value);
+
         var lista = await _service.GetListAsync(empresaId, fechaInicio, fechaFin);
         return Ok(lista);
     }
@@ -46,6 +52,8 @@ public class RetencionIslrController : ControllerBase
             return BadRequest(new { message = "La base imponible en Bolívares (baseImponibleBs) debe ser mayor a cero." });
         if (request.PorcentajeRetencion <= 0)
             return BadRequest(new { message = "Indique el porcentaje de retención de ISLR." });
+
+        await _access.ValidarAccesoAsync(User, request.EmpresaId);
 
         try
         {

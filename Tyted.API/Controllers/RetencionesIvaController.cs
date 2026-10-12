@@ -16,10 +16,12 @@ namespace Tyted.API.Controllers;
 public class RetencionesIvaController : ControllerBase
 {
     private readonly RetencionIvaService _service;
+    private readonly EmpresaAccessService _access;
 
-    public RetencionesIvaController(RetencionIvaService service)
+    public RetencionesIvaController(RetencionIvaService service, EmpresaAccessService access)
     {
         _service = service;
+        _access = access;
     }
 
     /// <summary>Retenciones del periodo/empresa activos (filtros opcionales).</summary>
@@ -29,6 +31,10 @@ public class RetencionesIvaController : ControllerBase
         [FromQuery] DateTime? fechaInicio,
         [FromQuery] DateTime? fechaFin)
     {
+        // AISLAMIENTO POR EMPRESA: si se pide una empresa concreta, validar acceso.
+        if (empresaId.HasValue)
+            await _access.ValidarAccesoAsync(User, empresaId.Value);
+
         var lista = await _service.GetListAsync(empresaId, fechaInicio, fechaFin);
         return Ok(lista);
     }
@@ -41,6 +47,8 @@ public class RetencionesIvaController : ControllerBase
             return BadRequest(new { message = "Indique la factura de compra (compraId)." });
         if (request.EmpresaId <= 0)
             return BadRequest(new { message = "Indique la empresa activa (empresaId)." });
+
+        await _access.ValidarAccesoAsync(User, request.EmpresaId);
 
         try
         {

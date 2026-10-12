@@ -77,6 +77,8 @@ builder.Services.AddScoped<MotorAsientosAutomaticos>();
 builder.Services.AddScoped<RetencionIvaService>();
 // Fiscal: retenciones de ISLR emitidas (monto retenido congelado en Bs.)
 builder.Services.AddScoped<RetencionIslrService>();
+// Multi-empresa (multi-tenant): autorización central por empresa (AdministradorSistema ve todas)
+builder.Services.AddScoped<EmpresaAccessService>();
 // Fiscal: gastos declarativos (sin inventario) con contabilización automática
 builder.Services.AddScoped<GastoService>();
 
