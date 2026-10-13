@@ -8,6 +8,7 @@ import {
   exportarLibroXls,
   esColumnaMonto
 } from './reportesLibrosFiscal';
+import { generarComprobanteIVA, generarComprobanteISLR } from './reportesRetenciones';
 
 const fmt = (v) => Number(v ?? 0).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
@@ -71,6 +72,13 @@ export default function RegistroComprasFiscal() {
 
   const [compras, setCompras] = useState([]);
   const [retenciones, setRetenciones] = useState([]);
+  // Retenciones de ISLR emitidas (Decreto 1.808) del periodo/empresa.
+  const [retencionesIslr, setRetencionesIslr] = useState([]);
+  // Conceptos de retención ISLR (catálogo de la empresa) para el modal.
+  const [conceptosIslr, setConceptosIslr] = useState([]);
+  // Modal de emisión de retención ISLR (compra seleccionada + concepto elegido).
+  const [modalIslr, setModalIslr] = useState(null); // { compra, conceptoId }
+  const [emitiendoIslr, setEmitiendoIslr] = useState(false);
   const [cargando, setCargando] = useState(false);
   const [editandoId, setEditandoId] = useState(null);
   const [formFiscal, setFormFiscal] = useState({ tipoTransaccion: '01', numeroControl: '' });
@@ -139,6 +147,14 @@ export default function RegistroComprasFiscal() {
         console.warn('Error cargando retenciones de IVA:', errorRet);
         setRetenciones([]);
       }
+      // Retenciones de ISLR del mismo periodo/empresa (Decreto 1.808).
+      try {
+        const retsIslr = await fiscalApi.getRetencionesIslr({ fechaInicio, fechaFin, empresaId });
+        setRetencionesIslr(Array.isArray(retsIslr) ? retsIslr : (retsIslr?.$values || []));
+      } catch (errorIslr) {
+        console.warn('Error cargando retenciones de ISLR:', errorIslr);
+        setRetencionesIslr([]);
+      }
       // Gastos fiscales del mismo periodo/empresa (pestaña Compras y Gastos)
       try {
         const gas = await fiscalApi.getGastos({ fechaInicio, fechaFin, empresaId });
@@ -159,6 +175,87 @@ export default function RegistroComprasFiscal() {
   // Monto en Bolívares (Bs.) congelado por el backend (montoRetenidoBs).
   const retencionPorCompra = new Map(retenciones.map((r) => [Number(r.compraId), r]));
   const totalRetenido = retenciones.reduce((s, r) => s + Number(r.montoRetenidoBs ?? r.montoRetenido ?? 0), 0);
+
+  // Retención de ISLR vigente por compra (una sola por compra).
+  const retencionIslrPorCompra = new Map(retencionesIslr.map((r) => [Number(r.compraId), r]));
+
+  // Abre el modal de retención ISLR cargando el catálogo de conceptos de la empresa.
+  const abrirModalIslr = async (c) => {
+    if (c.isAnulada || retencionIslrPorCompra.has(Number(c.id))) return;
+    // Carga el catálogo ISLR una sola vez (o si está vacío).
+    if (conceptosIslr.length === 0) {
+      try {
+        const data = await fiscalApi.getConceptos({ empresaId, tipo: 'ISLR' });
+        const lista = Array.isArray(data) ? data : (data?.$values || []);
+        setConceptosIslr(lista);
+        if (lista.length === 0) {
+          alert('⚠️ No hay conceptos ISLR para esta empresa.\n\nVaya a 🧮 Conceptos → pestaña 📑 Retenciones ISLR y pulse «📚 Precargar catálogo ISLR».');
+          return;
+        }
+      } catch (error) {
+        console.error('Error cargando conceptos ISLR:', error);
+        alert(`❌ No se pudieron cargar los conceptos ISLR:\n${mensajeErrorApi(error)}`);
+        return;
+      }
+    }
+    setModalIslr({ compra: c, conceptoId: '' });
+  };
+
+  // Emite la retención ISLR con el concepto elegido. El backend calcula
+  // (Base × %) − Sustraendo y congela el monto en Bs. (inmutabilidad fiscal).
+  const emitirRetencionIslr = async () => {
+    if (!modalIslr?.compra || !modalIslr?.conceptoId) return;
+    const c = modalIslr.compra;
+    const concepto = conceptosIslr.find((x) => Number(x.id) === Number(modalIslr.conceptoId));
+    if (!concepto) return;
+
+    // Base imponible en Bs. (MonedaExt congelado) de la compra.
+    const d = desgloseCompra(c);
+    const baseBs = Number(c?.subtotalMonedaExt ?? 0) || d.base;
+    if (!(baseBs > 0)) {
+      alert('⚠️ La compra no tiene base imponible en Bolívares (Bs.) para retener ISLR.');
+      return;
+    }
+
+    const pct = Number(concepto.porcentajeRetencion ?? 0);
+    const sustraendo = concepto.aplicaSustraendo ? Number(concepto.montoSustraendoBs ?? 0) : 0;
+    const bruto = baseBs * pct / 100;
+    const neto = Math.max(0, bruto - sustraendo);
+
+    const ok = window.confirm(
+      `Emitir retención de ISLR (Decreto 1.808) sobre la factura ${c.numeroFactura || '(s/n)'}?\n\n` +
+      `Concepto: ${concepto.nombreConcepto} (Cód. ${concepto.codigoSeniat})\n` +
+      `Base imponible (Bs.): ${fmt(baseBs)}\n` +
+      `Tarifa: ${pct}%\n` +
+      `Sustraendo (Bs.): ${fmt(sustraendo)}\n` +
+      `Monto a retener (Bs.): ${fmt(neto)}\n\n` +
+      'El monto se congelará en Bolívares al momento de emitir.'
+    );
+    if (!ok) return;
+
+    setEmitiendoIslr(true);
+    try {
+      const r = await fiscalApi.emitirRetencionIslr({
+        compraId: c.id,
+        empresaId,
+        conceptoOperacionalId: Number(concepto.id),
+        baseImponibleBs: baseBs,
+        porcentajeRetencion: pct,
+        tasaDeCambio: Number(tasa) || 1
+      });
+      alert(
+        `✅ Comprobante de retención ISLR ${r.numeroComprobante} emitido.\n` +
+        `Base (Bs.): ${fmt(r.baseImponibleBs)} · Retenido (${r.porcentajeRetencion}%): ${fmt(r.montoRetenidoBs)} Bs.`
+      );
+      setModalIslr(null);
+      await cargarCompras();
+    } catch (error) {
+      console.error('Error emitiendo retención ISLR:', error);
+      alert(`❌ No se pudo emitir la retención ISLR:\n${mensajeErrorApi(error)}`);
+    } finally {
+      setEmitiendoIslr(false);
+    }
+  };
 
   // NOTA: el libro ya NO se carga automáticamente al entrar ni al cambiar de
   // contexto; se consulta bajo demanda (botón «🔍 Consultas y edición» o
@@ -929,8 +1026,40 @@ export default function RegistroComprasFiscal() {
                                   opacity: (c.isAnulada || retencionPorCompra.has(Number(c.id))) ? 0.6 : 1
                                 }}
                               >
-                                {retencionPorCompra.has(Number(c.id)) ? '✅' : '🧮'}
+                                {retencionPorCompra.has(Number(c.id)) ? '🖨️' : '🧮'}
                               </button>
+                              {/* Retención de ISLR (Decreto 1.808): emisión o impresión */}
+                              <button
+                                onClick={() => retencionIslrPorCompra.has(Number(c.id))
+                                  ? generarComprobanteISLR(retencionIslrPorCompra.get(Number(c.id)), c, empresaActiva)
+                                  : abrirModalIslr(c)}
+                                disabled={c.isAnulada}
+                                title={retencionIslrPorCompra.has(Number(c.id))
+                                  ? 'Imprimir comprobante de retención de ISLR (Decreto 1.808)'
+                                  : 'Emitir comprobante de retención de ISLR (Decreto 1.808)'}
+                                style={{
+                                  background: retencionIslrPorCompra.has(Number(c.id)) ? '#16a34a' : '#2563eb',
+                                  color: '#fff', border: 'none', borderRadius: '5px', padding: '5px 9px',
+                                  cursor: c.isAnulada ? 'not-allowed' : 'pointer',
+                                  marginLeft: '6px',
+                                  opacity: c.isAnulada ? 0.6 : 1
+                                }}
+                              >
+                                {retencionIslrPorCompra.has(Number(c.id)) ? '🖨️ ISLR' : '📑 ISLR'}
+                              </button>
+                              {/* Si ya hay retención de IVA emitida, botón de impresión */}
+                              {retencionPorCompra.has(Number(c.id)) && (
+                                <button
+                                  onClick={() => generarComprobanteIVA(retencionPorCompra.get(Number(c.id)), c, empresaActiva, periodoActivo)}
+                                  title="Imprimir comprobante de retención de IVA"
+                                  style={{
+                                    background: '#16a34a', color: '#fff', border: 'none', borderRadius: '5px',
+                                    padding: '5px 9px', cursor: 'pointer', marginLeft: '6px'
+                                  }}
+                                >
+                                  🖨️
+                                </button>
+                              )}
                             </>
                           )}
                         </td>
@@ -1070,6 +1199,70 @@ export default function RegistroComprasFiscal() {
             </>
           )}
         </>
+      )}
+
+      {/* --- MODAL DE EMISIÓN DE RETENCIÓN DE ISLR (Decreto 1.808) --- */}
+      {modalIslr && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}>
+          <div style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '24px', width: '560px', maxHeight: '90vh', overflowY: 'auto' }}>
+            <h3 style={{ margin: '0 0 4px 0', color: '#60a5fa', fontSize: '1.1rem' }}>📑 Retención de ISLR (Decreto 1.808)</h3>
+            <p style={{ color: '#94a3b8', fontSize: '0.82rem', margin: '0 0 16px 0' }}>
+              Factura <b>{modalIslr.compra.numeroFactura || '(s/n)'}</b> · Proveedor <b>{modalIslr.compra.proveedor?.razonsocial || '—'}</b>
+              ({modalIslr.compra.proveedor?.rif || 'S/RIF'})
+            </p>
+
+            <label style={{ fontSize: '0.78rem', color: '#93c5fd', fontWeight: 'bold' }}>Concepto de retención (catálogo Decreto 1.808):</label>
+            <select
+              value={modalIslr.conceptoId}
+              onChange={(e) => setModalIslr({ ...modalIslr, conceptoId: e.target.value })}
+              style={{ background: '#0f172a', color: '#fff', border: '1px solid #475569', borderRadius: '6px', padding: '9px 10px', width: '100%', marginTop: '6px' }}
+            >
+              <option value="">Seleccione el concepto…</option>
+              {conceptosIslr.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.codigoSeniat} — {c.nombreConcepto} ({c.tipoPersona} {c.porcentajeRetencion}%)
+                </option>
+              ))}
+            </select>
+
+            {/* Vista previa del cálculo con el concepto elegido */}
+            {modalIslr.conceptoId && (() => {
+              const concepto = conceptosIslr.find((x) => Number(x.id) === Number(modalIslr.conceptoId));
+              if (!concepto) return null;
+              const d = desgloseCompra(modalIslr.compra);
+              const baseBs = Number(modalIslr.compra?.subtotalMonedaExt ?? 0) || d.base;
+              const pct = Number(concepto.porcentajeRetencion ?? 0);
+              const sustraendo = concepto.aplicaSustraendo ? Number(concepto.montoSustraendoBs ?? 0) : 0;
+              const neto = Math.max(0, baseBs * pct / 100 - sustraendo);
+              return (
+                <div style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: '8px', padding: '14px', marginTop: '16px', fontSize: '0.85rem', lineHeight: '1.8' }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: '#94a3b8' }}>Base imponible (Bs.)</span><b>{fmt(baseBs)}</b></div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: '#94a3b8' }}>Tarifa</span><b>{pct}%</b></div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between' }}><span style={{ color: '#94a3b8' }}>Sustraendo (Bs.)</span><b style={{ color: sustraendo > 0 ? '#34d399' : '#64748b' }}>{fmt(sustraendo)}</b></div>
+                  <div style={{ borderTop: '1px solid #334155', marginTop: '8px', paddingTop: '8px', display: 'flex', justifyContent: 'space-between' }}>
+                    <span style={{ color: '#94a3b8', fontWeight: 'bold' }}>Monto a retener (Bs.)</span>
+                    <b style={{ color: '#fbbf24', fontSize: '1rem' }}>{fmt(neto)}</b>
+                  </div>
+                </div>
+              );
+            })()}
+
+            <div style={{ display: 'flex', gap: '10px', marginTop: '20px', justifyContent: 'flex-end' }}>
+              <button onClick={() => setModalIslr(null)} style={{ background: '#475569', color: '#fff', border: 'none', borderRadius: '8px', padding: '9px 16px', cursor: 'pointer', fontWeight: 'bold' }}>Cancelar</button>
+              <button
+                onClick={emitirRetencionIslr}
+                disabled={!modalIslr.conceptoId || emitiendoIslr}
+                style={{
+                  background: '#1d4ed8', color: '#fff', border: 'none', borderRadius: '8px', padding: '9px 18px',
+                  cursor: !modalIslr.conceptoId || emitiendoIslr ? 'not-allowed' : 'pointer',
+                  fontWeight: 'bold', opacity: !modalIslr.conceptoId || emitiendoIslr ? 0.6 : 1
+                }}
+              >
+                {emitiendoIslr ? '⏳ Emitiendo…' : '📑 Emitir retención ISLR'}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

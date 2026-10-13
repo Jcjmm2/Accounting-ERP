@@ -97,6 +97,33 @@ export const fiscalApi = {
   },
 
   // -------------------------------------------------------------------------
+  // RETENCIONES DE ISLR EMITIDAS (Decreto 1.808)
+  // -------------------------------------------------------------------------
+  getRetencionesIslr: async ({ fechaInicio, fechaFin, empresaId } = {}) => {
+    const params = {};
+    if (fechaInicio) params.fechaInicio = fechaInicio;
+    if (fechaFin) params.fechaFin = fechaFin;
+    if (empresaId) params.empresaId = empresaId;
+    const response = await api.get('/retenciones-islr', { params });
+    return response.data;
+  },
+
+  // Emite la retención de ISLR sobre una compra. El concepto aporta el % y el
+  // sustraendo; el backend congela el monto en Bs. (inmutabilidad fiscal).
+  emitirRetencionIslr: async ({ compraId, empresaId, conceptoOperacionalId, baseImponibleBs, porcentajeRetencion, tasaDeCambio }) => {
+    const response = await api.post('/retenciones-islr', {
+      compraId, empresaId, conceptoOperacionalId, baseImponibleBs, porcentajeRetencion, tasaDeCambio
+    });
+    return response.data;
+  },
+
+  // Semilla del catálogo ISLR (Decreto 1.808) para una empresa. Idempotente.
+  seedCatalogoIslr: async (empresaId) => {
+    const response = await api.post(`/conceptos-operacionales/seed-islr?empresaId=${empresaId}`);
+    return response.data;
+  },
+
+  // -------------------------------------------------------------------------
   // ALTA DE DOCUMENTOS DESDE EL MÓDULO FISCAL (Origen='Fiscal'): SIN caja,
   // SIN stock y SIN kardex — no afectan el POS ni la gestión de inventario.
   // -------------------------------------------------------------------------

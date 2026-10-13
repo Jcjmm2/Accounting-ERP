@@ -25,12 +25,43 @@ namespace Tyted.API.Models
         [Required, StringLength(150)]
         public string NombreConcepto { get; set; } = string.Empty; // Ej: "Uniformes"
 
-        /// <summary>OPERACIÓN a la que aplica: COMPRA | VENTA | GASTO.</summary>
+        /// <summary>OPERACIÓN a la que aplica: COMPRA | VENTA | GASTO | ISLR | SISTEMA.</summary>
         [Required, StringLength(10)]
         public string TipoOperacion { get; set; } = "GASTO";
 
         /// <summary>Código de la cuenta del plan (ej. "5.1.1.1.14"); se valida contra el plan al contabilizar.</summary>
         [Required, StringLength(30)]
         public string CuentaContable { get; set; } = string.Empty;
+
+        // ------------------------------------------------------------------
+        // ATRIBUTOS FISCALES (ISLR — Decreto 1.808). Sólo se usan cuando
+        // TipoOperacion == "ISLR"; en los demás tipos permanecen en NULL/false.
+        // La CuentaContable del concepto ISLR es el PASIVO "ISLR retenido por
+        // pagar" que el motor de asientos usa en el Haber.
+        // ------------------------------------------------------------------
+
+        /// <summary>Código de operación SENIAT de 3 dígitos (ej. "002", "055").</summary>
+        [StringLength(3)]
+        public string? CodigoSeniat { get; set; }
+
+        /// <summary>Tipo de entidad del proveedor: PNR | PJND | PJD.</summary>
+        [StringLength(4)]
+        public string? TipoPersona { get; set; }
+
+        /// <summary>Tarifa de retención del Decreto 1.808 en porcentaje (ej. 3 = 3%).</summary>
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal? PorcentajeRetencion { get; set; }
+
+        /// <summary>True si el concepto permite descontar el sustraendo (sólo PNR).</summary>
+        public bool AplicaSustraendo { get; set; }
+
+        /// <summary>
+        /// Sustraendo en Bolívares (Bs.) precalculado con la Unidad Tributaria
+        /// vigente. Se almacena congelado (auditable) y sólo se resta al IMPRIMIR
+        /// el comprobante; el archivo XML de declaración lleva la base imponible
+        /// entera y el portal aplica el sustraendo.
+        /// </summary>
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal? MontoSustraendoBs { get; set; }
     }
 }

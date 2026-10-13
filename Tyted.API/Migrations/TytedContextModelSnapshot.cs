@@ -424,6 +424,13 @@ namespace Tyted.API.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<bool>("AplicaSustraendo")
+                        .HasColumnType("bit");
+
+                    b.Property<string>("CodigoSeniat")
+                        .HasMaxLength(3)
+                        .HasColumnType("nvarchar(3)");
+
                     b.Property<string>("CuentaContable")
                         .IsRequired()
                         .HasMaxLength(30)
@@ -432,15 +439,25 @@ namespace Tyted.API.Migrations
                     b.Property<int>("EmpresaId")
                         .HasColumnType("int");
 
+                    b.Property<decimal?>("MontoSustraendoBs")
+                        .HasColumnType("decimal(18, 4)");
+
                     b.Property<string>("NombreConcepto")
                         .IsRequired()
                         .HasMaxLength(150)
                         .HasColumnType("nvarchar(150)");
 
+                    b.Property<decimal?>("PorcentajeRetencion")
+                        .HasColumnType("decimal(18, 4)");
+
                     b.Property<string>("TipoOperacion")
                         .IsRequired()
                         .HasMaxLength(10)
                         .HasColumnType("nvarchar(10)");
+
+                    b.Property<string>("TipoPersona")
+                        .HasMaxLength(4)
+                        .HasColumnType("nvarchar(4)");
 
                     b.HasKey("Id");
 
@@ -603,6 +620,9 @@ namespace Tyted.API.Migrations
                         .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
+
+                    b.Property<decimal>("TasaRetencionIvaDefecto")
+                        .HasColumnType("decimal(18, 4)");
 
                     b.Property<string>("Telefono")
                         .HasMaxLength(100)
@@ -1221,7 +1241,14 @@ namespace Tyted.API.Migrations
                     b.Property<decimal>("BaseImponibleBs")
                         .HasColumnType("decimal(18, 4)");
 
+                    b.Property<string>("CodigoConcepto")
+                        .HasMaxLength(3)
+                        .HasColumnType("nvarchar(3)");
+
                     b.Property<int?>("CompraId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("ConceptoOperacionalId")
                         .HasColumnType("int");
 
                     b.Property<int>("EmpresaId")
@@ -1265,12 +1292,17 @@ namespace Tyted.API.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)");
 
+                    b.Property<decimal>("SustraendoBs")
+                        .HasColumnType("decimal(18, 4)");
+
                     b.Property<decimal>("TasaDeCambio")
                         .HasColumnType("decimal(18, 4)");
 
                     b.HasKey("Id");
 
                     b.HasIndex("CompraId");
+
+                    b.HasIndex("ConceptoOperacionalId");
 
                     b.ToTable("RetencionesIslrEmitidas");
                 });
@@ -1919,7 +1951,13 @@ namespace Tyted.API.Migrations
                         .WithMany()
                         .HasForeignKey("CompraId");
 
+                    b.HasOne("Tyted.API.Models.ConceptoOperacional", "ConceptoOperacional")
+                        .WithMany()
+                        .HasForeignKey("ConceptoOperacionalId");
+
                     b.Navigation("Compra");
+
+                    b.Navigation("ConceptoOperacional");
                 });
 
             modelBuilder.Entity("Tyted.API.Models.RetencionIvaEmitida", b =>

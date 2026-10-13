@@ -20,6 +20,9 @@ public class MappingContable
     public string Compras { get; set; } = "5.1.1";
     public string Gastos { get; set; } = "5.1.2";
     public string Proveedores { get; set; } = "2.1.1.01";
+    /// <summary>Pasivo "ISLR retenido por pagar": cuenta por defecto que se asigna
+    /// a los conceptos ISLR al sembrar el catálogo del Decreto 1.808.</summary>
+    public string IslrRetenidoPorPagar { get; set; } = "2.1.1.02";
 }
 
 /// <summary>Respuesta del motor de asientos automáticos.</summary>

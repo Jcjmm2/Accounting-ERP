@@ -20,11 +20,13 @@ namespace Tyted.API.Controllers
     {
         private readonly TytedContext _context;
         private readonly EmpresaAccessService _access;
+        private readonly IConfiguration _config;
 
-        public ConceptosOperacionalesController(TytedContext context, EmpresaAccessService access)
+        public ConceptosOperacionalesController(TytedContext context, EmpresaAccessService access, IConfiguration config)
         {
             _context = context;
             _access = access;
+            _config = config;
         }
 
         // GET: api/conceptos-operacionales?empresaId=1&tipo=GASTO
@@ -135,6 +137,65 @@ namespace Tyted.API.Controllers
             _context.ConceptosOperacionales.Remove(concepto);
             await _context.SaveChangesAsync();
             return NoContent();
+        }
+
+        // -------------------------------------------------------------------------
+        // SEMILLA DEL CATÁLOGO DE RETENCIONES ISLR (DECRETO 1.808)
+        // POST: api/conceptos-operacionales/seed-islr?empresaId=1
+        // Precarga el catálogo completo de conceptos de retención de ISLR de la
+        // empresa (códigos SENIAT, tarifas PNR/PNNR/PJD y sustraendo para personas
+        // naturales residentes). Idempotente: sólo inserta los que falten. La cuenta
+        // por defecto es el pasivo "ISLR retenido por pagar" del mapping; el
+        // administrador puede reasignarla desde el panel.
+        // -------------------------------------------------------------------------
+        [HttpPost("seed-islr")]
+        [Authorize(Roles = "AdministradorSistema,Administrador")]
+        public async Task<IActionResult> SeedIslr([FromQuery] int empresaId)
+        {
+            if (empresaId <= 0)
+                return BadRequest(new { message = "Indique la empresa (empresaId)." });
+
+            await _access.ValidarAccesoAsync(User, empresaId);
+
+            var cuentaDefault = _config["Contabilidad:Mapping:IslrRetenidoPorPagar"] ?? "2.1.1.02";
+
+            var existentes = await _context.ConceptosOperacionales
+                .AsNoTracking()
+                .Where(c => c.EmpresaId == empresaId && c.TipoOperacion == "ISLR")
+                .Select(c => c.CodigoSeniat)
+                .ToListAsync();
+
+            var creados = 0;
+            foreach (var fila in CatalogoIslr.Completar)
+            {
+                if (existentes.Contains(fila.Codigo)) continue;
+
+                _context.ConceptosOperacionales.Add(new ConceptoOperacional
+                {
+                    EmpresaId = empresaId,
+                    NombreConcepto = $"{fila.Nombre} ({fila.TipoPersona})",
+                    TipoOperacion = "ISLR",
+                    CuentaContable = cuentaDefault,
+                    CodigoSeniat = fila.Codigo,
+                    TipoPersona = fila.TipoPersona,
+                    PorcentajeRetencion = fila.Porcentaje,
+                    AplicaSustraendo = fila.AplicaSustraendo,
+                    MontoSustraendoBs = fila.AplicaSustraendo
+                        ? CatalogoIslr.CalcularSustraendo(fila.Porcentaje)
+                        : null
+                });
+                creados++;
+            }
+
+            await _context.SaveChangesAsync();
+            return Ok(new
+            {
+                mensaje = $"Catálogo ISLR precargado: {creados} conceptos nuevos de {CatalogoIslr.Completar.Length}.",
+                creados,
+                totalCatalogo = CatalogoIslr.Completar.Length,
+                cuentaDefault,
+                unidadTributaria = CatalogoIslr.UnidadTributaria
+            });
         }
     }
 }

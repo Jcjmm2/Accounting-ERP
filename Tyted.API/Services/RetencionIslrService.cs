@@ -52,6 +52,7 @@ public class RetencionIslrService
         decimal porcentaje,
         decimal tasaDeCambio,
         int? compraId = null,
+        int? conceptoOperacionalId = null,
         string? proveedorRif = null,
         string? proveedorNombre = null,
         string? numeroFactura = null,
@@ -80,14 +81,36 @@ public class RetencionIslrService
                 throw new InvalidOperationException("No se emiten retenciones de ISLR sobre compras anuladas.");
         }
 
-        // Monto retenido en Bs.: redondeo comercial AwayFromZero a 2 decimales.
-        var montoRetenidoBs = Math.Round(baseImponible * porcentaje / 100m, 2, MidpointRounding.AwayFromZero);
+        // Concepto del Decreto 1.808 (si se emitió desde el catálogo).
+        ConceptoOperacional? concepto = null;
+        if (conceptoOperacionalId.HasValue)
+        {
+            concepto = await _context.ConceptosOperacionales
+                .AsNoTracking()
+                .FirstOrDefaultAsync(c => c.Id == conceptoOperacionalId.Value && c.EmpresaId == empresaId);
+            if (concepto is null)
+                throw new InvalidOperationException("El concepto de retención de ISLR no existe o no pertenece a la empresa.");
+        }
+
+        // Decreto 1.808: Monto a retener = (Base Imponible × %) − Sustraendo.
+        // El sustraendo sólo aplica a personas naturales residentes (conceptos
+        // con AplicaSustraendo). Se usa el sustraendo precalculado del concepto.
+        var sustraendo = (concepto?.AplicaSustraendo == true)
+            ? (concepto.MontoSustraendoBs ?? 0m)
+            : 0m;
+
+        // Redondeo comercial AwayFromZero a 2 decimales; tope en 0 (no hay retención negativa).
+        var bruto = baseImponible * porcentaje / 100m;
+        var montoRetenidoBs = Math.Max(0m, Math.Round(bruto - sustraendo, 2, MidpointRounding.AwayFromZero));
 
         var fecha = DateTime.Now;
         var retencion = new RetencionIslrEmitida
         {
             EmpresaId = empresaId,
             CompraId = compraId,
+            ConceptoOperacionalId = conceptoOperacionalId,
+            CodigoConcepto = concepto?.CodigoSeniat,
+            SustraendoBs = sustraendo,
             FechaRetencion = fecha,
             NumeroComprobante = await GenerarNumeroComprobanteAsync(empresaId, fecha),
             ProveedorRif = proveedorRif ?? compra?.Proveedor?.RIF ?? string.Empty,

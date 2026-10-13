@@ -46,6 +46,24 @@ namespace Tyted.API.Models
         [Column(TypeName = "decimal(18,4)")]
         public decimal BaseImponibleBs { get; set; }
 
+        /// <summary>Concepto de retención del Decreto 1.808 usado (si se emitió desde un concepto).</summary>
+        public int? ConceptoOperacionalId { get; set; }
+
+        [ForeignKey(nameof(ConceptoOperacionalId))]
+        public ConceptoOperacional? ConceptoOperacional { get; set; }
+
+        /// <summary>Código de operación SENIAT congelado (ej. "002").</summary>
+        [StringLength(3)]
+        public string? CodigoConcepto { get; set; }
+
+        /// <summary>
+        /// Sustraendo en Bs. descontado al calcular el monto retenido (sólo PNR).
+        /// Se congela aquí; el archivo XML lleva la base imponible entera y el
+        /// portal del SENIAT aplica el sustraendo automáticamente.
+        /// </summary>
+        [Column(TypeName = "decimal(18,4)")]
+        public decimal SustraendoBs { get; set; }
+
         /// <summary>Porcentaje de retención de ISLR aplicado (ej: 2, 3, 4, 6, 34...).</summary>
         [Column(TypeName = "decimal(6,4)")]
         public decimal PorcentajeRetencion { get; set; }

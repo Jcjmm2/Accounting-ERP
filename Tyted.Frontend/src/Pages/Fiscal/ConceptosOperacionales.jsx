@@ -18,6 +18,7 @@ const TIPOS_OPERACION = [
   { valor: 'VENTA', etiqueta: '💰 Ingresos (VENTA)', color: '#34d399' },
   { valor: 'GASTO', etiqueta: '💸 Gastos (GASTO)', color: '#fbbf24' },
   { valor: 'COMPRA', etiqueta: '🛒 Compras (COMPRA)', color: '#60a5fa' },
+  { valor: 'ISLR', etiqueta: '📑 Retenciones ISLR', color: '#3b82f6' },
   { valor: 'SISTEMA', etiqueta: '⚙️ Cuentas Base (SISTEMA)', color: '#a855f7' }
 ];
 
@@ -63,9 +64,13 @@ export default function ConceptosOperacionales() {
   const [guardando, setGuardando] = useState(false);
   const [busquedaCuenta, setBusquedaCuenta] = useState('');
 
-  // Formulario crear/editar (editandoId null = alta)
+  // Formulario crear/editar (editandoId null = alta). Los campos fiscales ISLR
+  // sólo se usan cuando tipoOperacion === 'ISLR'.
   const [editandoId, setEditandoId] = useState(null);
-  const [form, setForm] = useState({ nombreConcepto: '', tipoOperacion: 'VENTA', cuentaContable: '' });
+  const [form, setForm] = useState({
+    nombreConcepto: '', tipoOperacion: 'VENTA', cuentaContable: '',
+    codigoSeniat: '', tipoPersona: 'PNR', porcentajeRetencion: '', aplicaSustraendo: false
+  });
 
   const cargarConceptos = useCallback(async (tipo) => {
     if (!empresaId || !tipo) { setConceptos([]); return; }
@@ -135,7 +140,10 @@ export default function ConceptosOperacionales() {
 
   const abrirAlta = () => {
     setEditandoId(null);
-    setForm({ nombreConcepto: '', tipoOperacion: tipoActivo, cuentaContable: '' });
+    setForm({
+      nombreConcepto: '', tipoOperacion: tipoActivo, cuentaContable: '',
+      codigoSeniat: '', tipoPersona: 'PNR', porcentajeRetencion: '', aplicaSustraendo: false
+    });
     setBusquedaCuenta('');
   };
 
@@ -145,7 +153,11 @@ export default function ConceptosOperacionales() {
     setForm({
       nombreConcepto: concepto.nombreConcepto || '',
       tipoOperacion: concepto.tipoOperacion || tipoActivo,
-      cuentaContable: cuenta
+      cuentaContable: cuenta,
+      codigoSeniat: concepto.codigoSeniat || '',
+      tipoPersona: concepto.tipoPersona || 'PNR',
+      porcentajeRetencion: concepto.porcentajeRetencion ?? '',
+      aplicaSustraendo: Boolean(concepto.aplicaSustraendo)
     });
     // NO se pre-llena la búsqueda con el código guardado: si ese código no
     // existe en el plan (claves sembradas p. ej. CXC_CLIENTES = 1.1.3.01 o
@@ -158,8 +170,35 @@ export default function ConceptosOperacionales() {
 
   const cancelar = () => {
     setEditandoId(null);
-    setForm({ nombreConcepto: '', tipoOperacion: tipoActivo, cuentaContable: '' });
+    setForm({
+      nombreConcepto: '', tipoOperacion: tipoActivo, cuentaContable: '',
+      codigoSeniat: '', tipoPersona: 'PNR', porcentajeRetencion: '', aplicaSustraendo: false
+    });
     setBusquedaCuenta('');
+  };
+
+  // Semilla del catálogo ISLR (Decreto 1.808) para la empresa activa.
+  const [sembrando, setSembrando] = useState(false);
+  const sembrarCatalogoIslr = async () => {
+    if (!empresaId) return;
+    const ok = window.confirm(
+      'Precargar el catálogo de retenciones de ISLR (Decreto 1.808) para esta empresa.\n\n' +
+      'Se añadirán los conceptos que falten (códigos SENIAT, tarifas PNR/PNNR/PJD y sustraendo). ' +
+      'Los existentes no se duplican. ¿Continuar?'
+    );
+    if (!ok) return;
+    setSembrando(true);
+    try {
+      const r = await fiscalApi.seedCatalogoIslr(empresaId);
+      alert(`✅ ${r.mensaje}\nCuenta por defecto: ${r.cuentaDefault} (puede reasignarla).\nU.T. = Bs. ${r.unidadTributaria}`);
+      setTipoActivo('ISLR');
+      await cargarConceptos('ISLR');
+    } catch (error) {
+      console.error('Error sembrando catálogo ISLR:', error);
+      alert(`❌ No se pudo precargar el catálogo:\n${mensajeErrorApi(error)}`);
+    } finally {
+      setSembrando(false);
+    }
   };
 
   const guardar = async () => {
@@ -183,27 +222,35 @@ export default function ConceptosOperacionales() {
       return;
     }
 
+    // Validación específica para conceptos ISLR (Decreto 1.808).
+    if (form.tipoOperacion === 'ISLR') {
+      if (!form.codigoSeniat?.trim()) { alert('⚠️ Indique el Código SENIAT de 3 dígitos (ej. 002).'); return; }
+      if (!(Number(form.porcentajeRetencion) > 0)) { alert('⚠️ Indique el porcentaje de retención del Decreto 1.808.'); return; }
+    }
+
     const confirmado = window.confirm(
       `${editandoId ? 'Actualizar' : 'Crear'} el concepto «${nombre}» (${form.tipoOperacion}) con la cuenta ${cuenta}?\n\n` +
       'Esta cuenta será la que use el motor de asientos automáticos al contabilizar.'
     );
     if (!confirmado) return;
 
+    // Payload con los atributos fiscales ISLR (sólo cuando aplica).
+    const payloadBase = {
+      nombreConcepto: nombre,
+      tipoOperacion: form.tipoOperacion,
+      cuentaContable: cuenta,
+      codigoSeniat: form.tipoOperacion === 'ISLR' ? form.codigoSeniat?.trim() : null,
+      tipoPersona: form.tipoOperacion === 'ISLR' ? form.tipoPersona : null,
+      porcentajeRetencion: form.tipoOperacion === 'ISLR' ? Number(form.porcentajeRetencion) : null,
+      aplicaSustraendo: form.tipoOperacion === 'ISLR' ? Boolean(form.aplicaSustraendo) : false
+    };
+
     setGuardando(true);
     try {
       if (editandoId) {
-        await fiscalApi.actualizarConcepto(editandoId, {
-          nombreConcepto: nombre,
-          tipoOperacion: form.tipoOperacion,
-          cuentaContable: cuenta
-        });
+        await fiscalApi.actualizarConcepto(editandoId, payloadBase);
       } else {
-        await fiscalApi.crearConcepto({
-          empresaId,
-          nombreConcepto: nombre,
-          tipoOperacion: form.tipoOperacion,
-          cuentaContable: cuenta
-        });
+        await fiscalApi.crearConcepto({ empresaId, ...payloadBase });
       }
       alert('✅ Concepto guardado.');
       cancelar();
@@ -249,18 +296,34 @@ export default function ConceptosOperacionales() {
             {' · '}Asignación de cuentas contables para los asientos automáticos del módulo fiscal
           </span>
         </div>
-        <button
-          onClick={abrirAlta}
-          disabled={!hayContexto}
-          style={{
-            background: '#059669', color: '#fff', border: 'none', borderRadius: '8px',
-            padding: '10px 16px', cursor: hayContexto ? 'pointer' : 'not-allowed',
-            fontWeight: 'bold', opacity: hayContexto ? 1 : 0.5
-          }}
-          title="Crear un concepto nuevo para el tipo seleccionado"
-        >
-          ➕ Nuevo concepto
-        </button>
+        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          {tipoActivo === 'ISLR' && (
+            <button
+              onClick={sembrarCatalogoIslr}
+              disabled={!hayContexto || sembrando}
+              style={{
+                background: '#1d4ed8', color: '#fff', border: 'none', borderRadius: '8px',
+                padding: '10px 14px', cursor: hayContexto && !sembrando ? 'pointer' : 'not-allowed',
+                fontWeight: 'bold', opacity: hayContexto && !sembrando ? 1 : 0.5
+              }}
+              title="Precarga el catálogo completo del Decreto 1.808 (códigos SENIAT, tarifas y sustraendo)"
+            >
+              {sembrando ? '⏳ Precargando…' : '📚 Precargar catálogo ISLR'}
+            </button>
+          )}
+          <button
+            onClick={abrirAlta}
+            disabled={!hayContexto}
+            style={{
+              background: '#059669', color: '#fff', border: 'none', borderRadius: '8px',
+              padding: '10px 16px', cursor: hayContexto ? 'pointer' : 'not-allowed',
+              fontWeight: 'bold', opacity: hayContexto ? 1 : 0.5
+            }}
+            title="Crear un concepto nuevo para el tipo seleccionado"
+          >
+            ➕ Nuevo concepto
+          </button>
+        </div>
       </div>
 
       {/* Nota metodológica */}
@@ -388,6 +451,61 @@ export default function ConceptosOperacionales() {
                     {TIPOS_OPERACION.map((t) => <option key={t.valor} value={t.valor}>{t.etiqueta}</option>)}
                   </select>
                 </div>
+
+                {/* --- CAMPOS FISCALES ISLR (Decreto 1.808) --- */}
+                {form.tipoOperacion === 'ISLR' && (
+                  <>
+                    <div>
+                      <label style={{ fontSize: '0.75rem', color: '#93c5fd' }}>Cód. SENIAT (3 dígitos)</label>
+                      <input
+                        type="text"
+                        maxLength={3}
+                        value={form.codigoSeniat}
+                        onChange={(e) => setForm({ ...form, codigoSeniat: e.target.value })}
+                        placeholder="Ej: 002"
+                        style={{ ...inputChico, width: '100%' }}
+                      />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.75rem', color: '#93c5fd' }}>Tipo de persona</label>
+                      <select
+                        value={form.tipoPersona}
+                        onChange={(e) => setForm({ ...form, tipoPersona: e.target.value })}
+                        style={{ ...inputChico, width: '100%' }}
+                      >
+                        <option value="PNR">PNR — Persona Natural Residente</option>
+                        <option value="PNNR">PNNR — Persona Natural No Residente</option>
+                        <option value="PJD">PJD — Persona Jurídica Domiciliada</option>
+                        <option value="PJND">PJND — Persona Jurídica No Domiciliada</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.75rem', color: '#93c5fd' }}>Tarifa % (Decreto 1.808)</label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        max="100"
+                        value={form.porcentajeRetencion}
+                        onChange={(e) => setForm({ ...form, porcentajeRetencion: e.target.value })}
+                        placeholder="Ej: 3"
+                        style={{ ...inputChico, width: '100%' }}
+                      />
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'flex-end', paddingBottom: '8px' }}>
+                      <label style={{ fontSize: '0.82rem', color: '#e2e8f0', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={form.aplicaSustraendo}
+                          onChange={(e) => setForm({ ...form, aplicaSustraendo: e.target.checked })}
+                          disabled={form.tipoPersona !== 'PNR'}
+                        />
+                        Aplica Sustraendo
+                      </label>
+                    </div>
+                  </>
+                )}
+
                 <div>
                   <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Cuenta contable (sólo de movimiento)</label>
                   <select
@@ -495,6 +613,9 @@ export default function ConceptosOperacionales() {
                 <thead>
                   <tr style={{ background: '#1e293b', color: '#93c5fd' }}>
                     <th style={{ padding: '10px 8px', textAlign: 'left', fontWeight: 'bold' }}>Concepto</th>
+                    {tipoActivo === 'ISLR' && <th style={{ padding: '10px 8px', textAlign: 'center', fontWeight: 'bold' }}>Cód. SENIAT</th>}
+                    {tipoActivo === 'ISLR' && <th style={{ padding: '10px 8px', textAlign: 'center', fontWeight: 'bold' }}>Persona / Tarifa</th>}
+                    {tipoActivo === 'ISLR' && <th style={{ padding: '10px 8px', textAlign: 'center', fontWeight: 'bold' }}>Sustraendo (Bs.)</th>}
                     <th style={{ padding: '10px 8px', textAlign: 'left', fontWeight: 'bold' }}>Tipo</th>
                     <th style={{ padding: '10px 8px', textAlign: 'left', fontWeight: 'bold' }}>Cuenta contable</th>
                     <th style={{ padding: '10px 8px', textAlign: 'left', fontWeight: 'bold' }}>Nombre de la cuenta</th>
@@ -510,6 +631,25 @@ export default function ConceptosOperacionales() {
                     return (
                       <tr key={c.id} style={{ borderTop: '1px solid #1f2937' }}>
                         <td style={{ padding: '10px 8px' }}><b>{c.nombreConcepto}</b></td>
+                        {tipoActivo === 'ISLR' && (
+                          <td style={{ padding: '10px 8px', textAlign: 'center' }}>
+                            <span style={{ background: '#1e3a8a', color: '#93c5fd', padding: '2px 6px', borderRadius: '6px', fontFamily: 'monospace' }}>
+                              {c.codigoSeniat || '—'}
+                            </span>
+                          </td>
+                        )}
+                        {tipoActivo === 'ISLR' && (
+                          <td style={{ padding: '10px 8px', textAlign: 'center' }}>
+                            <b>{c.tipoPersona || '—'}</b> al <b>{c.porcentajeRetencion ?? '—'}%</b>
+                          </td>
+                        )}
+                        {tipoActivo === 'ISLR' && (
+                          <td style={{ padding: '10px 8px', textAlign: 'center' }}>
+                            {c.aplicaSustraendo
+                              ? <span style={{ color: '#34d399' }}>Bs. {Number(c.montoSustraendoBs ?? 0).toFixed(2)}</span>
+                              : <span style={{ color: '#94a3b8' }}>No</span>}
+                          </td>
+                        )}
                         <td style={{ padding: '10px 8px' }}>
                           <span style={{ background: '#1e3a5f', color: '#93c5fd', padding: '2px 8px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 'bold' }}>
                             {c.tipoOperacion}

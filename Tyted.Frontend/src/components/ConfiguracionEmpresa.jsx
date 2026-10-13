@@ -22,12 +22,16 @@ const ConfiguracionEmpresa = () => {
 
     // Estado de edición de la empresa seleccionada
     const [empresaEdit, setEmpresaEdit] = useState({
-        id: 1, razonSocial: '', rif: '', direccion: '', telefono: '', email: ''
+        id: 1, razonSocial: '', rif: '', direccion: '', telefono: '', email: '',
+        tipoContribuyente: 'Ordinario',
+        tasaRetencionIvaDefecto: 0
     });
 
     // Estado para crear una NUEVA Empresa
     const [nuevaEmpresa, setNuevaEmpresa] = useState({
-        razonSocial: '', rif: '', direccion: '', telefono: '', email: ''
+        razonSocial: '', rif: '', direccion: '', telefono: '', email: '',
+        tipoContribuyente: 'Ordinario',
+        tasaRetencionIvaDefecto: 0
     });
 
     const [ajustes, setAjustes] = useState([]);
@@ -61,7 +65,10 @@ const ConfiguracionEmpresa = () => {
                 rif: empresaActiva.rif || '',
                 direccion: empresaActiva.direccion || '',
                 telefono: empresaActiva.telefono || '',
-                email: empresaActiva.email || ''
+                email: empresaActiva.email || '',
+                // Clasificación fiscal SENIAT (Ordinario | Especial | Formal)
+                tipoContribuyente: empresaActiva.tipoContribuyente || 'Ordinario',
+                tasaRetencionIvaDefecto: Number(empresaActiva.tasaRetencionIvaDefecto || 0)
             });
         }
     }, [empresaActiva]);
@@ -262,7 +269,7 @@ const ConfiguracionEmpresa = () => {
             if (res.ok) {
                 const creada = await res.json().catch(() => null);
                 alert("✅ Nueva empresa registrada con éxito.");
-                setNuevaEmpresa({ razonSocial: '', rif: '', direccion: '', telefono: '', email: '' });
+                setNuevaEmpresa({ razonSocial: '', rif: '', direccion: '', telefono: '', email: '', tipoContribuyente: 'Ordinario', tasaRetencionIvaDefecto: 0 });
                 // Seleccionamos la nueva empresa para que el panel valide de inmediato
                 // si posee plan de cuentas (recién creada, siempre estará vacía).
                 if (creada?.id) localStorage.setItem('empresaActivaId', String(creada.id));
@@ -516,11 +523,48 @@ const ConfiguracionEmpresa = () => {
                         />
                         
                         <label style={{ fontSize: '0.8rem', color: '#94a3b8' }}>Dirección:</label>
-                        <textarea 
-                            value={empresaEdit.direccion || ''} 
-                            onChange={e => setEmpresaEdit({...empresaEdit, direccion: e.target.value})} 
+                        <textarea
+                            value={empresaEdit.direccion || ''}
+                            onChange={e => setEmpresaEdit({...empresaEdit, direccion: e.target.value})}
                             style={{ padding: '8px', borderRadius: '6px', background: '#0f172a', border: '1px solid #334155', color: '#fff', minHeight: '50px' }}
                         />
+
+                        {/* --- CLASIFICACIÓN FISCAL SENIAT --- */}
+                        <label style={{ fontSize: '0.8rem', color: '#94a3b8', marginTop: '6px' }}>Calificación Fiscal SENIAT:</label>
+                        <select
+                            value={empresaEdit.tipoContribuyente || 'Ordinario'}
+                            onChange={e => {
+                                const tipo = e.target.value;
+                                setEmpresaEdit({
+                                    ...empresaEdit,
+                                    tipoContribuyente: tipo,
+                                    // Si es Especial, por defecto retiene 75%. Si es Ordinario/Formal, 0.
+                                    tasaRetencionIvaDefecto: tipo === 'Especial' ? 75 : 0
+                                });
+                            }}
+                            style={{ padding: '8px', borderRadius: '6px', background: '#0f172a', border: '1px solid #334155', color: '#fff' }}
+                        >
+                            <option value="Ordinario">Contribuyente Ordinario</option>
+                            <option value="Especial">Sujeto Pasivo Especial (Agente de Retención)</option>
+                            <option value="Formal">Contribuyente Formal (Solo exentos)</option>
+                        </select>
+
+                        {empresaEdit.tipoContribuyente === 'Especial' && (
+                            <>
+                                <label style={{ fontSize: '0.8rem', color: '#fbbf24', marginTop: '6px' }}>% Retención IVA por Defecto:</label>
+                                <select
+                                    value={Number(empresaEdit.tasaRetencionIvaDefecto) || 75}
+                                    onChange={e => setEmpresaEdit({...empresaEdit, tasaRetencionIvaDefecto: Number(e.target.value)})}
+                                    style={{ padding: '8px', borderRadius: '6px', background: '#0f172a', border: '1px solid #f59e0b', color: '#fff' }}
+                                >
+                                    <option value={75}>75% (Regla general — Prov. SNAT/2025/000054)</option>
+                                    <option value={100}>100% (Omisiones de deberes formales del proveedor)</option>
+                                </select>
+                                <small style={{ color: '#94a3b8', fontSize: '0.7rem' }}>
+                                    Como Agente de Retención, el sistema aplicará esta tasa en las compras gravadas.
+                                </small>
+                            </>
+                        )}
 
                         <button type="submit" style={{ marginTop: '8px', padding: '8px', background: '#2563eb', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>
                             💾 Actualizar Empresa Activa
@@ -545,6 +589,22 @@ const ConfiguracionEmpresa = () => {
                                 onChange={e => setNuevaEmpresa({...nuevaEmpresa, rif: e.target.value})} 
                                 style={{ padding: '8px', borderRadius: '6px', background: '#0f172a', border: '1px solid #334155', color: '#fff' }}
                             />
+                            <select
+                                value={nuevaEmpresa.tipoContribuyente || 'Ordinario'}
+                                onChange={e => {
+                                    const tipo = e.target.value;
+                                    setNuevaEmpresa({
+                                        ...nuevaEmpresa,
+                                        tipoContribuyente: tipo,
+                                        tasaRetencionIvaDefecto: tipo === 'Especial' ? 75 : 0
+                                    });
+                                }}
+                                style={{ padding: '8px', borderRadius: '6px', background: '#0f172a', border: '1px solid #334155', color: '#fff' }}
+                            >
+                                <option value="Ordinario">Contribuyente Ordinario</option>
+                                <option value="Especial">Sujeto Pasivo Especial (Agente de Retención)</option>
+                                <option value="Formal">Contribuyente Formal (Solo exentos)</option>
+                            </select>
                             <button type="submit" style={{ padding: '8px', background: '#059669', color: 'white', border: 'none', borderRadius: '6px', cursor: 'pointer', fontWeight: 'bold' }}>
                                 🚀 Crear Empresa
                             </button>

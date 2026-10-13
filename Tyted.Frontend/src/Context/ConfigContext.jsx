@@ -58,7 +58,11 @@ const normalizarEmpresa = (empresa = {}) => ({
   rif: empresa.rif || '',
   direccion: empresa.direccion || '',
   telefono: empresa.telefono || '',
-  email: empresa.email || ''
+  email: empresa.email || '',
+  // Clasificación fiscal SENIAT: viaja por toda la app para que el módulo de
+  // compras sepa si la empresa es Agente de Retención (Especial).
+  tipoContribuyente: empresa.tipoContribuyente || 'Ordinario',
+  tasaRetencionIvaDefecto: Number(empresa.tasaRetencionIvaDefecto || 0)
 });
 
 const normalizarPeriodo = (periodo = {}) => {
