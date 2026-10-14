@@ -40,14 +40,31 @@ api.interceptors.response.use(
 
 // Extrae un mensaje legible de un error de Axios
 export const mensajeErrorApi = (error) => {
-  const status = error?.response?.status;
-  const data = error?.response?.data;
+  // Sin respuesta del servidor (backend apagado, proxy de Vite caído o red caída):
+  // axios no expone status ni body, sólo el mensaje "Network Error"; se explica
+  // en vez de mostrar el texto crudo.
+  if (!error?.response) {
+    return `Sin respuesta de la API (${error?.message || 'error de red'}). Verifique que el backend esté encendido e inténtelo de nuevo.`;
+  }
+
+  const status = error.response.status;
+  const data = error.response.data;
   const delBackend = typeof data === 'string' ? data : (data?.message || data?.title);
 
   if (status === 401) return 'Sesión expirada o no válida. Cierre sesión y vuelva a entrar.';
   if (status === 403) return 'No tiene permisos para esta operación (rol requerido: Administrador/Analista).';
   if (delBackend) return delBackend;
-  return error?.message || 'No se pudo conectar con la API de contabilidad.';
+
+  // Auto-validación de ASP.NET ([ApiController]): los errores de DataAnnotations
+  // llegan en el mapa "errors" (no en "message"); se vuelcan para diagnosticar.
+  if (data?.errors && typeof data.errors === 'object') {
+    const detalle = Object.entries(data.errors)
+      .map(([campo, mensajes]) => `${campo}: ${[].concat(mensajes).join(', ')}`)
+      .join(' | ');
+    if (detalle) return `El backend rechazó la petición → ${detalle}`;
+  }
+
+  return `Error HTTP ${status} de la API.`;
 };
 
 export const contabilidadApi = {

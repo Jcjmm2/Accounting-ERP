@@ -29,6 +29,49 @@ namespace Tyted.API.Controllers
             _config = config;
         }
 
+        // -------------------------------------------------------------------------
+        // TIPOS VÁLIDOS DEL CATÁLOGO
+        // ISLR es una familia propia (retenciones del Decreto 1.808) gestionada
+        // por el panel de Conceptos Operacionales. Excluirla del whitelist hacía
+        // fallar con 400 cualquier alta/edición de un concepto ISLR desde el
+        // frontend (PUT/POST /api/conceptos-operacionales).
+        // -------------------------------------------------------------------------
+        private static readonly string[] TiposValidos = { "COMPRA", "VENTA", "GASTO", "ISLR", "SISTEMA" };
+
+        /// <summary>
+        /// Normaliza los atributos fiscales ISLR del concepto. Sólo aplican cuando
+        /// TipoOperacion == "ISLR" (en los demás tipos se limpian). El sustraendo
+        /// se calcula SIEMPRE en el servidor con la Unidad Tributaria vigente
+        /// (CatalogoIslr); nunca se acepta un monto enviado por el cliente.
+        /// </summary>
+        private static void AplicarAtributosIslr(ConceptoOperacional concepto)
+        {
+            if (concepto.TipoOperacion != "ISLR")
+            {
+                concepto.CodigoSeniat = null;
+                concepto.TipoPersona = null;
+                concepto.PorcentajeRetencion = null;
+                concepto.AplicaSustraendo = false;
+                concepto.MontoSustraendoBs = null;
+                return;
+            }
+
+            concepto.CodigoSeniat = string.IsNullOrWhiteSpace(concepto.CodigoSeniat)
+                ? null
+                : concepto.CodigoSeniat.Trim();
+            concepto.TipoPersona = string.IsNullOrWhiteSpace(concepto.TipoPersona)
+                ? "PNR"
+                : concepto.TipoPersona.Trim().ToUpper();
+
+            // El sustraendo sólo existe para personas naturales residentes (PNR).
+            concepto.MontoSustraendoBs =
+                concepto.AplicaSustraendo
+                && concepto.TipoPersona == "PNR"
+                && concepto.PorcentajeRetencion is > 0
+                    ? CatalogoIslr.CalcularSustraendo(concepto.PorcentajeRetencion.Value)
+                    : null;
+        }
+
         // GET: api/conceptos-operacionales?empresaId=1&tipo=GASTO
         [HttpGet]
         public async Task<ActionResult<IEnumerable<ConceptoOperacional>>> GetConceptos(
@@ -61,6 +104,9 @@ namespace Tyted.API.Controllers
                 .FirstOrDefaultAsync(c => c.Id == id);
 
             if (concepto == null) return NotFound();
+
+            // AISLAMIENTO POR EMPRESA: la empresa se toma de la fila en BD.
+            await _access.ValidarAccesoAsync(User, concepto.EmpresaId);
             return concepto;
         }
 
@@ -75,8 +121,12 @@ namespace Tyted.API.Controllers
             await _access.ValidarAccesoAsync(User, concepto.EmpresaId);
 
             concepto.TipoOperacion = (concepto.TipoOperacion ?? "GASTO").ToUpper();
-            if (!new[] { "COMPRA", "VENTA", "GASTO", "SISTEMA" }.Contains(concepto.TipoOperacion))
-                return BadRequest(new { message = "El tipo de operación debe ser COMPRA, VENTA, GASTO o SISTEMA." });
+            if (!TiposValidos.Contains(concepto.TipoOperacion))
+                return BadRequest(new { message = "El tipo de operación debe ser COMPRA, VENTA, GASTO, ISLR o SISTEMA." });
+
+            // Atributos fiscales ISLR: normaliza persona/código SENIAT y calcula el
+            // sustraendo en el SERVIDOR con la Unidad Tributaria vigente.
+            AplicarAtributosIslr(concepto);
 
             var duplicado = await _context.ConceptosOperacionales.AnyAsync(c =>
                 c.EmpresaId == concepto.EmpresaId
@@ -98,15 +148,37 @@ namespace Tyted.API.Controllers
             var concepto = await _context.ConceptosOperacionales.FindAsync(id);
             if (concepto == null) return NotFound();
 
+            // AISLAMIENTO POR EMPRESA (misma regla que GET/POST): la empresa se
+            // toma de la fila en BD, nunca del payload del cliente.
+            await _access.ValidarAccesoAsync(User, concepto.EmpresaId);
+
             concepto.NombreConcepto = datos.NombreConcepto?.Trim() ?? concepto.NombreConcepto;
             concepto.CuentaContable = datos.CuentaContable?.Trim() ?? concepto.CuentaContable;
             if (!string.IsNullOrWhiteSpace(datos.TipoOperacion))
             {
                 var tipo = datos.TipoOperacion.ToUpper();
-                if (!new[] { "COMPRA", "VENTA", "GASTO", "SISTEMA" }.Contains(tipo))
-                    return BadRequest(new { message = "El tipo de operación debe ser COMPRA, VENTA, GASTO o SISTEMA." });
+                if (!TiposValidos.Contains(tipo))
+                    return BadRequest(new { message = "El tipo de operación debe ser COMPRA, VENTA, GASTO, ISLR o SISTEMA." });
                 concepto.TipoOperacion = tipo;
             }
+
+            // Atributos fiscales ISLR (Decreto 1.808): el formulario los envía en
+            // cada guardado; sin este bloque la edición NO persistía el código
+            // SENIAT, la tarifa, el tipo de persona ni el sustraendo.
+            concepto.CodigoSeniat = datos.CodigoSeniat;
+            concepto.TipoPersona = datos.TipoPersona;
+            concepto.PorcentajeRetencion = datos.PorcentajeRetencion;
+            concepto.AplicaSustraendo = datos.AplicaSustraendo;
+            AplicarAtributosIslr(concepto);
+
+            // Paridad con POST: el nombre debe ser único por empresa y tipo.
+            var duplicado = await _context.ConceptosOperacionales.AnyAsync(c =>
+                c.EmpresaId == concepto.EmpresaId
+                && c.Id != id
+                && c.NombreConcepto == concepto.NombreConcepto
+                && c.TipoOperacion == concepto.TipoOperacion);
+            if (duplicado)
+                return BadRequest(new { message = "Ya existe un concepto con ese nombre para esta empresa y tipo de operación." });
 
             try
             {
@@ -128,6 +200,9 @@ namespace Tyted.API.Controllers
         {
             var concepto = await _context.ConceptosOperacionales.FindAsync(id);
             if (concepto == null) return NotFound();
+
+            // AISLAMIENTO POR EMPRESA: la empresa se toma de la fila en BD.
+            await _access.ValidarAccesoAsync(User, concepto.EmpresaId);
 
             var enUso = await _context.Gastos.AnyAsync(g => g.ConceptoOperacionalId == id)
                 || await _context.VentasDetalle.AnyAsync(d => d.ConceptoOperacionalId == id);

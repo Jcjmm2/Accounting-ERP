@@ -33,6 +33,13 @@ api.interceptors.response.use(
 
 export { mensajeErrorApi };
 
+// Extrae el nombre de archivo sugerido por el backend (Content-Disposition).
+const nombreDesdeCabecera = (headers) => {
+  const cabecera = headers?.['content-disposition'] || '';
+  const coincidencia = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(cabecera);
+  return coincidencia ? decodeURIComponent(coincidencia[1]) : null;
+};
+
 export const fiscalApi = {
   // Libro de Ventas: filtra por el rango del periodo contable activo y la empresa
   getVentas: async ({ fechaInicio, fechaFin, empresaId } = {}) => {
@@ -229,5 +236,25 @@ export const fiscalApi = {
   buscarProductos: async (termino, tasaDelDia = 1) => {
     const response = await api.get('/Productos/buscar', { params: { termino, tasaDelDia } });
     return response.data;
+  },
+
+  // -------------------------------------------------------------------------
+  // DECLARACIONES SENIAT (Fase 5): los archivos TXT/XML los genera el backend
+  // (decimal exacto + validación de formato); aquí sólo se descargan como blob.
+  // -------------------------------------------------------------------------
+  descargarTxtIva: async ({ empresaId, anio, mes, quincena }) => {
+    const response = await api.get('/declaraciones/iva-txt', {
+      params: { empresaId, anio, mes, quincena },
+      responseType: 'blob'
+    });
+    return { blob: response.data, nombre: nombreDesdeCabecera(response.headers) };
+  },
+
+  descargarXmlIslr: async ({ empresaId, anio, mes }) => {
+    const response = await api.get('/declaraciones/islr-xml', {
+      params: { empresaId, anio, mes },
+      responseType: 'blob'
+    });
+    return { blob: response.data, nombre: nombreDesdeCabecera(response.headers) };
   }
 };

@@ -23,6 +23,7 @@ import RegistroVentasFiscal from './Pages/Fiscal/RegistroVentasFiscal';
 import RegistroComprasFiscal from './Pages/Fiscal/RegistroComprasFiscal';
 import ConceptosOperacionales from './Pages/Fiscal/ConceptosOperacionales';
 import ReporteForma30 from './Pages/Fiscal/ReporteForma30';
+import DeclaracionesSeniat from './Pages/Fiscal/DeclaracionesSeniat';
 
 function App() {
   // Página por defecto: Módulo Contable. Se recuerda la última vista visitada
@@ -80,6 +81,7 @@ function App() {
       case 'compras-fiscal': return <RegistroComprasFiscal />;
       case 'forma30': return <ReporteForma30 />;
       case 'conceptos-fiscal': return <ConceptosOperacionales />;
+      case 'declaraciones-seniat': return <DeclaracionesSeniat />;
       case 'contabilidad': return <ModuloContable />;
       default: return <ModuloContable />;
     }
@@ -279,6 +281,9 @@ function App() {
           </button>
           <button className={`nav-button ${vista === 'conceptos-fiscal' ? 'active' : ''}`} onClick={() => cambiarVista('conceptos-fiscal')}>
             🧮 Conceptos Ingresos/Gastos
+          </button>
+          <button className={`nav-button ${vista === 'declaraciones-seniat' ? 'active' : ''}`} onClick={() => cambiarVista('declaraciones-seniat')}>
+            📄 Declaraciones SENIAT
           </button>
 
           <small className="nav-label">SISTEMA</small>

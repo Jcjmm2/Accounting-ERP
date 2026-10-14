@@ -248,7 +248,9 @@ export default function ConceptosOperacionales() {
     setGuardando(true);
     try {
       if (editandoId) {
-        await fiscalApi.actualizarConcepto(editandoId, payloadBase);
+        // empresaId viaja por trazabilidad; el backend valida el acceso contra la
+        // EMPRESA DE LA BASE (fila del concepto), no contra el payload del cliente.
+        await fiscalApi.actualizarConcepto(editandoId, { ...payloadBase, empresaId });
       } else {
         await fiscalApi.crearConcepto({ empresaId, ...payloadBase });
       }
