@@ -3,7 +3,7 @@ import { ConfigContext } from '../../Context/ConfigContext';
 import { fiscalApi, mensajeErrorApi } from '../../Services/Fiscal/FiscalApi';
 import {
   estructuraLibroCompras,
-  estructuraLibroGastos,
+  desgloseGasto,
   exportarLibroPdf,
   exportarLibroXls,
   esColumnaMonto
@@ -84,11 +84,11 @@ export default function RegistroComprasFiscal() {
   const [formFiscal, setFormFiscal] = useState({ tipoTransaccion: '01', numeroControl: '' });
   const [procesandoId, setProcesandoId] = useState(null);
 
-  // --- PESTAÑAS: COMPRAS FISCALES | GASTOS FISCALES ---
-  const [pestana, setPestana] = useState('compras');
-
-  // --- ALTA DE COMPRA FISCAL (sin stock ni kardex) ---
-  const [mostrarFormCompra, setMostrarFormCompra] = useState(false);
+  // --- ALTA ÚNICA DE DOCUMENTOS FISCALES (FACTURA | GASTO) ---
+  // Un solo formulario con selector de tipo: en el backend siguen siendo
+  // entidades separadas (Compra / Gasto), sólo se unifica la capa de UI.
+  const [mostrarForm, setMostrarForm] = useState(false);
+  const [tipoAlta, setTipoAlta] = useState('FACTURA');
   const [guardandoCompra, setGuardandoCompra] = useState(false);
   const [contabilizarAuto, setContabilizarAuto] = useState(true);
   const [proveedores, setProveedores] = useState([]);
@@ -103,9 +103,8 @@ export default function RegistroComprasFiscal() {
   const [buscadorProd, setBuscadorProd] = useState('');
   const [resultadosProd, setResultadosProd] = useState([]);
 
-  // --- ALTA DE GASTOS FISCALES (entidad propia, sin inventario) ---
+  // --- GASTOS FISCALES (entidad propia, sin inventario) ---
   const [gastos, setGastos] = useState([]);
-  const [mostrarFormGasto, setMostrarFormGasto] = useState(false);
   const [guardandoGasto, setGuardandoGasto] = useState(false);
   const [contabilizarGastoAuto, setContabilizarGastoAuto] = useState(true);
   // Conceptos de operación tipo GASTO (catálogo por empresa, puente con el
@@ -270,7 +269,8 @@ export default function RegistroComprasFiscal() {
   // Apertura/cierre del panel de consultas (la carga la dispara el useEffect)
   const alternarConsultas = () => setMostrarConsultas((v) => !v);
 
-  // Resumen del período (líneas 30/33/34 del formato SENIAT)
+  // Resumen COMBINADO del período (líneas 30/33/34 del formato SENIAT):
+  // facturas de compra + gastos, cada uno con sus alícuotas.
   const totales = compras.reduce((acc, c) => {
     const d = desgloseCompra(c);
     acc.documentos += 1;
@@ -282,6 +282,17 @@ export default function RegistroComprasFiscal() {
     if (c.isAnulada) acc.anuladas += 1;
     return acc;
   }, { documentos: 0, exento: 0, base8: 0, base16: 0, iva: 0, total: 0, anuladas: 0 });
+
+  gastos.forEach((g) => {
+    const d = desgloseGasto(g);
+    totales.documentos += 1;
+    totales.exento += d.exento;
+    totales.base8 += d.base8;
+    totales.base16 += d.base16;
+    totales.iva += d.iva;
+    totales.total += d.total;
+    if (g.isAnulada) totales.anuladas += 1;
+  });
 
   const abrirEdicion = (c) => {
     setEditandoId(c.id);
@@ -385,28 +396,51 @@ export default function RegistroComprasFiscal() {
   const baseGastoBs = Number(formGasto.monto) || 0;
   const ivaGastoBs = Number((baseGastoBs * alicuotaGasto / 100).toFixed(2));
 
-  // Total de gastos en BOLÍVARES (verdad fiscal: base + IVA congelados en Bs.).
-  const totalGastos = gastos.reduce((s, g) =>
-    s + Number(g.montoMonedaExt ?? g.monto ?? 0) + Number(g.ivaMonedaExt ?? 0), 0);
+  // Abre el formulario ÚNICO con el tipo elegido, limpia el estado del modo
+  // seleccionado y precarga los catálogos que necesiten ambos (proveedores;
+  // conceptos contable GASTO cuando aplica).
+  const abrirFormUnico = async (tipo) => {
+    setTipoAlta(tipo);
+    if (tipo === 'FACTURA') {
+      setFormCompra({
+        fecha: new Date().toISOString().slice(0, 10),
+        codigoProv: '',
+        numeroFactura: '',
+        numeroControl: '',
+        tipoTransaccion: '01'
+      });
+      setLineasCompra([]);
+      setBuscadorProd('');
+      setResultadosProd([]);
+    } else {
+      setFormGasto({
+        fecha: new Date().toISOString().slice(0, 10),
+        concepto: '',
+        conceptoId: '',
+        codigoProv: '',
+        monto: '',
+        alicuota: '0'
+      });
+    }
+    setMostrarForm(true);
 
-  const abrirFormCompraFiscal = async () => {
-    setFormCompra({
-      fecha: new Date().toISOString().slice(0, 10),
-      codigoProv: '',
-      numeroFactura: '',
-      numeroControl: '',
-      tipoTransaccion: '01'
-    });
-    setLineasCompra([]);
-    setBuscadorProd('');
-    setResultadosProd([]);
-    setMostrarFormCompra(true);
     if (proveedores.length === 0) {
       try {
         const data = await fiscalApi.getProveedores();
         setProveedores(Array.isArray(data) ? data : (data?.$values || []));
       } catch (error) {
         console.warn('Error cargando proveedores:', error);
+      }
+    }
+
+    // Conceptos de operación tipo GASTO (catálogo por empresa, puente con el
+    // plan de cuentas): sólo hace falta en el modo GASTO.
+    if (tipo === 'GASTO' && conceptosGasto.length === 0) {
+      try {
+        const data = await fiscalApi.getConceptos({ empresaId, tipo: 'GASTO' });
+        setConceptosGasto(Array.isArray(data) ? data : (data?.$values || []));
+      } catch (error) {
+        console.warn('Error cargando conceptos de gasto:', error);
       }
     }
   };
@@ -502,39 +536,13 @@ export default function RegistroComprasFiscal() {
       }
 
       alert('✅ Compra fiscal registrada (sin efectos en inventario).');
-      setMostrarFormCompra(false);
+      setMostrarForm(false);
       await cargarCompras();
     } catch (error) {
       console.error('Error creando compra fiscal:', error);
       alert(`❌ No se pudo registrar la compra fiscal:\n${mensajeErrorApi(error)}`);
     } finally {
       setGuardandoCompra(false);
-    }
-  };
-
-  const abrirFormGasto = () => {
-    setFormGasto({
-      fecha: new Date().toISOString().slice(0, 10),
-      concepto: '',
-      conceptoId: '',
-      codigoProv: '',
-      monto: ''
-    });
-    setMostrarFormGasto(true);
-
-    // Proveedores (una sola vez)
-    if (proveedores.length === 0) {
-      fiscalApi.getProveedores()
-        .then((data) => setProveedores(Array.isArray(data) ? data : (data?.$values || [])))
-        .catch((error) => console.warn('Error cargando proveedores:', error));
-    }
-
-    // Conceptos de operación tipo GASTO de la empresa activa (catálogo
-    // dinámico que sustituye la lista estática de categorías)
-    if (conceptosGasto.length === 0) {
-      fiscalApi.getConceptos({ empresaId, tipo: 'GASTO' })
-        .then((data) => setConceptosGasto(Array.isArray(data) ? data : (data?.$values || [])))
-        .catch((error) => console.warn('Error cargando conceptos de gasto:', error));
     }
   };
 
@@ -584,7 +592,7 @@ export default function RegistroComprasFiscal() {
       }
 
       alert('✅ Gasto fiscal registrado.');
-      setMostrarFormGasto(false);
+      setMostrarForm(false);
       await cargarCompras();
     } catch (error) {
       console.error('Error creando gasto:', error);
@@ -608,25 +616,28 @@ export default function RegistroComprasFiscal() {
     }
   };
 
-  // Estructura del reporte según la pestaña activa (Libro de Compras o Libro
-  // de Gastos) para la vista previa y la exportación a PDF/Excel.
+  // Libro COMBINADO (facturas de compra + gastos) para la vista previa y la
+  // exportación a PDF/Excel: un solo documento con todas las operaciones del
+  // período, sus alícuotas y su concepto contable.
   const totalesComprasReporte = {
     ...totales,
     retenciones: totalRetenido
   };
-  const reporteLibro = pestana === 'compras'
-    ? estructuraLibroCompras({
-        empresa: empresaActiva,
-        periodo: periodoActivo,
-        totales: totalesComprasReporte,
-        compras,
-        retencionPorCompra
-      })
-    : estructuraLibroGastos({
-        empresa: empresaActiva,
-        periodo: periodoActivo,
-        gastos
-      });
+  const reporteLibro = estructuraLibroCompras({
+    empresa: empresaActiva,
+    periodo: periodoActivo,
+    totales: totalesComprasReporte,
+    compras,
+    gastos,
+    retencionPorCompra
+  });
+
+  // Lista COMBINADA facturas + gastos ordenada por fecha (una sola tabla de
+  // consulta/edición en lugar de las antiguas pestañas separadas).
+  const documentosCombinados = [
+    ...compras.map((c) => ({ tipo: 'FACTURA', fecha: c.fechaCompra, datos: c })),
+    ...gastos.map((g) => ({ tipo: 'GASTO', fecha: g.fecha, datos: g }))
+  ].sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
 
   const hayContexto = Boolean(empresaId && fechaInicio && fechaFin);
 
@@ -647,18 +658,16 @@ export default function RegistroComprasFiscal() {
         </div>
         <div style={{ display: 'flex', gap: '10px' }}>
           <button
-            onClick={pestana === 'compras' ? abrirFormCompraFiscal : abrirFormGasto}
+            onClick={() => abrirFormUnico('FACTURA')}
             disabled={!hayContexto || cargando}
             style={{
               background: '#059669', color: '#fff', border: 'none', borderRadius: '8px',
               padding: '10px 16px', cursor: hayContexto && !cargando ? 'pointer' : 'not-allowed',
               fontWeight: 'bold', opacity: hayContexto ? 1 : 0.5
             }}
-            title={pestana === 'compras'
-              ? 'Registrar una compra fiscal declarativa (sin inventario)'
-              : 'Registrar un gasto fiscal declarativo (sin inventario)'}
+            title="Registrar una factura de compra o un gasto fiscal (un solo formulario, sin inventario)"
           >
-            {pestana === 'compras' ? '➕ Nueva compra fiscal' : '➕ Nuevo gasto'}
+            ➕ Nuevo documento fiscal
           </button>
           <button
             onClick={alternarConsultas}
@@ -680,7 +689,7 @@ export default function RegistroComprasFiscal() {
               padding: '10px 16px', cursor: hayContexto ? 'pointer' : 'not-allowed', fontWeight: 'bold',
               opacity: hayContexto ? 1 : 0.5
             }}
-            title="Vista previa del libro (compras o gastos, según la pestaña) con exportación a PDF y Excel"
+            title="Vista previa del libro combinado (facturas + gastos) con exportación a PDF y Excel"
           >
             {mostrarReporte ? '📄 Cerrar reportes' : '📊 Reportes'}
           </button>
@@ -699,28 +708,7 @@ export default function RegistroComprasFiscal() {
         </div>
       </div>
 
-      {/* Pestañas: Libro de Compras | Gastos (ambos sin inventario) */}
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '18px' }}>
-        {[
-          { id: 'compras', etiqueta: '🧾 Libro de Compras (IVA)' },
-          { id: 'gastos', etiqueta: '💸 Compras y Gastos' }
-        ].map((p) => (
-          <button
-            key={p.id}
-            onClick={() => setPestana(p.id)}
-            style={{
-              background: pestana === p.id ? '#34d399' : '#1e293b',
-              color: pestana === p.id ? '#052e16' : '#94a3b8',
-              border: '1px solid #334155', borderRadius: '8px',
-              padding: '9px 18px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem'
-            }}
-          >
-            {p.etiqueta}
-          </button>
-        ))}
-      </div>
-
-      {/* --- PANEL DE REPORTES: vista previa del libro (según pestaña) + PDF/Excel --- */}
+      {/* --- PANEL DE REPORTES: vista previa del libro COMBINADO + PDF/Excel --- */}
       {hayContexto && mostrarReporte && (
         <div style={{ background: '#0f172a', padding: '24px', borderRadius: '12px', border: '1px solid #f59e0b', marginBottom: '20px' }}>
           {/* Botonera de exportación */}
@@ -798,14 +786,40 @@ export default function RegistroComprasFiscal() {
         </div>
       ) : (
         <>
-          {pestana === 'compras' ? (
-            <>
-              {mostrarFormCompra && (
-                <div style={{ background: '#1e293b', border: '1px solid #16a34a', borderRadius: '12px', padding: '20px', marginBottom: '20px' }}>
-                  <h3 style={{ margin: '0 0 4px 0', color: '#34d399', fontSize: '1.05rem' }}>➕ Nueva compra fiscal</h3>
-                  <p style={{ margin: '0 0 14px 0', color: '#94a3b8', fontSize: '0.8rem' }}>
-                    Documento declarativo: NO afecta el inventario (sin aumento de stock, sin costos, sin kardex).
-                  </p>
+          {/*
+            FORMULARIO ÚNICO: FACTURA (compra con líneas de producto) o GASTO
+            (concepto contable + alícuota en Bs.). El selector decide el modo;
+            en el backend cada uno sigue creando su entidad (Compra / Gasto).
+          */}
+          {mostrarForm && (
+            <div style={{ background: '#1e293b', border: `1px solid ${tipoAlta === 'FACTURA' ? '#16a34a' : '#f59e0b'}`, borderRadius: '12px', padding: '20px', marginBottom: '20px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '6px' }}>
+                <h3 style={{ margin: 0, color: tipoAlta === 'FACTURA' ? '#34d399' : '#fbbf24', fontSize: '1.05rem' }}>➕ Nuevo documento fiscal</h3>
+                <div style={{ display: 'flex', gap: '6px' }}>
+                  {[{ id: 'FACTURA', etiqueta: '🧾 Factura de compra' }, { id: 'GASTO', etiqueta: '💸 Gasto' }].map((t) => (
+                    <button
+                      key={t.id}
+                      onClick={() => abrirFormUnico(t.id)}
+                      style={{
+                        background: tipoAlta === t.id ? (t.id === 'FACTURA' ? '#34d399' : '#f59e0b') : '#0f172a',
+                        color: tipoAlta === t.id ? '#052e16' : '#94a3b8',
+                        border: '1px solid #334155', borderRadius: '8px',
+                        padding: '7px 14px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.82rem'
+                      }}
+                    >
+                      {t.etiqueta}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <p style={{ margin: '0 0 14px 0', color: '#94a3b8', fontSize: '0.8rem' }}>
+                {tipoAlta === 'FACTURA'
+                  ? 'Documento declarativo: NO afecta el inventario (sin aumento de stock, sin costos, sin kardex).'
+                  : 'Documento propio del módulo fiscal: NO toca inventario ni compras. Requiere periodo contable ABIERTO.'}
+              </p>
+
+              {tipoAlta === 'FACTURA' && (
+                <>
                   <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px', marginBottom: '14px' }}>
                     <div>
                       <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Fecha</label>
@@ -920,28 +934,104 @@ export default function RegistroComprasFiscal() {
                         <input type="checkbox" checked={contabilizarAuto} onChange={(e) => setContabilizarAuto(e.target.checked)} />
                         🧾 Contabilizar automáticamente
                       </label>
-                      <button onClick={() => setMostrarFormCompra(false)} style={{ background: '#475569', color: '#fff', border: 'none', borderRadius: '8px', padding: '9px 16px', cursor: 'pointer', fontWeight: 'bold' }}>Cancelar</button>
+                      <button onClick={() => setMostrarForm(false)} style={{ background: '#475569', color: '#fff', border: 'none', borderRadius: '8px', padding: '9px 16px', cursor: 'pointer', fontWeight: 'bold' }}>Cancelar</button>
                       <button onClick={guardarCompraFiscal} disabled={guardandoCompra} style={{ background: '#16a34a', color: '#fff', border: 'none', borderRadius: '8px', padding: '9px 18px', cursor: guardandoCompra ? 'wait' : 'pointer', fontWeight: 'bold', opacity: guardandoCompra ? 0.6 : 1 }}>
-                        {guardandoCompra ? '⏳ Guardando…' : '💾 Guardar compra fiscal'}
+                        {guardandoCompra ? '⏳ Guardando…' : '💾 Guardar factura'}
                       </button>
                     </div>
                   </div>
-                </div>
+                </>
               )}
+
+              {/* --- MODO GASTO: concepto contable + alícuota (Bs.) --- */}
+              {tipoAlta === 'GASTO' && (
+                <>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '12px', marginBottom: '14px' }}>
+                    <div>
+                      <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Fecha</label>
+                      <input type="date" value={formGasto.fecha} onChange={(e) => setFormGasto({ ...formGasto, fecha: e.target.value })} style={inputChico} />
+                    </div>
+                    <div style={{ gridColumn: 'span 2' }}>
+                      <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Concepto</label>
+                      <input type="text" value={formGasto.concepto} onChange={(e) => setFormGasto({ ...formGasto, concepto: e.target.value })} placeholder="Ej: Pago de servicios públicos" style={inputChico} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Concepto Contable</label>
+                      <select
+                        value={formGasto.conceptoId}
+                        onChange={(e) => setFormGasto({ ...formGasto, conceptoId: e.target.value })}
+                        style={inputChico}
+                      >
+                        <option value="">Seleccione un concepto…</option>
+                        {conceptosGasto.map((c) => (
+                          <option key={c.id} value={c.id}>{c.nombreConcepto} (Cta: {c.cuentaContable})</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Proveedor (opcional)</label>
+                      <select value={formGasto.codigoProv} onChange={(e) => setFormGasto({ ...formGasto, codigoProv: e.target.value })} style={inputChico}>
+                        <option value="">— Caja —</option>
+                        {proveedores.map((p) => (
+                          <option key={p.codigoProv} value={p.codigoProv}>{p.razonsocial}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '12px', marginBottom: '14px' }}>
+                    <div>
+                      <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Monto base (Bs.) — sin IVA</label>
+                      <input type="number" min="0.01" step="0.01" value={formGasto.monto} onChange={(e) => setFormGasto({ ...formGasto, monto: e.target.value })} placeholder="0.00" style={inputChico} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.75rem', color: '#93c5fd' }}>Alícuota IVA</label>
+                      <select value={formGasto.alicuota} onChange={(e) => setFormGasto({ ...formGasto, alicuota: e.target.value })} style={{ ...inputChico, width: '100%' }}>
+                        <option value="0">0% — EXENTO</option>
+                        <option value="8">8% — reducida</option>
+                        <option value="16">16% — general</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.75rem', color: '#93c5fd' }}>IVA (Bs.) — calculado</label>
+                      <input
+                        type="text"
+                        readOnly
+                        value={alicuotaGasto === 0 ? 'EXENTO' : fmt(ivaGastoBs)}
+                        style={{ ...inputChico, width: '100%', background: '#111827', color: alicuotaGasto === 0 ? '#94a3b8' : '#93c5fd', cursor: 'not-allowed' }}
+                      />
+                      {alicuotaGasto > 0 && baseGastoBs > 0 && (
+                        <span style={{ fontSize: '0.7rem', color: '#64748b' }}>Total con IVA: Bs. {fmt(baseGastoBs + ivaGastoBs)}</span>
+                      )}
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', alignItems: 'center' }}>
+                    <label style={{ fontSize: '0.8rem', color: '#cbd5e1', display: 'flex', gap: '6px', alignItems: 'center' }}>
+                      <input type="checkbox" checked={contabilizarGastoAuto} onChange={(e) => setContabilizarGastoAuto(e.target.checked)} />
+                      🧾 Contabilizar automáticamente
+                    </label>
+                    <button onClick={() => setMostrarForm(false)} style={{ background: '#475569', color: '#fff', border: 'none', borderRadius: '8px', padding: '9px 16px', cursor: 'pointer', fontWeight: 'bold' }}>Cancelar</button>
+                    <button onClick={guardarGasto} disabled={guardandoGasto} style={{ background: '#16a34a', color: '#fff', border: 'none', borderRadius: '8px', padding: '9px 18px', cursor: guardandoGasto ? 'wait' : 'pointer', fontWeight: 'bold', opacity: guardandoGasto ? 0.6 : 1 }}>
+                      {guardandoGasto ? '⏳ Guardando…' : '💾 Guardar gasto'}
+                    </button>
+                  </div>
+                </>
+              )}
+            </div>
+          )}
 
           {/* --- CONSULTA Y EDICIÓN DEL LIBRO (bajo demanda) --- */}
           {mostrarConsultas && (
             <>
-          {/* Resumen del período (exentas, base 8/16, crédito fiscal) */}
+          {/* Resumen COMBINADO del período (facturas + gastos con sus alícuotas) */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px', marginBottom: '20px' }}>
             {[
-              { etiqueta: 'Documentos', valor: totales.documentos, entero: true, color: '#60a5fa' },
-              { etiqueta: 'Compras Exentas', valor: totales.exento, color: '#94a3b8' },
+              { etiqueta: 'Documentos (facturas + gastos)', valor: totales.documentos, entero: true, color: '#60a5fa' },
+              { etiqueta: 'Exentas', valor: totales.exento, color: '#94a3b8' },
               { etiqueta: 'Base 8%', valor: totales.base8, color: '#a78bfa' },
               { etiqueta: 'Base 16%', valor: totales.base16, color: '#34d399' },
               { etiqueta: 'IVA Crédito Fiscal', valor: totales.iva, color: '#fbbf24' },
               { etiqueta: 'IVA Retenido (75/100)', valor: totalRetenido, color: '#f472b6' },
-              { etiqueta: 'Total Compras', valor: totales.total, color: '#fff' }
+              { etiqueta: 'Total (facturas + gastos)', valor: totales.total, color: '#fff' }
             ].map((c) => (
               <div key={c.etiqueta} style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: '10px', padding: '12px' }}>
                 <div style={{ fontSize: '0.7rem', color: '#94a3b8', marginBottom: '4px' }}>{c.etiqueta}</div>
@@ -953,10 +1043,10 @@ export default function RegistroComprasFiscal() {
           </div>
 
           {cargando ? (
-            <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>⏳ Cargando Libro de Compras…</div>
-          ) : compras.length === 0 ? (
+            <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>⏳ Cargando el libro (facturas y gastos)…</div>
+          ) : documentosCombinados.length === 0 ? (
             <div style={{ background: '#0f172a', border: '1px dashed #475569', padding: '30px', textAlign: 'center', borderRadius: '12px', color: '#94a3b8' }}>
-              No hay compras registradas en el periodo seleccionado.
+              No hay facturas de compra ni gastos registrados en el periodo seleccionado.
             </div>
           ) : (
             <div style={{ background: '#111827', borderRadius: '12px', overflowX: 'auto', border: '1px solid #334155' }}>
@@ -965,58 +1055,78 @@ export default function RegistroComprasFiscal() {
                   <tr style={{ background: '#1e293b', color: '#86efac' }}>
                     <th style={thStyle}>Fecha</th>
                     <th style={thStyle}>Tipo</th>
-                    <th style={thStyle}>N° Factura</th>
-                    <th style={thStyle}>N° Control</th>
+                    <th style={thStyle}>Documento / Concepto</th>
                     <th style={thStyle}>Proveedor (RIF)</th>
+                    <th style={thStyle}>Concepto Contable</th>
                     <th style={{ ...thStyle, textAlign: 'right' }}>Exento</th>
                     <th style={{ ...thStyle, textAlign: 'right' }}>Base 8%</th>
                     <th style={{ ...thStyle, textAlign: 'right' }}>Base 16%</th>
                     <th style={{ ...thStyle, textAlign: 'right' }}>IVA Crédito</th>
                     <th style={{ ...thStyle, textAlign: 'right' }}>Total</th>
+                    <th style={thStyle}>Retenciones</th>
                     <th style={thStyle}>Comprobante</th>
                     <th style={{ ...thStyle, textAlign: 'center' }}>Acciones</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {compras.map((c) => {
-                    const d = desgloseCompra(c);
-                    const editando = editandoId === c.id;
+                  {documentosCombinados.map(({ tipo, datos: c }) => {
+                    const esGasto = tipo === 'GASTO';
+                    const d = esGasto ? desgloseGasto(c) : desgloseCompra(c);
+                    const editando = !esGasto && editandoId === c.id;
                     const proveedor = c.proveedor || {};
                     return (
-                      <tr key={c.id} style={{ background: c.isAnulada ? '#2d1215' : 'transparent', opacity: c.isAnulada ? 0.7 : 1 }}>
-                        <td style={tdStyle}>{formatearFecha(c.fechaCompra)}</td>
+                      <tr key={`${tipo}-${c.id}`} style={{ background: c.isAnulada ? '#2d1215' : 'transparent', opacity: c.isAnulada ? 0.7 : 1 }}>
+                        <td style={tdStyle}>{formatearFecha(esGasto ? c.fecha : c.fechaCompra)}</td>
                         <td style={tdStyle}>
-                          {editando ? (
-                            <select
-                              value={formFiscal.tipoTransaccion}
-                              onChange={(e) => setFormFiscal({ ...formFiscal, tipoTransaccion: e.target.value })}
-                              style={inputChico}
-                            >
-                              {TIPOS_TRANSACCION.map((t) => <option key={t.valor} value={t.valor}>{t.etiqueta}</option>)}
-                            </select>
+                          {esGasto ? (
+                            <span style={{ background: '#78350f', color: '#fbbf24', padding: '2px 8px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 'bold' }}>💸 GASTO</span>
                           ) : (
-                            <span style={{ background: '#064e3b', color: '#6ee7b7', padding: '2px 8px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 'bold' }}>
-                              {c.tipoTransaccion || '01'}
-                            </span>
+                            <span style={{ background: '#064e3b', color: '#6ee7b7', padding: '2px 8px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 'bold' }}>🧾 FACTURA</span>
                           )}
                         </td>
-                        <td style={{ ...tdStyle, fontFamily: 'monospace' }}>
-                          {c.numeroFactura || '—'}{c.isAnulada && <span style={{ color: '#f87171', marginLeft: '6px', fontSize: '0.7rem' }}>ANULADA</span>}
-                        </td>
-                        <td style={{ ...tdStyle, fontFamily: 'monospace' }}>
-                          {editando ? (
-                            <input
-                              type="text"
-                              value={formFiscal.numeroControl}
-                              onChange={(e) => setFormFiscal({ ...formFiscal, numeroControl: e.target.value })}
-                              placeholder="00-000000"
-                              style={{ ...inputChico, width: '110px' }}
-                            />
-                          ) : (c.numeroControl || '—')}
+                        <td style={tdStyle}>
+                          {esGasto ? (
+                            <>
+                              <span>{c.concepto}</span>
+                              <span style={{ display: 'block', color: '#94a3b8', fontSize: '0.72rem' }}>
+                                {d.alicuota === 0 ? 'EXENTO' : `IVA ${d.alicuota}%`}
+                              </span>
+                            </>
+                          ) : editando ? (
+                            <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
+                              <select
+                                value={formFiscal.tipoTransaccion}
+                                onChange={(e) => setFormFiscal({ ...formFiscal, tipoTransaccion: e.target.value })}
+                                style={inputChico}
+                              >
+                                {TIPOS_TRANSACCION.map((t) => <option key={t.valor} value={t.valor}>{t.etiqueta}</option>)}
+                              </select>
+                              <input
+                                type="text"
+                                value={formFiscal.numeroControl}
+                                onChange={(e) => setFormFiscal({ ...formFiscal, numeroControl: e.target.value })}
+                                placeholder="N° Control 00-000000"
+                                style={{ ...inputChico, width: '140px' }}
+                              />
+                            </div>
+                          ) : (
+                            <>
+                              <span style={{ fontFamily: 'monospace' }}>{c.numeroFactura || '—'}</span>
+                              {c.isAnulada && <span style={{ color: '#f87171', marginLeft: '6px', fontSize: '0.7rem' }}>ANULADA</span>}
+                              <span style={{ display: 'block', color: '#94a3b8', fontFamily: 'monospace', fontSize: '0.75rem' }}>
+                                {c.numeroControl || '—'}
+                              </span>
+                            </>
+                          )}
                         </td>
                         <td style={tdStyle}>
-                          <b>{proveedor.razonsocial || '—'}</b>
+                          <b>{proveedor.razonsocial || (esGasto ? '— CAJA —' : '—')}</b>
                           <span style={{ display: 'block', color: '#94a3b8', fontSize: '0.75rem' }}>{proveedor.rif || 'S/RIF'}</span>
+                        </td>
+                        <td style={tdStyle}>
+                          {esGasto
+                            ? <b style={{ color: '#fbbf24' }}>{c.categoria || 'GASTO'}</b>
+                            : (c.esGastoServicio ? 'Gastos' : 'Compras')}
                         </td>
                         <td style={{ ...tdStyle, textAlign: 'right' }}>{fmt(d.exento)}</td>
                         <td style={{ ...tdStyle, textAlign: 'right' }}>{fmt(d.base8)}</td>
@@ -1024,17 +1134,45 @@ export default function RegistroComprasFiscal() {
                         <td style={{ ...tdStyle, textAlign: 'right', color: '#fbbf24' }}>{fmt(d.iva)}</td>
                         <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 'bold' }}>{fmt(d.total)}</td>
                         <td style={tdStyle}>
+                          {esGasto ? (
+                            <span style={{ color: '#64748b' }}>—</span>
+                          ) : (
+                            <>
+                              {retencionPorCompra.has(Number(c.id)) && (
+                                <span style={{ display: 'block', color: '#f472b6', fontSize: '0.75rem', fontWeight: 'bold' }}>
+                                  🧮 IVA {retencionPorCompra.get(Number(c.id)).numeroComprobante} ({retencionPorCompra.get(Number(c.id)).porcentajeRetencion}%)
+                                </span>
+                              )}
+                              {retencionIslrPorCompra.has(Number(c.id)) && (
+                                <span style={{ display: 'block', color: '#60a5fa', fontSize: '0.75rem', fontWeight: 'bold' }}>
+                                  📑 ISLR {retencionIslrPorCompra.get(Number(c.id)).numeroComprobante}
+                                </span>
+                              )}
+                              {!retencionPorCompra.has(Number(c.id)) && !retencionIslrPorCompra.has(Number(c.id)) && (
+                                <span style={{ color: '#64748b' }}>—</span>
+                              )}
+                            </>
+                          )}
+                        </td>
+                        <td style={tdStyle}>
                           {c.asientoContableId
                             ? <span style={{ color: '#34d399', fontWeight: 'bold' }}>✅ Asiento #{c.asientoContableId}</span>
                             : <span style={{ color: '#64748b' }}>— sin comprobante</span>}
-                          {retencionPorCompra.has(Number(c.id)) && (
-                            <span style={{ display: 'block', color: '#f472b6', fontSize: '0.75rem', fontWeight: 'bold' }}>
-                              🧮 {retencionPorCompra.get(Number(c.id)).numeroComprobante} ({retencionPorCompra.get(Number(c.id)).porcentajeRetencion}%)
-                            </span>
-                          )}
                         </td>
                         <td style={{ ...tdStyle, textAlign: 'center', whiteSpace: 'nowrap' }}>
-                          {editando ? (
+                          {esGasto ? (
+                            c.asientoContableId ? (
+                              <span style={{ color: '#34d399', fontWeight: 'bold' }} title={`Asiento #${c.asientoContableId}`}>✅</span>
+                            ) : (
+                              <button
+                                onClick={() => contabilizarGastoAccion(c)}
+                                title="Generar comprobante contable del gasto"
+                                style={{ background: '#1d4ed8', color: '#fff', border: 'none', borderRadius: '5px', padding: '5px 9px', cursor: 'pointer' }}
+                              >
+                                🧾
+                              </button>
+                            )
+                          ) : editando ? (
                             <>
                               <button onClick={() => guardarFiscal(c)} title="Guardar" style={{ background: '#16a34a', color: '#fff', border: 'none', borderRadius: '5px', padding: '5px 9px', cursor: 'pointer', fontWeight: 'bold', marginRight: '6px' }}>💾</button>
                               <button onClick={() => setEditandoId(null)} title="Cancelar" style={{ background: '#475569', color: '#fff', border: 'none', borderRadius: '5px', padding: '5px 9px', cursor: 'pointer' }}>✕</button>
@@ -1120,162 +1258,6 @@ export default function RegistroComprasFiscal() {
               </table>
             </div>
           )}
-            </>
-          )}
-            </>
-          ) : (
-            <>
-              {mostrarFormGasto && (
-                <div style={{ background: '#1e293b', border: '1px solid #f59e0b', borderRadius: '12px', padding: '20px', marginBottom: '20px' }}>
-                  <h3 style={{ margin: '0 0 4px 0', color: '#fbbf24', fontSize: '1.05rem' }}>➕ Nuevo gasto fiscal</h3>
-                  <p style={{ margin: '0 0 14px 0', color: '#94a3b8', fontSize: '0.8rem' }}>
-                    Documento propio del módulo fiscal: NO toca inventario ni compras. Requiere periodo contable ABIERTO.
-                  </p>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '12px', marginBottom: '14px' }}>
-                    <div>
-                      <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Fecha</label>
-                      <input type="date" value={formGasto.fecha} onChange={(e) => setFormGasto({ ...formGasto, fecha: e.target.value })} style={inputChico} />
-                    </div>
-                    <div style={{ gridColumn: 'span 2' }}>
-                      <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Concepto</label>
-                      <input type="text" value={formGasto.concepto} onChange={(e) => setFormGasto({ ...formGasto, concepto: e.target.value })} placeholder="Ej: Pago de servicios públicos" style={inputChico} />
-                    </div>
-                    <div>
-                      <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Concepto Contable</label>
-                      <select
-                        value={formGasto.conceptoId}
-                        onChange={(e) => setFormGasto({ ...formGasto, conceptoId: e.target.value })}
-                        style={inputChico}
-                      >
-                        <option value="">Seleccione un concepto…</option>
-                        {conceptosGasto.map((c) => (
-                          <option key={c.id} value={c.id}>{c.nombreConcepto} (Cta: {c.cuentaContable})</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Proveedor (opcional)</label>
-                      <select value={formGasto.codigoProv} onChange={(e) => setFormGasto({ ...formGasto, codigoProv: e.target.value })} style={inputChico}>
-                        <option value="">— Caja —</option>
-                        {proveedores.map((p) => (
-                          <option key={p.codigoProv} value={p.codigoProv}>{p.razonsocial}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div>
-                      <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Monto base (Bs.) — sin IVA</label>
-                      <input type="number" min="0.01" step="0.01" value={formGasto.monto} onChange={(e) => setFormGasto({ ...formGasto, monto: e.target.value })} placeholder="0.00" style={inputChico} />
-                    </div>
-                    <div>
-                      <label style={{ fontSize: '0.75rem', color: '#93c5fd' }}>Alícuota IVA</label>
-                      <select value={formGasto.alicuota} onChange={(e) => setFormGasto({ ...formGasto, alicuota: e.target.value })} style={{ ...inputChico, width: '100%' }}>
-                        <option value="0">0% — EXENTO</option>
-                        <option value="8">8% — reducida</option>
-                        <option value="16">16% — general</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label style={{ fontSize: '0.75rem', color: '#93c5fd' }}>IVA (Bs.) — calculado</label>
-                      <input
-                        type="text"
-                        readOnly
-                        value={alicuotaGasto === 0 ? 'EXENTO' : fmt(ivaGastoBs)}
-                        style={{ ...inputChico, width: '100%', background: '#111827', color: alicuotaGasto === 0 ? '#94a3b8' : '#93c5fd', cursor: 'not-allowed' }}
-                      />
-                      {alicuotaGasto > 0 && baseGastoBs > 0 && (
-                        <span style={{ fontSize: '0.7rem', color: '#64748b' }}>Total con IVA: Bs. {fmt(baseGastoBs + ivaGastoBs)}</span>
-                      )}
-                    </div>
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', alignItems: 'center' }}>
-                    <label style={{ fontSize: '0.8rem', color: '#cbd5e1', display: 'flex', gap: '6px', alignItems: 'center' }}>
-                      <input type="checkbox" checked={contabilizarGastoAuto} onChange={(e) => setContabilizarGastoAuto(e.target.checked)} />
-                      🧾 Contabilizar automáticamente
-                    </label>
-                    <button onClick={() => setMostrarFormGasto(false)} style={{ background: '#475569', color: '#fff', border: 'none', borderRadius: '8px', padding: '9px 16px', cursor: 'pointer', fontWeight: 'bold' }}>Cancelar</button>
-                    <button onClick={guardarGasto} disabled={guardandoGasto} style={{ background: '#16a34a', color: '#fff', border: 'none', borderRadius: '8px', padding: '9px 18px', cursor: guardandoGasto ? 'wait' : 'pointer', fontWeight: 'bold', opacity: guardandoGasto ? 0.6 : 1 }}>
-                      {guardandoGasto ? '⏳ Guardando…' : '💾 Guardar gasto'}
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* --- CONSULTA Y EDICIÓN DE GASTOS (bajo demanda) --- */}
-              {mostrarConsultas && (
-                <>
-              {/* Resumen de gastos del período */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', marginBottom: '20px' }}>
-                {[
-                  { valor: gastos.length, subtitulo: 'GASTOS REGISTRADOS', color: '#38bdf8', bg: '#1e3a8a' },
-                  { valor: fmt(totalGastos), subtitulo: 'TOTAL GASTOS (Bs. + IVA)', color: '#fbbf24', bg: '#78350f' }
-                ].map((tarjeta, i) => (
-                  <div key={i} style={{ background: tarjeta.bg, borderRadius: '12px', padding: '18px 22px', border: '1px solid #334155' }}>
-                    <div style={{ fontSize: '1.7rem', fontWeight: 'bold', color: tarjeta.color }}>{tarjeta.valor}</div>
-                    <div style={{ fontSize: '0.78rem', color: '#94a3b8', marginTop: '4px' }}>{tarjeta.subtitulo}</div>
-                  </div>
-                ))}
-              </div>
-
-              {gastos.length === 0 ? (
-                <div style={{ background: '#1e293b', border: '1px dashed #475569', borderRadius: '12px', padding: '28px', textAlign: 'center', color: '#94a3b8' }}>
-                  No hay gastos registrados en este período. Use «➕ Nuevo gasto» para registrar uno.
-                </div>
-              ) : (
-                <div style={{ background: '#1e293b', borderRadius: '12px', overflowX: 'auto', border: '1px solid #334155' }}>
-                  <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem', minWidth: '720px' }}>
-                    <thead style={{ background: '#0f172a' }}>
-                      <tr style={{ color: '#93c5fd', textAlign: 'left' }}>
-                        <th style={{ padding: '14px 16px' }}>Fecha</th>
-                        <th style={{ padding: '14px 16px' }}>Concepto</th>
-                        <th style={{ padding: '14px 16px' }}>Categoría</th>
-                        <th style={{ padding: '14px 16px' }}>Proveedor</th>
-                        <th style={{ padding: '14px 16px', textAlign: 'right' }}>Base (Bs.)</th>
-                        <th style={{ padding: '14px 16px', textAlign: 'right' }}>IVA</th>
-                        <th style={{ padding: '14px 16px', textAlign: 'right' }}>Total (Bs.)</th>
-                        <th style={{ padding: '14px 16px', textAlign: 'center' }}>Comprobante</th>
-                        <th style={{ padding: '14px 16px', textAlign: 'center' }}>Acción</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {gastos.map((g) => (
-                        <tr key={g.id} style={{ borderTop: '1px solid #334155' }}>
-                          <td style={{ padding: '12px 16px', whiteSpace: 'nowrap' }}>{new Date(g.fecha).toLocaleDateString('es-VE')}</td>
-                          <td style={{ padding: '12px 16px' }}>{g.concepto}</td>
-                          <td style={{ padding: '12px 16px' }}>{g.categoria || '—'}</td>
-                          <td style={{ padding: '12px 16px' }}>{g.proveedor?.razonsocial || '—'}</td>
-                          <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 'bold', color: '#fbbf24' }}>{fmt(g.montoMonedaExt ?? g.monto)}</td>
-                          <td style={{ padding: '12px 16px', textAlign: 'right' }}>
-                            {Number(g.ivaMonedaExt) > 0
-                              ? <span style={{ color: '#93c5fd' }}>{fmt(g.ivaMonedaExt)}</span>
-                              : <span style={{ background: '#334155', color: '#cbd5e1', borderRadius: '6px', padding: '1px 6px', fontSize: '0.7rem', fontWeight: 'bold' }}>EXENTO</span>}
-                          </td>
-                          <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 'bold' }}>
-                            {fmt(Number(g.montoMonedaExt ?? g.monto ?? 0) + Number(g.ivaMonedaExt ?? 0))}
-                          </td>
-                          <td style={{ padding: '12px 16px', textAlign: 'center' }}>
-                            {g.asientoContableId
-                              ? <span style={{ color: '#34d399', fontWeight: 'bold' }} title={`Asiento #${g.asientoContableId}`}>✅</span>
-                              : <span style={{ color: '#94a3b8' }}>⏳</span>}
-                          </td>
-                          <td style={{ padding: '12px 16px', textAlign: 'center' }}>
-                            {!g.asientoContableId && (
-                              <button
-                                onClick={() => contabilizarGastoAccion(g)}
-                                title="Generar comprobante contable"
-                                style={{ background: '#1d4ed8', color: '#fff', border: 'none', borderRadius: '5px', padding: '5px 9px', cursor: 'pointer' }}
-                              >
-                                🧾
-                              </button>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              )}
-                </>
-              )}
             </>
           )}
         </>
