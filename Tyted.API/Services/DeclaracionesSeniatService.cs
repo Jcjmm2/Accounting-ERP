@@ -109,8 +109,13 @@ public static class DeclaracionesSeniatService
             throw new InvalidOperationException("El TXT de IVA no puede generarse:\n- " + UnirErrores(errores));
 
         // PAGO CERO (art. 15 Providencia 0054): se declara aunque no haya habido
-        // retenciones; en ese caso el archivo sale sin líneas de detalle.
-        var contenido = lineas.Count == 0 ? string.Empty : string.Join("\r\n", lineas) + "\r\n";
+        // retenciones; en ese caso el archivo lleva UNA única línea con el RIF
+        // del agente, el periodo (AAAAMM) y "0" en el resto de las 14 columnas:
+        //   J300750949<TAB>202609<TAB>0<TAB>0… (16 columnas A-P).
+        if (lineas.Count == 0)
+            lineas.Add($"{rifAgente}\t{periodo}\t{string.Join("\t", Enumerable.Repeat("0", 14))}");
+
+        var contenido = string.Join("\r\n", lineas) + "\r\n";
 
         var bytes = Encoding.GetEncoding("ISO-8859-1").GetBytes(contenido);
         return (bytes, $"RetIVA_{rifAgente}_{periodo}_Q{quincena}.txt");

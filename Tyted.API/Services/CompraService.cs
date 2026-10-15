@@ -193,7 +193,18 @@ namespace Tyted.API.Services
                 if (string.IsNullOrWhiteSpace(compra.TipoMoneda)) compra.TipoMoneda = "USD";
                 var tasa = compra.TasaDeCambio > 0 ? compra.TasaDeCambio : 1m;
 
-                decimal subtotal = 0m, ivaTotal = 0m;
+                // ENTRADA EN BOLÍVARES (fiscal en Bs.): el formulario fiscal
+                // captura los costos en Bs. y los envía en CostoUnitarioMonedaExt
+                // con TipoMoneda VES. Los Bs. son la VERDAD FISCAL exacta (se
+                // congelan tal cual en los campos *MonedaExt); los campos
+                // *MonedaBase (USD) se derivan con la tasa para el asiento
+                // contable, que sigue la convención de moneda base del libro.
+                var enBolivares = compra.TipoMoneda == "VES" || compra.TipoMoneda == "BS";
+                if (enBolivares && tasa <= 1m)
+                    throw new Exception("La compra fiscal en Bolívares requiere una tasa de cambio Bs./USD válida (mayor que 1).");
+
+                decimal subtotal = 0m, ivaTotal = 0m;          // moneda base (USD)
+                decimal subtotalBs = 0m, ivaTotalBs = 0m;      // Bolívares (Bs.)
                 foreach (var detalle in compra.Detalles)
                 {
                     var producto = await _context.Productos
@@ -208,25 +219,64 @@ namespace Tyted.API.Services
                     if (string.IsNullOrWhiteSpace(detalle.UnidadCompra))
                         detalle.UnidadCompra = unidad.NombreUnidad;
 
-                    var linea = Math.Round(detalle.CostoUnitarioMonedaBase * detalle.Cantidad, 2);
-                    var ivaLinea = Math.Round(linea * (detalle.TasaIVA / 100m), 2);
-                    detalle.SubtotalLineaMonedaBase = linea;
-                    detalle.TotalLineaMonedaBase = linea + ivaLinea;
-                    detalle.CostoUnitarioMonedaExt = detalle.CostoUnitarioMonedaBase * tasa;
-                    detalle.SubtotalLineaMonedaExt = linea * tasa;
-                    detalle.IvaLineaMonedaExt = ivaLinea * tasa;
-                    detalle.TotalLineaMonedaExt = (linea + ivaLinea) * tasa;
+                    if (enBolivares)
+                    {
+                        var costoBs = detalle.CostoUnitarioMonedaExt;
+                        if (costoBs <= 0)
+                            throw new Exception("Costo unitario (Bs.) inválido en las líneas de la compra fiscal.");
 
-                    subtotal += linea;
-                    ivaTotal += ivaLinea;
+                        var lineaBs = Math.Round(costoBs * detalle.Cantidad, 2);
+                        var ivaLineaBs = Math.Round(lineaBs * (detalle.TasaIVA / 100m), 2);
+
+                        detalle.CostoUnitarioMonedaExt = costoBs;
+                        detalle.SubtotalLineaMonedaExt = lineaBs;
+                        detalle.IvaLineaMonedaExt = ivaLineaBs;
+                        detalle.TotalLineaMonedaExt = lineaBs + ivaLineaBs;
+
+                        // Derivación USD (libro contable) con redondeo a centavos.
+                        var linea = Math.Round(lineaBs / tasa, 2);
+                        var ivaLinea = Math.Round(ivaLineaBs / tasa, 2);
+                        detalle.CostoUnitarioMonedaBase = Math.Round(costoBs / tasa, 4);
+                        detalle.SubtotalLineaMonedaBase = linea;
+                        detalle.TotalLineaMonedaBase = linea + ivaLinea;
+
+                        subtotalBs += lineaBs;
+                        ivaTotalBs += ivaLineaBs;
+                        subtotal += linea;
+                        ivaTotal += ivaLinea;
+                    }
+                    else
+                    {
+                        var linea = Math.Round(detalle.CostoUnitarioMonedaBase * detalle.Cantidad, 2);
+                        var ivaLinea = Math.Round(linea * (detalle.TasaIVA / 100m), 2);
+                        detalle.SubtotalLineaMonedaBase = linea;
+                        detalle.TotalLineaMonedaBase = linea + ivaLinea;
+                        detalle.CostoUnitarioMonedaExt = detalle.CostoUnitarioMonedaBase * tasa;
+                        detalle.SubtotalLineaMonedaExt = linea * tasa;
+                        detalle.IvaLineaMonedaExt = ivaLinea * tasa;
+                        detalle.TotalLineaMonedaExt = (linea + ivaLinea) * tasa;
+
+                        subtotal += linea;
+                        ivaTotal += ivaLinea;
+                    }
                 }
 
                 compra.SubtotalMonedaBase = subtotal;
                 compra.IvaMonedaBase = ivaTotal;
                 compra.TotalMonedaBase = subtotal + ivaTotal;
-                compra.SubtotalMonedaExt = subtotal * tasa;
-                compra.IvaMonedaExt = ivaTotal * tasa;
-                compra.TotalMonedaExt = (subtotal + ivaTotal) * tasa;
+                if (enBolivares)
+                {
+                    // Verdad fiscal: Bs. exactos los que digitó el usuario.
+                    compra.SubtotalMonedaExt = subtotalBs;
+                    compra.IvaMonedaExt = ivaTotalBs;
+                    compra.TotalMonedaExt = subtotalBs + ivaTotalBs;
+                }
+                else
+                {
+                    compra.SubtotalMonedaExt = subtotal * tasa;
+                    compra.IvaMonedaExt = ivaTotal * tasa;
+                    compra.TotalMonedaExt = (subtotal + ivaTotal) * tasa;
+                }
                 compra.TasaDeCambio = tasa;
 
                 _context.Compras.Add(compra);

@@ -116,7 +116,10 @@ export default function RegistroComprasFiscal() {
     concepto: '',
     conceptoId: '',
     codigoProv: '',
-    monto: ''
+    monto: '',
+    // Alícuota del gasto: 0 (EXENTO) | 8 | 16. El monto tecleado es la BASE
+    // sin IVA y la alícuota calcula el IVA aparte (Bs.).
+    alicuota: '0'
   });
 
   const empresaId = Number(empresaActiva?.id ?? 0);
@@ -362,15 +365,29 @@ export default function RegistroComprasFiscal() {
   // -------------------------------------------------------------------------
   // ALTA DE COMPRA FISCAL Y GASTOS
   // -------------------------------------------------------------------------
+  // Totales del formulario en Bs. con desglose por alícuota (Providencia 0049):
+  // exento, base reducida 8%, base general 16% y total con IVA.
   const totalesFormCompra = lineasCompra.reduce((acc, l) => {
     const base = Number(l.costo) * Number(l.cantidad);
+    const iva = base * (Number(l.tasaIVA) / 100);
     acc.subtotal += base;
-    acc.iva += base * (Number(l.tasaIVA) / 100);
+    acc.iva += iva;
+    if (Number(l.tasaIVA) === 0) acc.exento += base;
+    else if (Number(l.tasaIVA) === 8) { acc.base8 += base; acc.iva8 += iva; }
+    else { acc.base16 += base; acc.iva16 += iva; }
     return acc;
-  }, { subtotal: 0, iva: 0 });
+  }, { subtotal: 0, iva: 0, exento: 0, base8: 0, iva8: 0, base16: 0, iva16: 0 });
   totalesFormCompra.total = totalesFormCompra.subtotal + totalesFormCompra.iva;
 
-  const totalGastos = gastos.reduce((s, g) => s + Number(g.monto ?? 0), 0);
+  // Gasto en curso: base en Bs. digitada por el usuario + IVA derivado de la
+  // alícuota seleccionada (la base es la verdad fiscal; el IVA va aparte).
+  const alicuotaGasto = Number(formGasto.alicuota || 0);
+  const baseGastoBs = Number(formGasto.monto) || 0;
+  const ivaGastoBs = Number((baseGastoBs * alicuotaGasto / 100).toFixed(2));
+
+  // Total de gastos en BOLÍVARES (verdad fiscal: base + IVA congelados en Bs.).
+  const totalGastos = gastos.reduce((s, g) =>
+    s + Number(g.montoMonedaExt ?? g.monto ?? 0) + Number(g.ivaMonedaExt ?? 0), 0);
 
   const abrirFormCompraFiscal = async () => {
     setFormCompra({
@@ -411,12 +428,16 @@ export default function RegistroComprasFiscal() {
   };
 
   const agregarLineaCompra = (prod) => {
+    // El formulario fiscal captura en BOLÍVARES: el costo del producto se
+    // precarga convertido a Bs. con la tasa del día (USD × tasa).
+    const tasaDia = Number(tasa) || 1;
+    const costoUsd = Number(prod.costoUSD || prod.costoUnitarioMonedaBase || prod.precioUSD || 0);
     setLineasCompra(prev => [...prev, {
       idProductoUnidad: prod.idProductoUnidad,
       codigoProd: prod.codigoProd,
       descripcion: prod.descripcion || 'PRODUCTO',
       unidad: prod.unidad || 'UND',
-      costo: Number(prod.costoUSD || prod.costoUnitarioMonedaBase || prod.precioUSD || 0),
+      costo: Number((costoUsd * tasaDia).toFixed(2)),
       cantidad: 1,
       tasaIVA: Number(prod.porcentajeIva || 0)
     }]);
@@ -453,7 +474,9 @@ export default function RegistroComprasFiscal() {
         numeroFactura: formCompra.numeroFactura,
         numeroControl: formCompra.numeroControl || null,
         tipoTransaccion: formCompra.tipoTransaccion,
-        tipoMoneda: 'USD',
+        // El formulario fiscal captura en BOLÍVARES: TipoMoneda VES le indica al
+        // backend que los costos llegan en CostoUnitarioMonedaExt (Bs. exactos).
+        tipoMoneda: 'VES',
         tasaDeCambio: Number(tasa) || 1,
         aplicaLibroCompras: true,
         esGastoServicio: false,
@@ -462,7 +485,9 @@ export default function RegistroComprasFiscal() {
           idProductoUnidad: Number(l.idProductoUnidad),
           unidadCompra: l.unidad,
           cantidad: Number(l.cantidad),
-          costoUnitarioMonedaBase: Number(l.costo),
+          // En modo VES la verdad fiscal vive en *MonedaExt (Bs.).
+          costoUnitarioMonedaBase: 0,
+          costoUnitarioMonedaExt: Number(l.costo),
           tasaIVA: Number(l.tasaIVA)
         }))
       });
@@ -518,10 +543,15 @@ export default function RegistroComprasFiscal() {
     if (!formGasto.conceptoId) { alert('⚠️ Seleccione el concepto contable (GASTO).'); return; }
     if (!(Number(formGasto.monto) > 0)) { alert('⚠️ El monto debe ser mayor a cero.'); return; }
 
+    const tasaDia = Number(tasa) || 1;
+    const etiquetaIva = alicuotaGasto === 0
+      ? 'exento de IVA'
+      : `IVA ${alicuotaGasto}%: Bs. ${fmt(ivaGastoBs)} (total Bs. ${fmt(baseGastoBs + ivaGastoBs)})`;
+
     const confirmado = window.confirm(
-      `Registrar el gasto «${formGasto.concepto}» por ${fmt(formGasto.monto)}?\n\n` +
-      'El gasto es un documento fiscal propio: NO toca inventario ni compras.' +
-      (contabilizarGastoAuto ? ' Se generará su comprobante contable (Debe el concepto seleccionado / Haber Caja o Proveedores).' : '')
+      `Registrar el gasto «${formGasto.concepto}» por Bs. ${fmt(baseGastoBs)} — ${etiquetaIva}.\n\n` +
+      'El monto es la BASE sin IVA; el gasto es un documento fiscal propio: NO toca inventario ni compras.' +
+      (contabilizarGastoAuto ? ' Se generará su comprobante contable (Debe Gastos + IVA Crédito / Haber Caja o Proveedores).' : '')
     );
     if (!confirmado) return;
 
@@ -535,7 +565,12 @@ export default function RegistroComprasFiscal() {
         // define la cuenta del Debe del comprobante contable.
         conceptoOperacionalId: Number(formGasto.conceptoId),
         codigoProv: formGasto.codigoProv ? Number(formGasto.codigoProv) : null,
-        monto: Number(formGasto.monto),
+        // Verdad fiscal en Bs. EXACTOS (montoMonedaExt/ivaMonedaExt) + moneda
+        // base USD derivada con la tasa para el asiento contable.
+        monto: Number((baseGastoBs / tasaDia).toFixed(2)),
+        montoMonedaExt: baseGastoBs,
+        ivaMonedaExt: ivaGastoBs,
+        tasaDeCambio: tasaDia,
         tipoTransaccion: '01'
       });
 
@@ -814,7 +849,7 @@ export default function RegistroComprasFiscal() {
                         {resultadosProd.map((p) => (
                           <div key={`${p.idProductoUnidad}-${p.codigoProd}`} onClick={() => agregarLineaCompra(p)} style={{ padding: '8px 12px', cursor: 'pointer', display: 'flex', justifyContent: 'space-between', borderBottom: '1px solid #1f2937' }}>
                             <span style={{ fontSize: '0.8rem' }}>{p.descripcion} <b style={{ color: '#94a3b8' }}>({p.unidad})</b></span>
-                            <b style={{ color: '#34d399' }}>${Number(p.costoUSD || p.costoUnitarioMonedaBase || p.precioUSD || 0).toFixed(2)} · IVA {p.porcentajeIva || 0}%</b>
+                            <b style={{ color: '#34d399' }}>Bs. {(Number(p.costoUSD || p.costoUnitarioMonedaBase || p.precioUSD || 0) * (Number(tasa) || 1)).toFixed(2)} · IVA {p.porcentajeIva || 0}%</b>
                           </div>
                         ))}
                       </div>
@@ -827,9 +862,10 @@ export default function RegistroComprasFiscal() {
                         <tr style={{ color: '#86efac', textAlign: 'left' }}>
                           <th style={{ padding: '6px' }}>Producto</th>
                           <th style={{ padding: '6px' }}>Cant.</th>
-                          <th style={{ padding: '6px' }}>Costo $</th>
+                          <th style={{ padding: '6px' }}>Costo (Bs.)</th>
                           <th style={{ padding: '6px' }}>IVA %</th>
-                          <th style={{ padding: '6px', textAlign: 'right' }}>Subtotal</th>
+                          <th style={{ padding: '6px', textAlign: 'right' }}>IVA (Bs.)</th>
+                          <th style={{ padding: '6px', textAlign: 'right' }}>Subtotal (Bs.)</th>
                           <th style={{ padding: '6px' }}></th>
                         </tr>
                       </thead>
@@ -850,7 +886,12 @@ export default function RegistroComprasFiscal() {
                                 <option value={16}>16%</option>
                               </select>
                             </td>
-                            <td style={{ padding: '6px', textAlign: 'right' }}>${(Number(l.costo) * Number(l.cantidad)).toFixed(2)}</td>
+                            <td style={{ padding: '6px', textAlign: 'right' }}>
+                              {Number(l.tasaIVA) === 0
+                                ? <span style={{ background: '#334155', color: '#cbd5e1', borderRadius: '6px', padding: '1px 6px', fontSize: '0.7rem', fontWeight: 'bold' }}>EXENTO</span>
+                                : fmt(Number(l.costo) * Number(l.cantidad) * (Number(l.tasaIVA) / 100))}
+                            </td>
+                            <td style={{ padding: '6px', textAlign: 'right' }}>{fmt(Number(l.costo) * Number(l.cantidad))}</td>
                             <td style={{ padding: '6px', textAlign: 'center' }}>
                               <button onClick={() => quitarLineaCompra(idx)} title="Quitar línea" style={{ background: '#7f1d1d', color: '#fff', border: 'none', borderRadius: '5px', padding: '3px 8px', cursor: 'pointer' }}>🗑️</button>
                             </td>
@@ -861,9 +902,18 @@ export default function RegistroComprasFiscal() {
                   )}
 
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
-                    <div style={{ fontSize: '0.9rem' }}>
-                      <b>Base:</b> ${totalesFormCompra.subtotal.toFixed(2)} · <b>IVA:</b> ${totalesFormCompra.iva.toFixed(2)} ·{' '}
-                      <b style={{ color: '#34d399', fontSize: '1.05rem' }}>${totalesFormCompra.total.toFixed(2)}</b>
+                    <div style={{ fontSize: '0.85rem', lineHeight: '1.7' }}>
+                      <div>
+                        <b style={{ color: '#94a3b8' }}>Exento:</b> Bs. {fmt(totalesFormCompra.exento)}
+                        {' · '}<b style={{ color: '#a78bfa' }}>Base 8%:</b> Bs. {fmt(totalesFormCompra.base8)}
+                        {' + '}<b style={{ color: '#a78bfa' }}>IVA 8%:</b> Bs. {fmt(totalesFormCompra.iva8)}
+                        {' · '}<b style={{ color: '#34d399' }}>Base 16%:</b> Bs. {fmt(totalesFormCompra.base16)}
+                        {' + '}<b style={{ color: '#34d399' }}>IVA 16%:</b> Bs. {fmt(totalesFormCompra.iva16)}
+                      </div>
+                      <div>
+                        <b>Base:</b> Bs. {fmt(totalesFormCompra.subtotal)} · <b>IVA:</b> Bs. {fmt(totalesFormCompra.iva)} ·{' '}
+                        <b style={{ color: '#34d399', fontSize: '1.05rem' }}>Total: Bs. {fmt(totalesFormCompra.total)}</b>
+                      </div>
                     </div>
                     <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
                       <label style={{ fontSize: '0.8rem', color: '#cbd5e1', display: 'flex', gap: '6px', alignItems: 'center' }}>
@@ -1113,8 +1163,28 @@ export default function RegistroComprasFiscal() {
                       </select>
                     </div>
                     <div>
-                      <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Monto (USD)</label>
+                      <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Monto base (Bs.) — sin IVA</label>
                       <input type="number" min="0.01" step="0.01" value={formGasto.monto} onChange={(e) => setFormGasto({ ...formGasto, monto: e.target.value })} placeholder="0.00" style={inputChico} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.75rem', color: '#93c5fd' }}>Alícuota IVA</label>
+                      <select value={formGasto.alicuota} onChange={(e) => setFormGasto({ ...formGasto, alicuota: e.target.value })} style={{ ...inputChico, width: '100%' }}>
+                        <option value="0">0% — EXENTO</option>
+                        <option value="8">8% — reducida</option>
+                        <option value="16">16% — general</option>
+                      </select>
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.75rem', color: '#93c5fd' }}>IVA (Bs.) — calculado</label>
+                      <input
+                        type="text"
+                        readOnly
+                        value={alicuotaGasto === 0 ? 'EXENTO' : fmt(ivaGastoBs)}
+                        style={{ ...inputChico, width: '100%', background: '#111827', color: alicuotaGasto === 0 ? '#94a3b8' : '#93c5fd', cursor: 'not-allowed' }}
+                      />
+                      {alicuotaGasto > 0 && baseGastoBs > 0 && (
+                        <span style={{ fontSize: '0.7rem', color: '#64748b' }}>Total con IVA: Bs. {fmt(baseGastoBs + ivaGastoBs)}</span>
+                      )}
                     </div>
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', alignItems: 'center' }}>
@@ -1137,7 +1207,7 @@ export default function RegistroComprasFiscal() {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px', marginBottom: '20px' }}>
                 {[
                   { valor: gastos.length, subtitulo: 'GASTOS REGISTRADOS', color: '#38bdf8', bg: '#1e3a8a' },
-                  { valor: fmt(totalGastos), subtitulo: 'TOTAL GASTOS (USD)', color: '#fbbf24', bg: '#78350f' }
+                  { valor: fmt(totalGastos), subtitulo: 'TOTAL GASTOS (Bs. + IVA)', color: '#fbbf24', bg: '#78350f' }
                 ].map((tarjeta, i) => (
                   <div key={i} style={{ background: tarjeta.bg, borderRadius: '12px', padding: '18px 22px', border: '1px solid #334155' }}>
                     <div style={{ fontSize: '1.7rem', fontWeight: 'bold', color: tarjeta.color }}>{tarjeta.valor}</div>
@@ -1159,7 +1229,9 @@ export default function RegistroComprasFiscal() {
                         <th style={{ padding: '14px 16px' }}>Concepto</th>
                         <th style={{ padding: '14px 16px' }}>Categoría</th>
                         <th style={{ padding: '14px 16px' }}>Proveedor</th>
-                        <th style={{ padding: '14px 16px', textAlign: 'right' }}>Monto</th>
+                        <th style={{ padding: '14px 16px', textAlign: 'right' }}>Base (Bs.)</th>
+                        <th style={{ padding: '14px 16px', textAlign: 'right' }}>IVA</th>
+                        <th style={{ padding: '14px 16px', textAlign: 'right' }}>Total (Bs.)</th>
                         <th style={{ padding: '14px 16px', textAlign: 'center' }}>Comprobante</th>
                         <th style={{ padding: '14px 16px', textAlign: 'center' }}>Acción</th>
                       </tr>
@@ -1171,7 +1243,15 @@ export default function RegistroComprasFiscal() {
                           <td style={{ padding: '12px 16px' }}>{g.concepto}</td>
                           <td style={{ padding: '12px 16px' }}>{g.categoria || '—'}</td>
                           <td style={{ padding: '12px 16px' }}>{g.proveedor?.razonsocial || '—'}</td>
-                          <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 'bold', color: '#fbbf24' }}>{fmt(g.monto)}</td>
+                          <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 'bold', color: '#fbbf24' }}>{fmt(g.montoMonedaExt ?? g.monto)}</td>
+                          <td style={{ padding: '12px 16px', textAlign: 'right' }}>
+                            {Number(g.ivaMonedaExt) > 0
+                              ? <span style={{ color: '#93c5fd' }}>{fmt(g.ivaMonedaExt)}</span>
+                              : <span style={{ background: '#334155', color: '#cbd5e1', borderRadius: '6px', padding: '1px 6px', fontSize: '0.7rem', fontWeight: 'bold' }}>EXENTO</span>}
+                          </td>
+                          <td style={{ padding: '12px 16px', textAlign: 'right', fontWeight: 'bold' }}>
+                            {fmt(Number(g.montoMonedaExt ?? g.monto ?? 0) + Number(g.ivaMonedaExt ?? 0))}
+                          </td>
                           <td style={{ padding: '12px 16px', textAlign: 'center' }}>
                             {g.asientoContableId
                               ? <span style={{ color: '#34d399', fontWeight: 'bold' }} title={`Asiento #${g.asientoContableId}`}>✅</span>

@@ -74,12 +74,18 @@ public class GastoService
         if (gasto.Fecha == default)
             gasto.Fecha = DateHelper.GetVenezuelaTime();
 
-        // DUALIDAD FISCAL (Inmutabilidad Fiscal): congela el equivalente en
-        // Bolívares (Bs.) al momento de crear el gasto, con la tasa vigente en
-        // ese instante. Si no viene tasa, se asume 1 (gasto ya expresado en Bs.).
+        // DUALIDAD FISCAL (Inmutabilidad Fiscal): el formulario fiscal captura en
+        // Bolívares (Bs.) y envía MontoMonedaExt (base) e IvaMonedaExt ya en Bs.;
+        // esos valores son la VERDAD FISCAL y NO se recalculan. El Monto (moneda
+        // base USD) alimenta el asiento contable; si no viene MontoMonedaExt
+        // (datos antiguos), se deriva con la tasa vigente (retrocompatible: sin
+        // tasa se asume 1, gasto ya expresado en Bs.).
         var tasa = gasto.TasaDeCambio > 0 ? gasto.TasaDeCambio : 1m;
         gasto.TasaDeCambio = tasa;
-        gasto.MontoMonedaExt = Math.Round(gasto.Monto * tasa, 2, MidpointRounding.AwayFromZero);
+        if (gasto.MontoMonedaExt <= 0)
+            gasto.MontoMonedaExt = Math.Round(gasto.Monto * tasa, 2, MidpointRounding.AwayFromZero);
+        if (gasto.IvaMonedaExt < 0)
+            gasto.IvaMonedaExt = 0m;
 
         // Integridad contable: la fecha debe caer en un periodo ABIERTO de la empresa
         var dia = gasto.Fecha.Date;

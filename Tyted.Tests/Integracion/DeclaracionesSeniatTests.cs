@@ -80,13 +80,25 @@ public class DeclaracionesSeniatTests
     }
 
     [Fact]
-    public void GenerarTxtIva_PagoCero_ArchivoSinLineas()
+    public void GenerarTxtIva_PagoCero_GeneraUnaLineaConElRifPeriodoYCeros()
     {
         var (contenido, nombre) = DeclaracionesSeniatService.GenerarTxtIva(
             CrearEmpresa(), Array.Empty<RetencionIvaEmitida>(), 2026, 10, quincena: 2);
 
         Assert.Equal("RetIVA_J308554839_202610_Q2.txt", nombre);
-        Assert.Empty(contenido); // Pago cero: sin líneas de detalle (art. 15)
+
+        // Pago cero (art. 15 Providencia 0054): UNA línea con el RIF del agente,
+        // el periodo AAAAMM y "0" en el resto de columnas:
+        //   J300750949<TAB>202609<TAB>0<TAB>0… (16 columnas A-P).
+        var texto = Encoding.GetEncoding("ISO-8859-1").GetString(contenido);
+        var lineas = texto.Split(new[] { "\r\n" }, StringSplitOptions.RemoveEmptyEntries);
+        var unica = Assert.Single(lineas);
+
+        var c = unica.Split('\t');
+        Assert.Equal(16, c.Length);
+        Assert.Equal("J308554839", c[0]);
+        Assert.Equal("202610", c[1]);
+        Assert.All(c.Skip(2), v => Assert.Equal("0", v));
     }
 
     [Fact]

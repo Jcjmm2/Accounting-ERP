@@ -541,6 +541,17 @@ public class MotorAsientosAutomaticos
         var cuentaDebe = await BuscarCuentaActivaAsync(gasto.EmpresaId, codigoDebe, faltantes);
         var cuentaHaber = await BuscarCuentaActivaAsync(gasto.EmpresaId, codigoHaber, faltantes);
 
+        // IVA del gasto (alícuota 8/16 capturada en Bs. por el formulario
+        // fiscal): se deriva a la moneda del libro contable (USD) y se debita
+        // como IVA Crédito Fiscal; el Haber pasa a ser base + IVA.
+        var ivaBs = Math.Abs(gasto.IvaMonedaExt);
+        var tasaGasto = gasto.TasaDeCambio > 0 ? gasto.TasaDeCambio : 1m;
+        var iva = ivaBs > 0.005m ? Math.Round(ivaBs / tasaGasto, 2) : 0m;
+        var cuentaIva = iva > 0m
+            ? await BuscarCuentaActivaAsync(gasto.EmpresaId,
+                await ResolverCodigoCuentaAsync(gasto.EmpresaId, "IVA_CREDITO", _mapping.IvaCreditoFiscal), faltantes)
+            : null;
+
         if (faltantes.Count > 0)
             return new MotorAsientosResponse
             {
@@ -564,11 +575,19 @@ public class MotorAsientosAutomaticos
             TipoComprobante = "Diario",
             Estado = "Aprobado",
             UsuarioId = usuarioId,
-            Detalles = new List<AsientoDetalle>
-            {
-                new() { CuentaContableId = cuentaDebe!.Id, Debe = monto, Haber = 0m },
-                new() { CuentaContableId = cuentaHaber!.Id, Debe = 0m, Haber = monto }
-            }
+            Detalles = iva > 0m
+                ? new List<AsientoDetalle>
+                {
+                    // Debe Gastos (base) + Debe IVA Crédito Fiscal | Haber total
+                    new() { CuentaContableId = cuentaDebe!.Id, Debe = monto, Haber = 0m },
+                    new() { CuentaContableId = cuentaIva!.Id, Debe = iva, Haber = 0m },
+                    new() { CuentaContableId = cuentaHaber!.Id, Debe = 0m, Haber = monto + iva }
+                }
+                : new List<AsientoDetalle>
+                {
+                    new() { CuentaContableId = cuentaDebe!.Id, Debe = monto, Haber = 0m },
+                    new() { CuentaContableId = cuentaHaber!.Id, Debe = 0m, Haber = monto }
+                }
         });
 
         // Vínculo gasto ↔ comprobante (idempotencia)
@@ -580,8 +599,8 @@ public class MotorAsientosAutomaticos
             Generada = true,
             AsientoId = asiento.Id,
             NumeroComprobante = asiento.NumeroComprobante,
-            TotalDebe = monto,
-            TotalHaber = monto,
+            TotalDebe = monto + iva,
+            TotalHaber = monto + iva,
             Mensaje = "Comprobante contable del gasto generado."
         };
     }

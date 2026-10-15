@@ -385,27 +385,35 @@ export const estructuraLibroCompras = ({ empresa, periodo, totales, compras, ret
 // LIBRO DE GASTOS FISCALES (pestaña Compras y Gastos)
 // ---------------------------------------------------------------------------
 export const estructuraLibroGastos = ({ empresa, periodo, gastos }) => {
-  const columnas = ['Fecha', 'Concepto', 'Categoría', 'Proveedor', 'Monto', 'Comprobante'];
-  const indicesMonto = [4];
+  const columnas = ['Fecha', 'Concepto', 'Categoría', 'Proveedor', 'Base (Bs.)', 'IVA (Bs.)', 'Total (Bs.)', 'Comprobante'];
+  const indicesMonto = [4, 5, 6];
 
-  const filas = gastos.map((g) => [
-    formatearFechaLibro(g.fecha),
-    g.concepto || '—',
-    g.categoria || '—',
-    g.proveedor?.razonsocial || '—',
-    // Monto congelado en Bolívares (Bs.); fallback al monto histórico (tasa 1).
-    fmtMoneda(g.montoMonedaExt ?? g.monto),
-    g.asientoContableId ? `Asiento #${g.asientoContableId}` : 'Sin comprobante'
-  ]);
-
-  const totalGastos = gastos.reduce((s, g) => s + Number(g.montoMonedaExt ?? g.monto ?? 0), 0);
+  let totalBase = 0;
+  let totalIva = 0;
+  const filas = gastos.map((g) => {
+    // Montos congelados en Bolívares (Bs.); fallback al monto histórico (tasa 1).
+    const base = Number(g.montoMonedaExt ?? g.monto ?? 0);
+    const iva = Number(g.ivaMonedaExt ?? 0);
+    totalBase += base;
+    totalIva += iva;
+    return [
+      formatearFechaLibro(g.fecha),
+      g.concepto || '—',
+      g.categoria || '—',
+      g.proveedor?.razonsocial || '—',
+      fmtMoneda(base),
+      iva > 0 ? fmtMoneda(iva) : 'EXENTO',
+      fmtMoneda(base + iva),
+      g.asientoContableId ? `Asiento #${g.asientoContableId}` : 'Sin comprobante'
+    ];
+  });
 
   return {
     titulo: 'Libro de Gastos Fiscales',
     empresa, periodo,
     columnas, indicesMonto,
     filas,
-    totales: ['', `TOTALES (${gastos.length} gastos)`, '', '', fmtMoneda(totalGastos), '']
+    totales: ['', `TOTALES (${gastos.length} gastos)`, '', '', fmtMoneda(totalBase), fmtMoneda(totalIva), fmtMoneda(totalBase + totalIva), '']
   };
 };
 
