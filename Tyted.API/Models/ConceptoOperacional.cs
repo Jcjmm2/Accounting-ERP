@@ -63,5 +63,23 @@ namespace Tyted.API.Models
         /// </summary>
         [Column(TypeName = "decimal(18,4)")]
         public decimal? MontoSustraendoBs { get; set; }
+
+        // ------------------------------------------------------------------
+        // SUJECIÓN A ISLR EN GASTOS (modo híbrido). Sólo aplican cuando
+        // TipoOperacion == "GASTO"; en los demás tipos se limpian. Marcan que
+        // los gastos de este concepto suelen estar sujetos a retención de ISLR
+        // y apuntan al concepto del catálogo ISLR que se SUGIERE preseleccionar
+        // al emitir. La emisión SIEMPRE es explícita por documento (nunca
+        // automática): la tarifa depende del tipo de persona del proveedor.
+        // ------------------------------------------------------------------
+
+        /// <summary>True si los gastos de este concepto suelen estar sujetos a retención de ISLR.</summary>
+        public bool AplicaRetencionIslr { get; set; }
+
+        /// <summary>Concepto ISLR del catálogo Decreto 1.808 sugerido (preselección al emitir).</summary>
+        public int? ConceptoIslrSugeridoId { get; set; }
+
+        [ForeignKey(nameof(ConceptoIslrSugeridoId))]
+        public ConceptoOperacional? ConceptoSugeridoIslr { get; set; }
     }
 }

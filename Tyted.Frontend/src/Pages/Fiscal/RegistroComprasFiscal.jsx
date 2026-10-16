@@ -76,8 +76,9 @@ export default function RegistroComprasFiscal() {
   const [retencionesIslr, setRetencionesIslr] = useState([]);
   // Conceptos de retención ISLR (catálogo de la empresa) para el modal.
   const [conceptosIslr, setConceptosIslr] = useState([]);
-  // Modal de emisión de retención ISLR (compra seleccionada + concepto elegido).
-  const [modalIslr, setModalIslr] = useState(null); // { compra, conceptoId }
+  // Modal de emisión de retención ISLR: { compra | gasto (documento origen),
+  // conceptoId elegido } — la apertura puede traer el concepto sugerido.
+  const [modalIslr, setModalIslr] = useState(null);
   const [emitiendoIslr, setEmitiendoIslr] = useState(false);
   const [cargando, setCargando] = useState(false);
   const [editandoId, setEditandoId] = useState(null);
@@ -115,11 +116,21 @@ export default function RegistroComprasFiscal() {
     concepto: '',
     conceptoId: '',
     codigoProv: '',
+    // Datos fiscales del documento soporte (Libro de Compras SENIAT):
+    // N° de factura/boleta y N° de control son OBLIGATORIOS («S/N» si el
+    // documento no tiene control) y el tipo de transacción es elegible.
+    numeroFactura: '',
+    numeroControl: '',
+    tipoTransaccion: '01',
     monto: '',
     // Alícuota del gasto: 0 (EXENTO) | 8 | 16. El monto tecleado es la BASE
     // sin IVA y la alícuota calcula el IVA aparte (Bs.).
     alicuota: '0'
   });
+  // Modo híbrido ISLR: el concepto GASTO puede marcar «sujeta a ISLR», lo que
+  // preselecciona esta casilla (siempre desmarcable). La emisión de la
+  // retención es SIEMPRE explícita por documento, nunca automática.
+  const [islrEnGasto, setIslrEnGasto] = useState(false);
 
   const empresaId = Number(empresaActiva?.id ?? 0);
   const fechaInicio = periodoActivo?.fechaInicio;
@@ -178,12 +189,33 @@ export default function RegistroComprasFiscal() {
   const retencionPorCompra = new Map(retenciones.map((r) => [Number(r.compraId), r]));
   const totalRetenido = retenciones.reduce((s, r) => s + Number(r.montoRetenidoBs ?? r.montoRetenido ?? 0), 0);
 
-  // Retención de ISLR vigente por compra (una sola por compra).
+  // Retención de ISLR vigente por compra y por gasto (una sola por documento).
   const retencionIslrPorCompra = new Map(retencionesIslr.map((r) => [Number(r.compraId), r]));
+  const retencionIslrPorGasto = new Map(retencionesIslr.filter((r) => r.gastoId).map((r) => [Number(r.gastoId), r]));
 
-  // Abre el modal de retención ISLR cargando el catálogo de conceptos de la empresa.
-  const abrirModalIslr = async (c) => {
-    if (c.isAnulada || retencionIslrPorCompra.has(Number(c.id))) return;
+  // Base imponible en Bs. del documento origen ISLR: para la compra usa el
+  // subtotal congelado (*MonedaExt) o el desglose de líneas; para el gasto usa
+  // la BASE sin IVA digitada (montoMonedaExt) — el IVA nunca integra la base
+  // del ISLR.
+  const baseImponibleIslrBs = (doc, esGasto) => {
+    if (!doc) return 0;
+    if (esGasto) return Number(doc?.montoMonedaExt ?? 0) || Number(doc?.monto ?? 0);
+    const d = desgloseCompra(doc);
+    return Number(doc?.subtotalMonedaExt ?? 0) || d.base;
+  };
+
+  // Abre el modal de retención ISLR con un documento origen (compra o gasto),
+  // cargando el catálogo de conceptos de la empresa. El concepto ISLR puede
+  // venir sugerido por el concepto GASTO (modo híbrido), pero la emisión es
+  // siempre explícita (botón por documento).
+  const abrirModalIslr = async ({ compra = null, gasto = null, conceptoId = '' } = {}) => {
+    const doc = compra || gasto;
+    if (!doc || doc.isAnulada) return;
+    const yaEmitida = compra
+      ? retencionIslrPorCompra.has(Number(compra.id))
+      : retencionIslrPorGasto.has(Number(gasto.id));
+    if (yaEmitida) return;
+
     // Carga el catálogo ISLR una sola vez (o si está vacío).
     if (conceptosIslr.length === 0) {
       try {
@@ -200,22 +232,38 @@ export default function RegistroComprasFiscal() {
         return;
       }
     }
-    setModalIslr({ compra: c, conceptoId: '' });
+
+    // Exclusividad de paneles: abrir el modal cancela la edición en fila y
+    // cierra los paneles superpuestos (la tabla de consultas permanece).
+    setEditandoId(null);
+    setMostrarForm(false);
+    setMostrarReporte(false);
+    setModalIslr({ compra, gasto, conceptoId: conceptoId ? String(conceptoId) : '' });
   };
 
-  // Emite la retención ISLR con el concepto elegido. El backend calcula
-  // (Base × %) − Sustraendo y congela el monto en Bs. (inmutabilidad fiscal).
+  // Emite la retención ISLR con el concepto elegido sobre el documento origen
+  // (compra o gasto). El backend calcula (Base × %) − Sustraendo y congela el
+  // monto en Bs. (inmutabilidad fiscal).
   const emitirRetencionIslr = async () => {
-    if (!modalIslr?.compra || !modalIslr?.conceptoId) return;
-    const c = modalIslr.compra;
+    if (!modalIslr?.conceptoId) return;
+    const compra = modalIslr.compra || null;
+    const gasto = modalIslr.gasto || null;
+    const doc = compra || gasto;
+    if (!doc) return;
     const concepto = conceptosIslr.find((x) => Number(x.id) === Number(modalIslr.conceptoId));
     if (!concepto) return;
 
-    // Base imponible en Bs. (MonedaExt congelado) de la compra.
-    const d = desgloseCompra(c);
-    const baseBs = Number(c?.subtotalMonedaExt ?? 0) || d.base;
+    // Sujeto retenido: el comprobante y el XML exigen el RIF del proveedor.
+    const rif = String(compra?.proveedor?.rif || gasto?.proveedor?.rif || '').trim();
+    if (!rif) {
+      alert('⚠️ El documento no tiene proveedor con RIF: la retención de ISLR requiere el RIF del sujeto retenido.');
+      return;
+    }
+
+    // Base imponible en Bs. (MonedaExt congelado) del documento origen.
+    const baseBs = baseImponibleIslrBs(doc, Boolean(gasto));
     if (!(baseBs > 0)) {
-      alert('⚠️ La compra no tiene base imponible en Bolívares (Bs.) para retener ISLR.');
+      alert('⚠️ El documento no tiene base imponible en Bolívares (Bs.) para retener ISLR.');
       return;
     }
 
@@ -224,8 +272,13 @@ export default function RegistroComprasFiscal() {
     const bruto = baseBs * pct / 100;
     const neto = Math.max(0, bruto - sustraendo);
 
+    const etiquetaDoc = gasto
+      ? `el gasto «${gasto.concepto || '(s/n)'}» (Doc. ${gasto.numeroFactura || '—'})`
+      : `la factura ${compra.numeroFactura || '(s/n)'}`;
+
     const ok = window.confirm(
-      `Emitir retención de ISLR (Decreto 1.808) sobre la factura ${c.numeroFactura || '(s/n)'}?\n\n` +
+      `Emitir retención de ISLR (Decreto 1.808) sobre ${etiquetaDoc}?\n\n` +
+      `Sujeto retenido (RIF): ${rif}\n` +
       `Concepto: ${concepto.nombreConcepto} (Cód. ${concepto.codigoSeniat})\n` +
       `Base imponible (Bs.): ${fmt(baseBs)}\n` +
       `Tarifa: ${pct}%\n` +
@@ -238,7 +291,8 @@ export default function RegistroComprasFiscal() {
     setEmitiendoIslr(true);
     try {
       const r = await fiscalApi.emitirRetencionIslr({
-        compraId: c.id,
+        compraId: compra ? compra.id : null,
+        gastoId: gasto ? gasto.id : null,
         empresaId,
         conceptoOperacionalId: Number(concepto.id),
         baseImponibleBs: baseBs,
@@ -266,8 +320,49 @@ export default function RegistroComprasFiscal() {
     if (mostrarConsultas || mostrarReporte) cargarCompras();
   }, [cargarCompras, mostrarConsultas, mostrarReporte]);
 
-  // Apertura/cierre del panel de consultas (la carga la dispara el useEffect)
-  const alternarConsultas = () => setMostrarConsultas((v) => !v);
+  // Apertura/cierre del panel de consultas (la carga la dispara el useEffect).
+  // EXCLUSIVIDAD: al abrirlo se cierran el formulario de alta, el panel de
+  // reportes, el modal ISLR y cualquier edición en fila en curso; al cerrarlo
+  // se cancela además la edición en fila.
+  const alternarConsultas = () => {
+    if (mostrarConsultas) {
+      setMostrarConsultas(false);
+      setEditandoId(null);
+      return;
+    }
+    setMostrarForm(false);
+    setMostrarReporte(false);
+    setModalIslr(null);
+    setEditandoId(null);
+    setMostrarConsultas(true);
+  };
+
+  // Apertura/cierre del panel de reportes con la misma exclusividad.
+  const alternarReporte = () => {
+    if (mostrarReporte) {
+      setMostrarReporte(false);
+      return;
+    }
+    setMostrarForm(false);
+    setMostrarConsultas(false);
+    setModalIslr(null);
+    setEditandoId(null);
+    setMostrarReporte(true);
+  };
+
+  // UX de modal: mientras el modal ISLR está abierto, Escape lo cierra y el
+  // scroll de fondo queda bloqueado (se restaura al cerrar).
+  useEffect(() => {
+    if (!modalIslr) return undefined;
+    const alPulsarTecla = (e) => { if (e.key === 'Escape') setModalIslr(null); };
+    window.addEventListener('keydown', alPulsarTecla);
+    const overflowAnterior = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      window.removeEventListener('keydown', alPulsarTecla);
+      document.body.style.overflow = overflowAnterior;
+    };
+  }, [modalIslr]);
 
   // Resumen COMBINADO del período (líneas 30/33/34 del formato SENIAT):
   // facturas de compra + gastos, cada uno con sus alícuotas.
@@ -295,6 +390,12 @@ export default function RegistroComprasFiscal() {
   });
 
   const abrirEdicion = (c) => {
+    // Exclusividad: editar en fila cancela el formulario de alta, el panel de
+    // reportes y el modal ISLR (la tabla de consultas permanece: es el contexto
+    // en el que se edita).
+    setMostrarForm(false);
+    setMostrarReporte(false);
+    setModalIslr(null);
     setEditandoId(c.id);
     setFormFiscal({ tipoTransaccion: c.tipoTransaccion || '01', numeroControl: c.numeroControl || '' });
   };
@@ -400,6 +501,12 @@ export default function RegistroComprasFiscal() {
   // seleccionado y precarga los catálogos que necesiten ambos (proveedores;
   // conceptos contable GASTO cuando aplica).
   const abrirFormUnico = async (tipo) => {
+    // Exclusividad de paneles: abrir el formulario cierra el panel de
+    // reportes, la tabla de consultas, el modal ISLR y la edición en fila.
+    setMostrarConsultas(false);
+    setMostrarReporte(false);
+    setModalIslr(null);
+    setEditandoId(null);
     setTipoAlta(tipo);
     if (tipo === 'FACTURA') {
       setFormCompra({
@@ -418,9 +525,13 @@ export default function RegistroComprasFiscal() {
         concepto: '',
         conceptoId: '',
         codigoProv: '',
+        numeroFactura: '',
+        numeroControl: '',
+        tipoTransaccion: '01',
         monto: '',
         alicuota: '0'
       });
+      setIslrEnGasto(false);
     }
     setMostrarForm(true);
 
@@ -489,8 +600,13 @@ export default function RegistroComprasFiscal() {
 
   const guardarCompraFiscal = async () => {
     if (lineasCompra.length === 0) { alert('⚠️ Agregue al menos una línea a la compra fiscal.'); return; }
-    if (!formCompra.codigoProv) { alert('⚠️ Seleccione el proveedor.'); return; }
-    if (!formCompra.numeroFactura?.trim()) { alert('⚠️ Indique el N° de factura.'); return; }
+    if (!formCompra.fecha) { alert('⚠️ Indique la fecha de la factura (debe estar dentro del periodo contable).'); return; }
+    if (!formCompra.codigoProv) { alert('⚠️ Seleccione el proveedor (su RIF alimenta el Libro de Compras).'); return; }
+    if (!formCompra.numeroFactura?.trim()) { alert('⚠️ Indique el N° de factura (dato obligatorio del Libro de Compras).'); return; }
+    if (formCompra.tipoTransaccion === '01' && !formCompra.numeroControl?.trim()) {
+      alert('⚠️ El N° de control es obligatorio para el tipo 01 (Registro).\n\nEs un dato obligatorio del Libro de Compras; si el documento no tiene control, escriba «S/N».');
+      return;
+    }
 
     const confirmado = window.confirm(
       'Registrar la compra fiscal (documento declarativo).\n\n' +
@@ -547,9 +663,30 @@ export default function RegistroComprasFiscal() {
   };
 
   const guardarGasto = async () => {
+    if (!formGasto.fecha) { alert('⚠️ Indique la fecha del gasto (debe estar dentro del periodo contable abierto).'); return; }
     if (!formGasto.concepto.trim()) { alert('⚠️ Indique el concepto del gasto.'); return; }
     if (!formGasto.conceptoId) { alert('⚠️ Seleccione el concepto contable (GASTO).'); return; }
+    if (!formGasto.numeroFactura?.trim()) { alert('⚠️ Indique el N° de factura/documento del gasto (dato obligatorio del Libro de Compras).'); return; }
+    if (!formGasto.numeroControl?.trim()) {
+      alert('⚠️ Indique el N° de control del gasto (dato obligatorio del Libro de Compras).\n\nSi el documento no tiene control (p. ej. boleta de pago), escriba «S/N».');
+      return;
+    }
     if (!(Number(formGasto.monto) > 0)) { alert('⚠️ El monto debe ser mayor a cero.'); return; }
+    // Gasto GRAVADO (IVA > 0) ⇒ exige proveedor con RIF: su base aporta crédito
+    // fiscal al Libro de Compras y el RIF del proveedor es obligatorio ahí.
+    if (alicuotaGasto > 0 && !formGasto.codigoProv) {
+      alert('⚠️ Los gastos con IVA (crédito fiscal) requieren proveedor con RIF.\n\nSeleccione el proveedor o registre el gasto como EXENTO si aplica.');
+      return;
+    }
+    // Retención ISLR desde el formulario (modo híbrido): exige sujeto retenido.
+    if (islrEnGasto && !formGasto.codigoProv) {
+      alert('⚠️ Marcó «Emitir retención ISLR»: seleccione el proveedor (sujeto retenido con RIF) o desmarque la casilla.');
+      return;
+    }
+    // Capturas previas al confirm (el estado se limpia tras guardar).
+    const emitirIslrAlFinalizar = islrEnGasto;
+    const conceptoGastoId = formGasto.conceptoId;
+    const codigoProvGasto = formGasto.codigoProv;
 
     const tasaDia = Number(tasa) || 1;
     const etiquetaIva = alicuotaGasto === 0
@@ -573,13 +710,17 @@ export default function RegistroComprasFiscal() {
         // define la cuenta del Debe del comprobante contable.
         conceptoOperacionalId: Number(formGasto.conceptoId),
         codigoProv: formGasto.codigoProv ? Number(formGasto.codigoProv) : null,
+        // Datos fiscales del documento soporte (columnas N° Factura/N° Control
+        // y Tipo de transacción del Libro de Compras SENIAT).
+        numeroFactura: formGasto.numeroFactura.trim(),
+        numeroControl: formGasto.numeroControl.trim(),
+        tipoTransaccion: formGasto.tipoTransaccion,
         // Verdad fiscal en Bs. EXACTOS (montoMonedaExt/ivaMonedaExt) + moneda
         // base USD derivada con la tasa para el asiento contable.
         monto: Number((baseGastoBs / tasaDia).toFixed(2)),
         montoMonedaExt: baseGastoBs,
         ivaMonedaExt: ivaGastoBs,
-        tasaDeCambio: tasaDia,
-        tipoTransaccion: '01'
+        tasaDeCambio: tasaDia
       });
 
       if (contabilizarGastoAuto && creado?.id) {
@@ -593,7 +734,21 @@ export default function RegistroComprasFiscal() {
 
       alert('✅ Gasto fiscal registrado.');
       setMostrarForm(false);
+      setIslrEnGasto(false);
       await cargarCompras();
+
+      // Modo híbrido ISLR: si se pidió emitir la retención al finalizar, se
+      // abre el modal de emisión con el gasto creado y el concepto ISLR
+      // sugerido por el concepto GASTO preseleccionado (la emisión sigue
+      // siendo explícita: el usuario confirma y puede cambiar el concepto).
+      if (emitirIslrAlFinalizar && creado?.id) {
+        const conceptoSel = conceptosGasto.find((x) => Number(x.id) === Number(conceptoGastoId));
+        const prov = proveedores.find((p) => Number(p.codigoProv) === Number(codigoProvGasto)) || null;
+        await abrirModalIslr({
+          gasto: { ...creado, proveedor: prov },
+          conceptoId: conceptoSel?.conceptoIslrSugeridoId || ''
+        });
+      }
     } catch (error) {
       console.error('Error creando gasto:', error);
       alert(`❌ No se pudo registrar el gasto:\n${mensajeErrorApi(error)}`);
@@ -682,7 +837,7 @@ export default function RegistroComprasFiscal() {
             {mostrarConsultas ? '📋 Cerrar consultas' : '🔍 Consultas y edición'}
           </button>
           <button
-            onClick={() => setMostrarReporte(!mostrarReporte)}
+            onClick={alternarReporte}
             disabled={!hayContexto}
             style={{
               background: mostrarReporte ? '#f59e0b' : '#d97706', color: '#fff', border: 'none', borderRadius: '8px',
@@ -835,12 +990,12 @@ export default function RegistroComprasFiscal() {
                       </select>
                     </div>
                     <div>
-                      <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>N° Factura</label>
+                      <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>N° Factura *</label>
                       <input type="text" value={formCompra.numeroFactura} onChange={(e) => setFormCompra({ ...formCompra, numeroFactura: e.target.value })} placeholder="F-0001" style={inputChico} />
                     </div>
                     <div>
-                      <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>N° Control</label>
-                      <input type="text" value={formCompra.numeroControl} onChange={(e) => setFormCompra({ ...formCompra, numeroControl: e.target.value })} placeholder="00-000000" style={inputChico} />
+                      <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>N° Control {formCompra.tipoTransaccion === '01' ? '*' : '(opcional 02/03)'}</label>
+                      <input type="text" value={formCompra.numeroControl} onChange={(e) => setFormCompra({ ...formCompra, numeroControl: e.target.value })} placeholder="00-00000000 (o S/N)" style={inputChico} />
                     </div>
                     <div>
                       <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Tipo (SENIAT)</label>
@@ -959,22 +1114,54 @@ export default function RegistroComprasFiscal() {
                       <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Concepto Contable</label>
                       <select
                         value={formGasto.conceptoId}
-                        onChange={(e) => setFormGasto({ ...formGasto, conceptoId: e.target.value })}
+                        onChange={(e) => {
+                          const concepto = conceptosGasto.find((x) => Number(x.id) === Number(e.target.value));
+                          setFormGasto({ ...formGasto, conceptoId: e.target.value });
+                          // Modo híbrido ISLR: si el concepto está marcado «sujeta
+                          // a ISLR» se premarca la casilla de emisión (siempre
+                          // desmarcable: la emisión es explícita por documento).
+                          setIslrEnGasto(Boolean(concepto?.aplicaRetencionIslr));
+                        }}
                         style={inputChico}
                       >
                         <option value="">Seleccione un concepto…</option>
                         {conceptosGasto.map((c) => (
-                          <option key={c.id} value={c.id}>{c.nombreConcepto} (Cta: {c.cuentaContable})</option>
+                          <option key={c.id} value={c.id}>
+                            {c.nombreConcepto} (Cta: {c.cuentaContable}{c.aplicaRetencionIslr ? ' · 📑 ISLR' : ''})
+                          </option>
                         ))}
                       </select>
                     </div>
                     <div>
-                      <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Proveedor (opcional)</label>
+                      <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                        Proveedor {alicuotaGasto > 0 ? '*' : '(opcional)'}
+                      </label>
                       <select value={formGasto.codigoProv} onChange={(e) => setFormGasto({ ...formGasto, codigoProv: e.target.value })} style={inputChico}>
                         <option value="">— Caja —</option>
                         {proveedores.map((p) => (
-                          <option key={p.codigoProv} value={p.codigoProv}>{p.razonsocial}</option>
+                          <option key={p.codigoProv} value={p.codigoProv}>{p.razonsocial} ({p.rif || 'S/RIF'})</option>
                         ))}
+                      </select>
+                      {alicuotaGasto > 0 && (
+                        <span style={{ fontSize: '0.7rem', color: '#fbbf24' }}>Obligatorio: gasto gravado ⇒ crédito fiscal con RIF.</span>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* --- DATOS FISCALES DEL DOCUMENTO SOPORTE (Libro de Compras) --- */}
+                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '12px', marginBottom: '14px' }}>
+                    <div>
+                      <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>N° Factura/Documento *</label>
+                      <input type="text" value={formGasto.numeroFactura} onChange={(e) => setFormGasto({ ...formGasto, numeroFactura: e.target.value })} placeholder="F-0001 / Boleta" style={inputChico} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>N° Control *</label>
+                      <input type="text" value={formGasto.numeroControl} onChange={(e) => setFormGasto({ ...formGasto, numeroControl: e.target.value })} placeholder="00-00000000 (o S/N)" style={inputChico} />
+                    </div>
+                    <div>
+                      <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Tipo (SENIAT)</label>
+                      <select value={formGasto.tipoTransaccion} onChange={(e) => setFormGasto({ ...formGasto, tipoTransaccion: e.target.value })} style={inputChico}>
+                        {TIPOS_TRANSACCION.map((t) => <option key={t.valor} value={t.valor}>{t.etiqueta}</option>)}
                       </select>
                     </div>
                   </div>
@@ -1004,6 +1191,28 @@ export default function RegistroComprasFiscal() {
                       )}
                     </div>
                   </div>
+
+                  {/* --- SUJECIÓN A ISLR (MODO HÍBRIDO): el concepto GASTO puede
+                      marcarlo; la emisión sigue siendo SIEMPRE explícita
+                      (casilla desmarcable y confirmación en el modal). --- */}
+                  {(() => {
+                    const conceptoSel = conceptosGasto.find((x) => Number(x.id) === Number(formGasto.conceptoId));
+                    if (!conceptoSel?.aplicaRetencionIslr) return null;
+                    return (
+                      <div style={{ background: '#0c2947', border: '1px solid #2563eb', borderRadius: '8px', padding: '10px 14px', marginBottom: '14px', display: 'flex', alignItems: 'center', gap: '12px', flexWrap: 'wrap' }}>
+                        <label style={{ fontSize: '0.82rem', color: '#93c5fd', display: 'flex', gap: '6px', alignItems: 'center', cursor: 'pointer', fontWeight: 'bold' }}>
+                          <input type="checkbox" checked={islrEnGasto} onChange={(e) => setIslrEnGasto(e.target.checked)} />
+                          📑 Emitir retención ISLR al finalizar
+                        </label>
+                        <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                          El concepto «{conceptoSel.nombreConcepto}» está marcado como sujeto a ISLR
+                          {Number(conceptoSel.conceptoIslrSugeridoId) > 0 ? ' (concepto ISLR sugerido preseleccionado)' : ''}.
+                          La emisión es explícita por documento: se confirma en el modal y el monto se congela en Bs. con correlativo SENIAT.
+                        </span>
+                      </div>
+                    );
+                  })()}
+
                   <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', alignItems: 'center' }}>
                     <label style={{ fontSize: '0.8rem', color: '#cbd5e1', display: 'flex', gap: '6px', alignItems: 'center' }}>
                       <input type="checkbox" checked={contabilizarGastoAuto} onChange={(e) => setContabilizarGastoAuto(e.target.checked)} />
@@ -1088,8 +1297,8 @@ export default function RegistroComprasFiscal() {
                           {esGasto ? (
                             <>
                               <span>{c.concepto}</span>
-                              <span style={{ display: 'block', color: '#94a3b8', fontSize: '0.72rem' }}>
-                                {d.alicuota === 0 ? 'EXENTO' : `IVA ${d.alicuota}%`}
+                              <span style={{ display: 'block', color: '#94a3b8', fontSize: '0.72rem', fontFamily: 'monospace' }}>
+                                {c.numeroFactura || '—'} · {c.numeroControl || '—'} · {d.alicuota === 0 ? 'EXENTO' : `IVA ${d.alicuota}%`}
                               </span>
                             </>
                           ) : editando ? (
@@ -1135,7 +1344,13 @@ export default function RegistroComprasFiscal() {
                         <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 'bold' }}>{fmt(d.total)}</td>
                         <td style={tdStyle}>
                           {esGasto ? (
-                            <span style={{ color: '#64748b' }}>—</span>
+                            retencionIslrPorGasto.has(Number(c.id)) ? (
+                              <span style={{ color: '#60a5fa', fontSize: '0.75rem', fontWeight: 'bold' }}>
+                                📑 ISLR {retencionIslrPorGasto.get(Number(c.id)).numeroComprobante}
+                              </span>
+                            ) : (
+                              <span style={{ color: '#64748b' }}>—</span>
+                            )
                           ) : (
                             <>
                               {retencionPorCompra.has(Number(c.id)) && (
@@ -1161,17 +1376,40 @@ export default function RegistroComprasFiscal() {
                         </td>
                         <td style={{ ...tdStyle, textAlign: 'center', whiteSpace: 'nowrap' }}>
                           {esGasto ? (
-                            c.asientoContableId ? (
-                              <span style={{ color: '#34d399', fontWeight: 'bold' }} title={`Asiento #${c.asientoContableId}`}>✅</span>
-                            ) : (
+                            <>
+                              {c.asientoContableId ? (
+                                <span style={{ color: '#34d399', fontWeight: 'bold' }} title={`Asiento #${c.asientoContableId}`}>✅</span>
+                              ) : (
+                                <button
+                                  onClick={() => contabilizarGastoAccion(c)}
+                                  title="Generar comprobante contable del gasto"
+                                  style={{ background: '#1d4ed8', color: '#fff', border: 'none', borderRadius: '5px', padding: '5px 9px', cursor: 'pointer' }}
+                                >
+                                  🧾
+                                </button>
+                              )}
+                              {/* Retención de ISLR del gasto (Decreto 1.808): emisión o impresión */}
                               <button
-                                onClick={() => contabilizarGastoAccion(c)}
-                                title="Generar comprobante contable del gasto"
-                                style={{ background: '#1d4ed8', color: '#fff', border: 'none', borderRadius: '5px', padding: '5px 9px', cursor: 'pointer' }}
+                                onClick={() => retencionIslrPorGasto.has(Number(c.id))
+                                  ? generarComprobanteISLR(retencionIslrPorGasto.get(Number(c.id)), c, empresaActiva)
+                                  : abrirModalIslr({ gasto: c })}
+                                disabled={c.isAnulada || !c.proveedor?.rif}
+                                title={!c.proveedor?.rif
+                                  ? 'El gasto debe tener proveedor con RIF para emitir retención de ISLR'
+                                  : retencionIslrPorGasto.has(Number(c.id))
+                                    ? 'Imprimir comprobante de retención de ISLR (Decreto 1.808)'
+                                    : 'Emitir comprobante de retención de ISLR (Decreto 1.808)'}
+                                style={{
+                                  background: retencionIslrPorGasto.has(Number(c.id)) ? '#16a34a' : '#2563eb',
+                                  color: '#fff', border: 'none', borderRadius: '5px', padding: '5px 9px',
+                                  cursor: c.isAnulada || !c.proveedor?.rif ? 'not-allowed' : 'pointer',
+                                  marginLeft: '6px',
+                                  opacity: c.isAnulada || !c.proveedor?.rif ? 0.5 : 1
+                                }}
                               >
-                                🧾
+                                {retencionIslrPorGasto.has(Number(c.id)) ? '🖨️ ISLR' : '📑 ISLR'}
                               </button>
-                            )
+                            </>
                           ) : editando ? (
                             <>
                               <button onClick={() => guardarFiscal(c)} title="Guardar" style={{ background: '#16a34a', color: '#fff', border: 'none', borderRadius: '5px', padding: '5px 9px', cursor: 'pointer', fontWeight: 'bold', marginRight: '6px' }}>💾</button>
@@ -1220,7 +1458,7 @@ export default function RegistroComprasFiscal() {
                               <button
                                 onClick={() => retencionIslrPorCompra.has(Number(c.id))
                                   ? generarComprobanteISLR(retencionIslrPorCompra.get(Number(c.id)), c, empresaActiva)
-                                  : abrirModalIslr(c)}
+                                  : abrirModalIslr({ compra: c })}
                                 disabled={c.isAnulada}
                                 title={retencionIslrPorCompra.has(Number(c.id))
                                   ? 'Imprimir comprobante de retención de ISLR (Decreto 1.808)'
@@ -1264,13 +1502,21 @@ export default function RegistroComprasFiscal() {
       )}
 
       {/* --- MODAL DE EMISIÓN DE RETENCIÓN DE ISLR (Decreto 1.808) --- */}
-      {modalIslr && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}>
-          <div style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '24px', width: '560px', maxHeight: '90vh', overflowY: 'auto' }}>
+      {modalIslr && (() => {
+        const docIslr = modalIslr.compra || modalIslr.gasto;
+        const proveedorIslr = docIslr?.proveedor || {};
+        return (
+        <div
+          onClick={(e) => { if (e.target === e.currentTarget) setModalIslr(null); }}
+          style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 1000 }}
+        >
+          <div role="dialog" aria-modal="true" style={{ background: '#1e293b', border: '1px solid #334155', borderRadius: '12px', padding: '24px', width: '560px', maxHeight: '90vh', overflowY: 'auto' }}>
             <h3 style={{ margin: '0 0 4px 0', color: '#60a5fa', fontSize: '1.1rem' }}>📑 Retención de ISLR (Decreto 1.808)</h3>
             <p style={{ color: '#94a3b8', fontSize: '0.82rem', margin: '0 0 16px 0' }}>
-              Factura <b>{modalIslr.compra.numeroFactura || '(s/n)'}</b> · Proveedor <b>{modalIslr.compra.proveedor?.razonsocial || '—'}</b>
-              ({modalIslr.compra.proveedor?.rif || 'S/RIF'})
+              {modalIslr.gasto ? 'Gasto' : 'Factura'} <b>{docIslr?.numeroFactura || '(s/n)'}</b>
+              {modalIslr.gasto && <> · <b>{docIslr.concepto || ''}</b></>}
+              {' · '}Proveedor <b>{proveedorIslr.razonsocial || '—'}</b>
+              ({proveedorIslr.rif || 'S/RIF'})
             </p>
 
             <label style={{ fontSize: '0.78rem', color: '#93c5fd', fontWeight: 'bold' }}>Concepto de retención (catálogo Decreto 1.808):</label>
@@ -1291,8 +1537,7 @@ export default function RegistroComprasFiscal() {
             {modalIslr.conceptoId && (() => {
               const concepto = conceptosIslr.find((x) => Number(x.id) === Number(modalIslr.conceptoId));
               if (!concepto) return null;
-              const d = desgloseCompra(modalIslr.compra);
-              const baseBs = Number(modalIslr.compra?.subtotalMonedaExt ?? 0) || d.base;
+              const baseBs = baseImponibleIslrBs(modalIslr.compra || modalIslr.gasto, Boolean(modalIslr.gasto));
               const pct = Number(concepto.porcentajeRetencion ?? 0);
               const sustraendo = concepto.aplicaSustraendo ? Number(concepto.montoSustraendoBs ?? 0) : 0;
               const neto = Math.max(0, baseBs * pct / 100 - sustraendo);
@@ -1325,7 +1570,8 @@ export default function RegistroComprasFiscal() {
             </div>
           </div>
         </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

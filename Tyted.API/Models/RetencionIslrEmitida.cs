@@ -18,11 +18,20 @@ namespace Tyted.API.Models
         /// <summary>Empresa (contribuyente) emisora de la retención.</summary>
         public int EmpresaId { get; set; } = 1;
 
-        /// <summary>Documento de origen (compra) si aplica.</summary>
+        /// <summary>Documento de origen (compra) si aplica. Exclusivo con GastoId.</summary>
         public int? CompraId { get; set; }
 
         [ForeignKey(nameof(CompraId))]
         public Compra? Compra { get; set; }
+
+        /// <summary>
+        /// Documento de origen (gasto fiscal) si aplica. Exclusivo con CompraId:
+        /// una retención de ISLR se emite sobre UN solo documento de origen.
+        /// </summary>
+        public int? GastoId { get; set; }
+
+        [ForeignKey(nameof(GastoId))]
+        public Gasto? Gasto { get; set; }
 
         public DateTime FechaRetencion { get; set; }
 

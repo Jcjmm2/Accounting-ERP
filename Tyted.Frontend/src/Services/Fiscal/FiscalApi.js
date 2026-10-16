@@ -115,11 +115,12 @@ export const fiscalApi = {
     return response.data;
   },
 
-  // Emite la retención de ISLR sobre una compra. El concepto aporta el % y el
-  // sustraendo; el backend congela el monto en Bs. (inmutabilidad fiscal).
-  emitirRetencionIslr: async ({ compraId, empresaId, conceptoOperacionalId, baseImponibleBs, porcentajeRetencion, tasaDeCambio }) => {
+  // Emite la retención de ISLR sobre una compra o un gasto fiscal (origen
+  // exclusivo). El concepto aporta el % y el sustraendo; el backend congela
+  // el monto en Bs. (inmutabilidad fiscal).
+  emitirRetencionIslr: async ({ compraId, gastoId, empresaId, conceptoOperacionalId, baseImponibleBs, porcentajeRetencion, tasaDeCambio }) => {
     const response = await api.post('/retenciones-islr', {
-      compraId, empresaId, conceptoOperacionalId, baseImponibleBs, porcentajeRetencion, tasaDeCambio
+      compraId, gastoId, empresaId, conceptoOperacionalId, baseImponibleBs, porcentajeRetencion, tasaDeCambio
     });
     return response.data;
   },

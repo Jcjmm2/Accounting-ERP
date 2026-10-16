@@ -223,6 +223,8 @@ public class DocumentosFiscalesTests
             CodigoProv = 1,
             FechaCompra = new DateTime(2026, 10, 11),
             NumeroFactura = "F-900",
+            NumeroControl = "00-00012345",
+            TipoTransaccion = "01",
             TipoMoneda = "USD",
             TasaDeCambio = 1m,
             Detalles = new List<CompraDetalle> { LineaCompra(uid) } // 3 × $5 + 16% IVA
@@ -261,6 +263,8 @@ public class DocumentosFiscalesTests
             Fecha = new DateTime(2026, 10, 12),
             Concepto = "Pago de servicios públicos",
             Categoria = "SERVICIO",
+            NumeroFactura = "B-100",
+            NumeroControl = "S/N",
             Monto = 100m
         }, usuario: "TESTER");
 
@@ -299,6 +303,8 @@ public class DocumentosFiscalesTests
                 EmpresaId = 1,
                 Fecha = new DateTime(2026, 11, 5),
                 Concepto = "Gasto fuera de periodo",
+                NumeroFactura = "B-200",
+                NumeroControl = "S/N",
                 Monto = 10m
             }));
 

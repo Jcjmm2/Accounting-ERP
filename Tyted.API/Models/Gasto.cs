@@ -63,6 +63,20 @@ namespace Tyted.API.Models
         [Column(TypeName = "decimal(18,4)")]
         public decimal IvaMonedaExt { get; set; } // Bs. (Si aplica)
 
+        // ------------------------------------------------------------------
+        // DATOS FISCALES DEL DOCUMENTO SOPORTE (Libro de Compras SENIAT):
+        // N° de factura/boleta y N° de control. Obligatorios al registrar un
+        // gasto nuevo; nullable SÓLO por compatibilidad con gastos antiguos.
+        // ------------------------------------------------------------------
+
+        /// <summary>N° de factura/boleta/recibo del gasto (columna «N° Factura» del Libro de Compras).</summary>
+        [StringLength(50)]
+        public string? NumeroFactura { get; set; }
+
+        /// <summary>N° de control del documento (columna «N° Control» del Libro de Compras). «S/N» si no existe.</summary>
+        [StringLength(50)]
+        public string? NumeroControl { get; set; }
+
         /// <summary>Tipo de transacción SENIAT: 01-Registro, 02-Complemento, 03-Anulación.</summary>
         [StringLength(2)]
         public string TipoTransaccion { get; set; } = "01";

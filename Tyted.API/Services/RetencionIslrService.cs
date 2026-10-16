@@ -42,9 +42,10 @@ public class RetencionIslrService
     }
 
     /// <summary>
-    /// Emite el comprobante de retención de ISLR para un documento de origen.
-    /// La base imponible debe venir ya en Bolívares (Bs.); si sólo se recibe en
-    /// USD, se convierte con la tasa congelada del documento.
+    /// Emite el comprobante de retención de ISLR para un documento de origen
+    /// (compra o gasto fiscal; mutuamente excluyentes). La base imponible debe
+    /// venir ya en Bolívares (Bs.); si sólo se recibe en USD, se convierte con
+    /// la tasa congelada del documento.
     /// </summary>
     public async Task<RetencionIslrEmitida> EmitirAsync(
         int empresaId,
@@ -52,6 +53,7 @@ public class RetencionIslrService
         decimal porcentaje,
         decimal tasaDeCambio,
         int? compraId = null,
+        int? gastoId = null,
         int? conceptoOperacionalId = null,
         string? proveedorRif = null,
         string? proveedorNombre = null,
@@ -62,6 +64,9 @@ public class RetencionIslrService
             throw new InvalidOperationException("La base imponible para la retención de ISLR debe ser mayor a cero.");
         if (porcentaje <= 0m || porcentaje > 100m)
             throw new InvalidOperationException("El porcentaje de retención de ISLR debe estar entre 0 (exclusivo) y 100.");
+        if (compraId.HasValue && gastoId.HasValue)
+            throw new InvalidOperationException(
+                "La retención de ISLR no puede asociarse a una compra y a un gasto al mismo tiempo: elija UN documento de origen.");
 
         var tasa = tasaDeCambio > 0 ? tasaDeCambio : 1m;
 
@@ -79,6 +84,31 @@ public class RetencionIslrService
                 throw new InvalidOperationException("La compra no pertenece a la empresa activa.");
             if (compra.IsAnulada)
                 throw new InvalidOperationException("No se emiten retenciones de ISLR sobre compras anuladas.");
+        }
+
+        // Documento de origen GASTO (módulo fiscal): exige proveedor con RIF,
+        // porque el sujeto retenido del comprobante y del XML de declaraciones
+        // DEBE llevar RIF con formato SENIAT (V/E/J/P/G + 9 dígitos).
+        Gasto? gasto = null;
+        if (gastoId.HasValue)
+        {
+            gasto = await _context.Gastos
+                .AsNoTracking()
+                .Include(g => g.Proveedor)
+                .FirstOrDefaultAsync(g => g.Id == gastoId.Value);
+
+            if (gasto is null)
+                throw new InvalidOperationException("El gasto origen de la retención de ISLR no existe.");
+            if (gasto.EmpresaId != empresaId)
+                throw new InvalidOperationException("El gasto no pertenece a la empresa activa.");
+            if (gasto.IsAnulada)
+                throw new InvalidOperationException("No se emiten retenciones de ISLR sobre gastos anulados.");
+            if (string.IsNullOrWhiteSpace(gasto.NumeroFactura))
+                throw new InvalidOperationException(
+                    "El gasto origen no tiene N° de factura/documento: dato obligatorio del comprobante de retención de ISLR.");
+            if (string.IsNullOrWhiteSpace(gasto.Proveedor?.RIF))
+                throw new InvalidOperationException(
+                    "El gasto origen no tiene proveedor con RIF; el comprobante de retención de ISLR requiere el RIF del sujeto retenido.");
         }
 
         // Concepto del Decreto 1.808 (si se emitió desde el catálogo).
@@ -108,15 +138,18 @@ public class RetencionIslrService
         {
             EmpresaId = empresaId,
             CompraId = compraId,
+            GastoId = gastoId,
             ConceptoOperacionalId = conceptoOperacionalId,
             CodigoConcepto = concepto?.CodigoSeniat,
             SustraendoBs = sustraendo,
             FechaRetencion = fecha,
             NumeroComprobante = await GenerarNumeroComprobanteAsync(empresaId, fecha),
-            ProveedorRif = proveedorRif ?? compra?.Proveedor?.RIF ?? string.Empty,
-            ProveedorNombre = proveedorNombre ?? compra?.Proveedor?.Razonsocial ?? string.Empty,
-            NumeroFactura = numeroFactura ?? compra?.NumeroFactura ?? string.Empty,
-            NumeroControl = numeroControl ?? compra?.NumeroControl,
+            // SNAPSHOT del documento origen (lo que declara el XML): proveedor,
+            // factura y control del COMPRADO o del GASTO retenido.
+            ProveedorRif = proveedorRif ?? compra?.Proveedor?.RIF ?? gasto?.Proveedor?.RIF ?? string.Empty,
+            ProveedorNombre = proveedorNombre ?? compra?.Proveedor?.Razonsocial ?? gasto?.Proveedor?.Razonsocial ?? string.Empty,
+            NumeroFactura = numeroFactura ?? compra?.NumeroFactura ?? gasto?.NumeroFactura ?? string.Empty,
+            NumeroControl = numeroControl ?? compra?.NumeroControl ?? gasto?.NumeroControl,
             BaseImponibleBs = baseImponible,
             PorcentajeRetencion = porcentaje,
             MontoRetenidoBs = montoRetenidoBs,

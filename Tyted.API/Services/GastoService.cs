@@ -51,6 +51,27 @@ public class GastoService
         if (gasto.EmpresaId <= 0)
             throw new InvalidOperationException("Indique la empresa a la que pertenece el gasto.");
 
+        // DATOS FISCALES DEL LIBRO DE COMPRAS: el N° de factura/boleta y el
+        // N° de control del documento soporte son OBLIGATORIOS. Si el documento
+        // no tiene control (p. ej. boleta de pago), el usuario debe indicarlo
+        // explícitamente con «S/N» para que la casilla del libro quede completa.
+        if (string.IsNullOrWhiteSpace(gasto.NumeroFactura))
+            throw new InvalidOperationException(
+                "El N° de factura/documento del gasto es obligatorio (dato del Libro de Compras).");
+        var control = gasto.NumeroControl?.Trim();
+        if (string.IsNullOrWhiteSpace(control))
+            throw new InvalidOperationException(
+                "El N° de control del gasto es obligatorio (dato del Libro de Compras). Si el documento no tiene control, escriba «S/N».");
+        gasto.NumeroFactura = gasto.NumeroFactura.Trim();
+        gasto.NumeroControl = control;
+
+        // Tipo de transacción SENIAT (01 Registro / 02 Complemento / 03 Anulación).
+        gasto.TipoTransaccion = string.IsNullOrWhiteSpace(gasto.TipoTransaccion)
+            ? "01"
+            : gasto.TipoTransaccion.Trim();
+        if (gasto.TipoTransaccion is not ("01" or "02" or "03"))
+            throw new InvalidOperationException("El tipo de transacción SENIAT del gasto debe ser 01, 02 o 03.");
+
         // Concepto operacional (puente con el plan de cuentas): debe ser de la
         // misma empresa y de tipo GASTO. Su CuentaContable define el Debe al
         // contabilizar (fallback a la cuenta global de gastos si no hay concepto).

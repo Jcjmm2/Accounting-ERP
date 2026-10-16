@@ -63,6 +63,7 @@ public class RetencionIslrController : ControllerBase
                 request.PorcentajeRetencion,
                 request.TasaDeCambio,
                 request.CompraId,
+                request.GastoId,
                 request.ConceptoOperacionalId,
                 request.ProveedorRif,
                 request.ProveedorNombre,
@@ -89,7 +90,10 @@ public class EmitirRetencionIslrRequest
     public decimal TasaDeCambio { get; set; } = 1m;
     /// <summary>Concepto de retención del Decreto 1.808 (aporta % y sustraendo).</summary>
     public int? ConceptoOperacionalId { get; set; }
+    /// <summary>Documento de origen: compra (factura). Exclusivo con GastoId.</summary>
     public int? CompraId { get; set; }
+    /// <summary>Documento de origen: gasto fiscal. Exclusivo con CompraId.</summary>
+    public int? GastoId { get; set; }
     public string? ProveedorRif { get; set; }
     public string? ProveedorNombre { get; set; }
     public string? NumeroFactura { get; set; }

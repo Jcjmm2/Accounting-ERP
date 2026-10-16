@@ -184,6 +184,27 @@ namespace Tyted.API.Services
             if (compra.CodigoProv == null)
                 throw new Exception("Indique el proveedor de la compra fiscal.");
 
+            // DATOS FISCALES DEL LIBRO DE COMPRAS (SENIAT): N° de factura
+            // obligatorio siempre; N° de control obligatorio para el tipo 01
+            // (Registro) — los complementos (02) y anulaciones (03) pueden
+            // prescindir de él porque refieren a un documento afectado.
+            if (string.IsNullOrWhiteSpace(compra.NumeroFactura))
+                throw new Exception("El N° de factura de la compra fiscal es obligatorio (dato del Libro de Compras).");
+            compra.NumeroFactura = compra.NumeroFactura.Trim();
+
+            compra.TipoTransaccion = string.IsNullOrWhiteSpace(compra.TipoTransaccion)
+                ? "01"
+                : compra.TipoTransaccion.Trim();
+            if (compra.TipoTransaccion is not ("01" or "02" or "03"))
+                throw new Exception("El tipo de transacción SENIAT de la compra fiscal debe ser 01, 02 o 03.");
+
+            if (compra.TipoTransaccion == "01" && string.IsNullOrWhiteSpace(compra.NumeroControl))
+                throw new Exception(
+                    "El N° de control de la factura es obligatorio (tipo 01 Registro; dato del Libro de Compras). " +
+                    "Si el documento no tiene control, escriba «S/N».");
+            if (!string.IsNullOrWhiteSpace(compra.NumeroControl))
+                compra.NumeroControl = compra.NumeroControl.Trim();
+
             using var transaction = await _context.Database.BeginTransactionAsync();
             try
             {

@@ -364,7 +364,10 @@ export const estructuraLibroCompras = ({ empresa, periodo, totales, compras, gas
         g.proveedor?.rif || 'S/RIF',
         `${g.proveedor?.razonsocial || '— CAJA —'}${g.isAnulada ? ' (ANULADA)' : ''}`,
         '01', '', '',
-        g.concepto || 'GASTO', '—', '', '',
+        // Datos fiscales del documento soporte del gasto (obligatorios desde
+        // el alta; fallback al concepto/S— para gastos antiguos sin captura).
+        g.numeroFactura || g.concepto || 'GASTO',
+        g.numeroControl || '—', '', '',
         g.tipoTransaccion || '01-REG', '',
         fmtMoneda(d.total), fmtMoneda(d.exento),
         fmtMoneda(d.base16), '16%', fmtMoneda(d.iva16),

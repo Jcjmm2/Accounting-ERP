@@ -72,6 +72,37 @@ namespace Tyted.API.Controllers
                     : null;
         }
 
+        /// <summary>
+        /// Normaliza la sujeción a ISLR de los conceptos tipo GASTO (modo
+        /// híbrido): fuera de GASTO se limpia; si está marcada, el concepto
+        /// ISLR sugerido debe existir y ser de tipo ISLR de la MISMA empresa.
+        /// Es SÓLO una preselección para el formulario de gastos: la emisión
+        /// de la retención siempre es explícita por documento.
+        /// </summary>
+        private async Task<string?> ValidarSujecionIslrAsync(ConceptoOperacional concepto)
+        {
+            if (concepto.TipoOperacion != "GASTO" || !concepto.AplicaRetencionIslr)
+            {
+                concepto.AplicaRetencionIslr = false;
+                concepto.ConceptoIslrSugeridoId = null;
+                return null;
+            }
+
+            // Marcada sin sugerido: el usuario elegirá el concepto ISLR en el
+            // momento de emitir la retención sobre cada gasto.
+            if (!concepto.ConceptoIslrSugeridoId.HasValue)
+                return null;
+
+            var sugerido = await _context.ConceptosOperacionales
+                .AsNoTracking()
+                .FirstOrDefaultAsync(c => c.Id == concepto.ConceptoIslrSugeridoId.Value);
+
+            if (sugerido is null || sugerido.EmpresaId != concepto.EmpresaId || sugerido.TipoOperacion != "ISLR")
+                return "El concepto ISLR sugerido no existe, no es de tipo ISLR o pertenece a otra empresa.";
+
+            return null;
+        }
+
         // GET: api/conceptos-operacionales?empresaId=1&tipo=GASTO
         [HttpGet]
         public async Task<ActionResult<IEnumerable<ConceptoOperacional>>> GetConceptos(
@@ -128,6 +159,12 @@ namespace Tyted.API.Controllers
             // sustraendo en el SERVIDOR con la Unidad Tributaria vigente.
             AplicarAtributosIslr(concepto);
 
+            // Sujección ISLR de conceptos GASTO (modo híbrido): valida la marca
+            // y el concepto ISLR sugerido (preselección; nunca emisión automática).
+            var errorSujecion = await ValidarSujecionIslrAsync(concepto);
+            if (errorSujecion != null)
+                return BadRequest(new { message = errorSujecion });
+
             var duplicado = await _context.ConceptosOperacionales.AnyAsync(c =>
                 c.EmpresaId == concepto.EmpresaId
                 && c.NombreConcepto == concepto.NombreConcepto
@@ -170,6 +207,14 @@ namespace Tyted.API.Controllers
             concepto.PorcentajeRetencion = datos.PorcentajeRetencion;
             concepto.AplicaSustraendo = datos.AplicaSustraendo;
             AplicarAtributosIslr(concepto);
+
+            // Sujección ISLR de conceptos GASTO (modo híbrido): persiste la
+            // marca y el concepto sugerido; fuera de GASTO se limpia.
+            concepto.AplicaRetencionIslr = datos.AplicaRetencionIslr;
+            concepto.ConceptoIslrSugeridoId = datos.ConceptoIslrSugeridoId;
+            var errorSujecion = await ValidarSujecionIslrAsync(concepto);
+            if (errorSujecion != null)
+                return BadRequest(new { message = errorSujecion });
 
             // Paridad con POST: el nombre debe ser único por empresa y tipo.
             var duplicado = await _context.ConceptosOperacionales.AnyAsync(c =>

@@ -105,6 +105,8 @@ public class MontosFiscalesBsTests
             CodigoProv = 1,
             FechaCompra = new DateTime(2026, 10, 10),
             NumeroFactura = "F-100",
+            NumeroControl = "00-00099988",
+            TipoTransaccion = "01",
             TipoMoneda = "VES",
             TasaDeCambio = 40m,
             Detalles = new List<CompraDetalle>
@@ -149,6 +151,8 @@ public class MontosFiscalesBsTests
             EmpresaId = 1,
             Fecha = new DateTime(2026, 10, 12),
             Concepto = "Alquiler del local (Bs.)",
+            NumeroFactura = "REC-001",
+            NumeroControl = "S/N",
             Monto = 30.86m,            // USD derivado (1234.56 / 40) p/ el asiento
             TasaDeCambio = 40m,
             MontoMonedaExt = 1234.56m, // Bs. digitados: VERDAD FISCAL
@@ -177,6 +181,8 @@ public class MontosFiscalesBsTests
             EmpresaId = 1,
             Fecha = new DateTime(2026, 10, 12),
             Concepto = "Gasto histórico",
+            NumeroFactura = "DOC-HIST",
+            NumeroControl = "S/N",
             Monto = 100m
         });
 
@@ -196,6 +202,8 @@ public class MontosFiscalesBsTests
             EmpresaId = 1,
             Fecha = new DateTime(2026, 10, 12),
             Concepto = "Servicio profesional con IVA 16%",
+            NumeroFactura = "F-SP-1",
+            NumeroControl = "00-00055544",
             Monto = 100m,           // base USD (4000 Bs. / 40)
             TasaDeCambio = 40m,
             MontoMonedaExt = 4000m, // base Bs.

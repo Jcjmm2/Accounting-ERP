@@ -424,12 +424,18 @@ namespace Tyted.API.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<bool>("AplicaRetencionIslr")
+                        .HasColumnType("bit");
+
                     b.Property<bool>("AplicaSustraendo")
                         .HasColumnType("bit");
 
                     b.Property<string>("CodigoSeniat")
                         .HasMaxLength(3)
                         .HasColumnType("nvarchar(3)");
+
+                    b.Property<int?>("ConceptoIslrSugeridoId")
+                        .HasColumnType("int");
 
                     b.Property<string>("CuentaContable")
                         .IsRequired()
@@ -460,6 +466,8 @@ namespace Tyted.API.Migrations
                         .HasColumnType("nvarchar(4)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("ConceptoIslrSugeridoId");
 
                     b.HasIndex("EmpresaId", "NombreConcepto")
                         .IsUnique();
@@ -708,6 +716,14 @@ namespace Tyted.API.Migrations
 
                     b.Property<decimal>("MontoMonedaExt")
                         .HasColumnType("decimal(18, 4)");
+
+                    b.Property<string>("NumeroControl")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
+
+                    b.Property<string>("NumeroFactura")
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
 
                     b.Property<string>("Origen")
                         .HasMaxLength(20)
@@ -1262,6 +1278,9 @@ namespace Tyted.API.Migrations
                     b.Property<DateTime>("FechaRetencion")
                         .HasColumnType("datetime2");
 
+                    b.Property<int?>("GastoId")
+                        .HasColumnType("int");
+
                     b.Property<decimal>("MontoRetenidoBs")
                         .HasColumnType("decimal(18, 4)");
 
@@ -1303,6 +1322,8 @@ namespace Tyted.API.Migrations
                     b.HasIndex("CompraId");
 
                     b.HasIndex("ConceptoOperacionalId");
+
+                    b.HasIndex("GastoId");
 
                     b.ToTable("RetencionesIslrEmitidas");
                 });
@@ -1775,11 +1796,17 @@ namespace Tyted.API.Migrations
 
             modelBuilder.Entity("Tyted.API.Models.ConceptoOperacional", b =>
                 {
+                    b.HasOne("Tyted.API.Models.ConceptoOperacional", "ConceptoSugeridoIslr")
+                        .WithMany()
+                        .HasForeignKey("ConceptoIslrSugeridoId");
+
                     b.HasOne("Tyted.API.Models.Empresa", "Empresa")
                         .WithMany()
                         .HasForeignKey("EmpresaId")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+
+                    b.Navigation("ConceptoSugeridoIslr");
 
                     b.Navigation("Empresa");
                 });
@@ -1955,9 +1982,15 @@ namespace Tyted.API.Migrations
                         .WithMany()
                         .HasForeignKey("ConceptoOperacionalId");
 
+                    b.HasOne("Tyted.API.Models.Gasto", "Gasto")
+                        .WithMany()
+                        .HasForeignKey("GastoId");
+
                     b.Navigation("Compra");
 
                     b.Navigation("ConceptoOperacional");
+
+                    b.Navigation("Gasto");
                 });
 
             modelBuilder.Entity("Tyted.API.Models.RetencionIvaEmitida", b =>

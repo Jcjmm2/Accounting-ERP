@@ -65,12 +65,17 @@ export default function ConceptosOperacionales() {
   const [busquedaCuenta, setBusquedaCuenta] = useState('');
 
   // Formulario crear/editar (editandoId null = alta). Los campos fiscales ISLR
-  // sólo se usan cuando tipoOperacion === 'ISLR'.
+  // sólo se usan cuando tipoOperacion === 'ISLR'; los de sujeción ISLR
+  // (aplicaRetencionIslr/conceptoIslrSugeridoId) cuando tipoOperacion === 'GASTO'.
   const [editandoId, setEditandoId] = useState(null);
   const [form, setForm] = useState({
     nombreConcepto: '', tipoOperacion: 'VENTA', cuentaContable: '',
-    codigoSeniat: '', tipoPersona: 'PNR', porcentajeRetencion: '', aplicaSustraendo: false
+    codigoSeniat: '', tipoPersona: 'PNR', porcentajeRetencion: '', aplicaSustraendo: false,
+    aplicaRetencionIslr: false, conceptoIslrSugeridoId: ''
   });
+  // Catálogo ISLR de la empresa para el selector de "concepto ISLR sugerido"
+  // de los conceptos GASTO (modo híbrido; carga bajo demanda).
+  const [conceptosIslrSugeribles, setConceptosIslrSugeribles] = useState([]);
 
   const cargarConceptos = useCallback(async (tipo) => {
     if (!empresaId || !tipo) { setConceptos([]); return; }
@@ -99,6 +104,19 @@ export default function ConceptosOperacionales() {
 
   // Recarga al cambiar de tipo de operación
   useEffect(() => { cargarConceptos(tipoActivo); }, [cargarConceptos, tipoActivo]);
+
+  // Catálogo ISLR (para el "concepto ISLR sugerido" de los conceptos GASTO):
+  // se carga una sola vez, bajo demanda, al abrir el formulario en modo GASTO.
+  const cargarIslrSugeribles = useCallback(async () => {
+    if (!empresaId) return;
+    try {
+      const data = await fiscalApi.getConceptos({ empresaId, tipo: 'ISLR' });
+      setConceptosIslrSugeribles(Array.isArray(data) ? data : (data?.$values || []));
+    } catch (error) {
+      console.warn('Error cargando catálogo ISLR para sugerencias:', error);
+      setConceptosIslrSugeribles([]);
+    }
+  }, [empresaId]);
 
   // Cuentas aptas para asientos: activas y de MOVIMIENTO (no padres/títulos).
   const cuentasAptas = cuentas.filter((c) => c.activa && c.esMovimiento);
@@ -142,9 +160,11 @@ export default function ConceptosOperacionales() {
     setEditandoId(null);
     setForm({
       nombreConcepto: '', tipoOperacion: tipoActivo, cuentaContable: '',
-      codigoSeniat: '', tipoPersona: 'PNR', porcentajeRetencion: '', aplicaSustraendo: false
+      codigoSeniat: '', tipoPersona: 'PNR', porcentajeRetencion: '', aplicaSustraendo: false,
+      aplicaRetencionIslr: false, conceptoIslrSugeridoId: ''
     });
     setBusquedaCuenta('');
+    if (tipoActivo === 'GASTO') cargarIslrSugeribles();
   };
 
   const abrirEdicion = (concepto) => {
@@ -157,8 +177,11 @@ export default function ConceptosOperacionales() {
       codigoSeniat: concepto.codigoSeniat || '',
       tipoPersona: concepto.tipoPersona || 'PNR',
       porcentajeRetencion: concepto.porcentajeRetencion ?? '',
-      aplicaSustraendo: Boolean(concepto.aplicaSustraendo)
+      aplicaSustraendo: Boolean(concepto.aplicaSustraendo),
+      aplicaRetencionIslr: Boolean(concepto.aplicaRetencionIslr),
+      conceptoIslrSugeridoId: concepto.conceptoIslrSugeridoId ?? ''
     });
+    if ((concepto.tipoOperacion || tipoActivo) === 'GASTO') cargarIslrSugeribles();
     // NO se pre-llena la búsqueda con el código guardado: si ese código no
     // existe en el plan (claves sembradas p. ej. CXC_CLIENTES = 1.1.3.01 o
     // PROVEEDORES = 2.1.1.01) el filtro devolvía 0 cuentas y el <select>
@@ -172,7 +195,8 @@ export default function ConceptosOperacionales() {
     setEditandoId(null);
     setForm({
       nombreConcepto: '', tipoOperacion: tipoActivo, cuentaContable: '',
-      codigoSeniat: '', tipoPersona: 'PNR', porcentajeRetencion: '', aplicaSustraendo: false
+      codigoSeniat: '', tipoPersona: 'PNR', porcentajeRetencion: '', aplicaSustraendo: false,
+      aplicaRetencionIslr: false, conceptoIslrSugeridoId: ''
     });
     setBusquedaCuenta('');
   };
@@ -242,7 +266,14 @@ export default function ConceptosOperacionales() {
       codigoSeniat: form.tipoOperacion === 'ISLR' ? form.codigoSeniat?.trim() : null,
       tipoPersona: form.tipoOperacion === 'ISLR' ? form.tipoPersona : null,
       porcentajeRetencion: form.tipoOperacion === 'ISLR' ? Number(form.porcentajeRetencion) : null,
-      aplicaSustraendo: form.tipoOperacion === 'ISLR' ? Boolean(form.aplicaSustraendo) : false
+      aplicaSustraendo: form.tipoOperacion === 'ISLR' ? Boolean(form.aplicaSustraendo) : false,
+      // Sujección ISLR de conceptos GASTO (modo híbrido): SÓLO una sugerencia
+      // de preselección al registrar el gasto; la emisión de la retención
+      // siempre es explícita por documento.
+      aplicaRetencionIslr: form.tipoOperacion === 'GASTO' ? Boolean(form.aplicaRetencionIslr) : false,
+      conceptoIslrSugeridoId: form.tipoOperacion === 'GASTO' && form.aplicaRetencionIslr && form.conceptoIslrSugeridoId
+        ? Number(form.conceptoIslrSugeridoId)
+        : null
     };
 
     setGuardando(true);
@@ -447,7 +478,12 @@ export default function ConceptosOperacionales() {
                   <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Tipo de operación</label>
                   <select
                     value={form.tipoOperacion}
-                    onChange={(e) => setForm({ ...form, tipoOperacion: e.target.value })}
+                    onChange={(e) => {
+                      setForm({ ...form, tipoOperacion: e.target.value });
+                      // Al pasar a GASTO dentro del formulario se carga el
+                      // catálogo ISLR para el «concepto ISLR sugerido».
+                      if (e.target.value === 'GASTO') cargarIslrSugeribles();
+                    }}
                     style={{ ...inputChico, width: '100%' }}
                   >
                     {TIPOS_OPERACION.map((t) => <option key={t.valor} value={t.valor}>{t.etiqueta}</option>)}
@@ -532,6 +568,46 @@ export default function ConceptosOperacionales() {
                   </select>
                 </div>
               </div>
+
+              {/* --- SUJECIÓN A ISLR (MODO HÍBRIDO) PARA CONCEPTOS GASTO --- */}
+              {form.tipoOperacion === 'GASTO' && (
+                <div style={{ background: '#0c2947', border: '1px solid #2563eb', borderRadius: '8px', padding: '10px 14px', marginBottom: '12px' }}>
+                  <label style={{ fontSize: '0.82rem', color: '#93c5fd', display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontWeight: 'bold' }}>
+                    <input
+                      type="checkbox"
+                      checked={form.aplicaRetencionIslr}
+                      onChange={(e) => setForm({ ...form, aplicaRetencionIslr: e.target.checked })}
+                    />
+                    📑 Los gastos de este concepto suelen estar sujetos a retención de ISLR
+                  </label>
+                  <div style={{ fontSize: '0.72rem', color: '#94a3b8', margin: '4px 0 8px 24px' }}>
+                    Es una SUGERENCIA: al registrar un gasto con este concepto se preselecciona la casilla de emisión
+                    ISLR. La retención NUNCA se emite automáticamente; siempre se confirma por documento (Decreto 1.808).
+                  </div>
+                  {form.aplicaRetencionIslr && (
+                    <div style={{ marginLeft: '24px', maxWidth: '440px' }}>
+                      <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Concepto ISLR sugerido (Decreto 1.808)</label>
+                      <select
+                        value={form.conceptoIslrSugeridoId}
+                        onChange={(e) => setForm({ ...form, conceptoIslrSugeridoId: e.target.value })}
+                        style={{ ...inputChico, width: '100%' }}
+                      >
+                        <option value="">— Ninguno (se elegirá al emitir) —</option>
+                        {conceptosIslrSugeribles.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.codigoSeniat} — {c.nombreConcepto} ({c.tipoPersona} {c.porcentajeRetencion}%)
+                          </option>
+                        ))}
+                      </select>
+                      {conceptosIslrSugeribles.length === 0 && (
+                        <span style={{ fontSize: '0.7rem', color: '#fbbf24' }}>
+                          Sin catálogo ISLR: precárguelo en 📑 Retenciones ISLR («📚 Precargar catálogo ISLR»).
+                        </span>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )}
 
               {/* Búsqueda dentro del plan de cuentas */}
               <div style={{ marginBottom: '12px' }}>
@@ -632,7 +708,17 @@ export default function ConceptosOperacionales() {
                     const inactiva = Boolean(cuenta && !cuenta.activa);
                     return (
                       <tr key={c.id} style={{ borderTop: '1px solid #1f2937' }}>
-                        <td style={{ padding: '10px 8px' }}><b>{c.nombreConcepto}</b></td>
+                        <td style={{ padding: '10px 8px' }}>
+                          <b>{c.nombreConcepto}</b>
+                          {c.aplicaRetencionIslr && (
+                            <span
+                              title="Concepto GASTO sujeto a retención ISLR (sugerencia; la emisión siempre es explícita por documento)"
+                              style={{ marginLeft: '6px', background: '#1e3a8a', color: '#93c5fd', padding: '1px 6px', borderRadius: '8px', fontSize: '0.7rem', fontWeight: 'bold' }}
+                            >
+                              📑 ISLR
+                            </span>
+                          )}
+                        </td>
                         {tipoActivo === 'ISLR' && (
                           <td style={{ padding: '10px 8px', textAlign: 'center' }}>
                             <span style={{ background: '#1e3a8a', color: '#93c5fd', padding: '2px 6px', borderRadius: '6px', fontFamily: 'monospace' }}>
