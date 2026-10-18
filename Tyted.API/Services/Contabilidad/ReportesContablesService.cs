@@ -384,6 +384,10 @@ public class ReportesContablesService
                 NumeroComprobante = d.AsientoContable!.NumeroComprobante,
                 FechaComprobante = d.AsientoContable.FechaComprobante,
                 Concepto = d.AsientoContable.Concepto,
+                // Tipo del comprobante: permite a la UI distinguir la APERTURA
+                // (manual o traspaso automático) y excluirla del movimiento
+                // (Debe/Haber y totales), igual que el Balance de Comprobación.
+                TipoComprobante = d.AsientoContable.TipoComprobante ?? "Diario",
                 CuentaId = d.CuentaContableId,
                 CodigoCuenta = d.CuentaContable!.CodigoCuenta,
                 NombreCuenta = d.CuentaContable.NombreCuenta,
@@ -440,6 +444,15 @@ public class LibroMayorDto
     public string NumeroComprobante { get; set; } = string.Empty;
     public DateTime FechaComprobante { get; set; }
     public string Concepto { get; set; } = string.Empty;
+
+    /// <summary>
+    /// Tipo del comprobante de origen (Diario, Apertura, Cierre, Ajuste). La
+    /// APERTURA (manual o traspaso automático) se muestra en el libro pero NO
+    /// cuenta como movimiento: sus Debe/Haber se presentan como «—» y no
+    /// entran en los totales (mismo criterio del Balance de Comprobación).
+    /// </summary>
+    public string TipoComprobante { get; set; } = "Diario";
+
     public int CuentaId { get; set; }
     public string CodigoCuenta { get; set; } = string.Empty;
     public string NombreCuenta { get; set; } = string.Empty;

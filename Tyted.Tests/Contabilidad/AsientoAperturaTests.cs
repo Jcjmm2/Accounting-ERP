@@ -212,9 +212,13 @@ public class AsientoAperturaTests
         // La apertura se MUESTRA (auditable) con el saldo inicial ya aplicado…
         var apertura = lineas.Single(l => l.Concepto.StartsWith("Apertura"));
         Assert.Equal(103.20m, apertura.SaldoAcumulado);
+        // El tipo de comprobante permite a la UI excluir la apertura del
+        // movimiento (Debe/Haber «—») y de los totales del libro.
+        Assert.Equal("Apertura", apertura.TipoComprobante);
         // …y el movimiento posterior acumula sobre ese inicial.
         var operacion = lineas.Single(l => l.Concepto.StartsWith("Operación"));
         Assert.Equal(143.20m, operacion.SaldoAcumulado);
+        Assert.Equal("Diario", operacion.TipoComprobante);
     }
 
     [Fact]

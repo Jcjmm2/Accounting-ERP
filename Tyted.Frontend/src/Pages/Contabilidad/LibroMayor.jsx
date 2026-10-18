@@ -12,6 +12,13 @@ const fmtFecha = (fecha) => {
   return `${Number(dia)}/${Number(mes)}/${anio}`;
 };
 
+// El asiento de APERTURA (manual o traspaso automático "APERTURA DE BALANCE")
+// NO es movimiento del periodo: se muestra para auditoría pero sus Debe/Haber
+// quedan en «—» y NO entran en los totales (mismo criterio del Balance de
+// Comprobación, donde la apertura sólo aparece en el Saldo Inicial).
+const esAsientoApertura = (item) =>
+  String(item?.tipoComprobante || '').toLowerCase() === 'apertura';
+
 // ---------------------------------------------------------------------------
 // LIBRO MAYOR: consulta por cuenta y rango con fila explícita de SALDO
 // INICIAL (histórico anterior al rango + apertura manual del propio rango,
@@ -93,8 +100,10 @@ export default function LibroMayor({ empresaActiva, periodoActivo, onEstructura 
         const cuentaSel = cuentas.find((c) => Number(c.id ?? c.cuentaId) === Number(cuentaId));
         const codigo = cuentaSel?.codigoCuenta || cuentaSel?.codigo || '';
         const nombre = cuentaSel?.nombreCuenta || cuentaSel?.nombre || '';
-        const totalDebe = lista.reduce((s, m) => s + Number(m.debe || 0), 0);
-        const totalHaber = lista.reduce((s, m) => s + Number(m.haber || 0), 0);
+        // TOTALES de MOVIMIENTO: excluyen los asientos de APERTURA (no son
+        // movimiento del periodo; su efecto ya está en el saldo inicial/final).
+        const totalDebe = lista.reduce((s, m) => s + (esAsientoApertura(m) ? 0 : Number(m.debe || 0)), 0);
+        const totalHaber = lista.reduce((s, m) => s + (esAsientoApertura(m) ? 0 : Number(m.haber || 0)), 0);
         const saldoFinal = Number(lista[lista.length - 1]?.saldoAcumulado ?? 0);
         onEstructura?.({
           titulo: `Libro Mayor — ${codigo} ${nombre}`,
@@ -102,7 +111,7 @@ export default function LibroMayor({ empresaActiva, periodoActivo, onEstructura 
           // global: el usuario puede consultar fechas distintas al periodo).
           fechaDesde: fechaInicio || undefined,
           fechaHasta: fechaFin || undefined,
-          columnas: ['Fecha', 'Comprobante', 'Concepto', 'Debe', 'Haber', 'Saldo acumulado'],
+          columnas: ['Fecha', 'Comprobante', 'Concepto', 'Debe', 'Haber', 'Saldo final'],
           filas: [
             [
               { content: 'SALDO INICIAL', styles: { fontStyle: 'bold' } },
@@ -115,13 +124,15 @@ export default function LibroMayor({ empresaActiva, periodoActivo, onEstructura 
             ...lista.map((m) => [
               fmtFecha(m.fechaComprobante),
               m.numeroComprobante || '—',
-              m.concepto || '',
-              fmtMonto(m.debe),
-              fmtMonto(m.haber),
+              esAsientoApertura(m)
+                ? `${m.concepto || ''} (APERTURA — no es movimiento)`
+                : (m.concepto || ''),
+              esAsientoApertura(m) ? '—' : fmtMonto(m.debe),
+              esAsientoApertura(m) ? '—' : fmtMonto(m.haber),
               fmtMonto(m.saldoAcumulado)
             ])
           ],
-          totales: ['', '', 'TOTALES', fmtMonto(totalDebe), fmtMonto(totalHaber), fmtMonto(saldoFinal)]
+          totales: ['', '', 'TOTALES (MOVIMIENTO)', fmtMonto(totalDebe), fmtMonto(totalHaber), fmtMonto(saldoFinal)]
         });
       }
     } catch (error) {
@@ -197,7 +208,7 @@ export default function LibroMayor({ empresaActiva, periodoActivo, onEstructura 
               <th style={{ padding: '12px' }}>Concepto</th>
               <th style={{ padding: '12px', textAlign: 'right' }}>Debe</th>
               <th style={{ padding: '12px', textAlign: 'right' }}>Haber</th>
-              <th style={{ padding: '12px', textAlign: 'right' }}>Saldo acumulado</th>
+              <th style={{ padding: '12px', textAlign: 'right' }}>Saldo final</th>
             </tr>
           </thead>
           <tbody>
@@ -224,13 +235,27 @@ export default function LibroMayor({ empresaActiva, periodoActivo, onEstructura 
                 </tr>
                 {movimientos.map((item, index) => {
                 const saldoAcumulado = Number(item.saldoAcumulado ?? 0);
+                // La APERTURA (manual o traspaso) NO es movimiento: sus
+                // Debe/Haber se muestran como «—» y no suman en los totales.
+                const esApertura = esAsientoApertura(item);
                 return (
-                  <tr key={`${item.asientoId}-${index}`} style={{ borderTop: '1px solid #1f2937' }}>
+                  <tr key={`${item.asientoId}-${index}`} style={{ borderTop: '1px solid #1f2937', background: esApertura ? '#1c1917' : 'transparent' }}>
                     <td style={{ padding: '12px' }}>{new Date(item.fechaComprobante).toLocaleDateString()}</td>
                     <td style={{ padding: '12px', fontFamily: 'monospace', color: '#60a5fa' }}>{item.numeroComprobante}</td>
-                    <td style={{ padding: '12px' }}>{item.concepto}</td>
-                    <td style={{ padding: '12px', textAlign: 'right', color: '#60a5fa' }}>{Number(item.debe || 0).toFixed(2)}</td>
-                    <td style={{ padding: '12px', textAlign: 'right', color: '#f87171' }}>{Number(item.haber || 0).toFixed(2)}</td>
+                    <td style={{ padding: '12px' }}>
+                      {item.concepto}
+                      {esApertura && (
+                        <span style={{ color: '#fbbf24', fontSize: '0.72rem', fontWeight: 'bold', marginLeft: '6px' }}>
+                          · APERTURA (no es movimiento)
+                        </span>
+                      )}
+                    </td>
+                    <td style={{ padding: '12px', textAlign: 'right', color: esApertura ? '#64748b' : '#60a5fa' }}>
+                      {esApertura ? '—' : Number(item.debe || 0).toFixed(2)}
+                    </td>
+                    <td style={{ padding: '12px', textAlign: 'right', color: esApertura ? '#64748b' : '#f87171' }}>
+                      {esApertura ? '—' : Number(item.haber || 0).toFixed(2)}
+                    </td>
                     <td style={{ padding: '12px', textAlign: 'right', fontWeight: 'bold', color: saldoAcumulado >= 0 ? '#34d399' : '#f87171' }}>
                       {saldoAcumulado.toFixed(2)}
                     </td>
@@ -242,13 +267,15 @@ export default function LibroMayor({ empresaActiva, periodoActivo, onEstructura 
           </tbody>
           {movimientos.length > 0 && (
             <tfoot>
+              {/* TOTALES DE MOVIMIENTO: excluyen los asientos de APERTURA
+                  (su efecto vive en el saldo inicial/final, no en el mes). */}
               <tr style={{ borderTop: '1.5px solid #000', fontWeight: 'bold', background: '#1e293b' }}>
-                <td colSpan={3} style={{ padding: '12px', color: '#93c5fd' }}>TOTALES (Bs.)</td>
+                <td colSpan={3} style={{ padding: '12px', color: '#93c5fd' }}>TOTALES (MOVIMIENTO, Bs.)</td>
                 <td style={{ padding: '12px', textAlign: 'right', color: '#60a5fa' }}>
-                  {movimientos.reduce((s, m) => s + Number(m.debe || 0), 0).toFixed(2)}
+                  {movimientos.filter((m) => !esAsientoApertura(m)).reduce((s, m) => s + Number(m.debe || 0), 0).toFixed(2)}
                 </td>
                 <td style={{ padding: '12px', textAlign: 'right', color: '#f87171' }}>
-                  {movimientos.reduce((s, m) => s + Number(m.haber || 0), 0).toFixed(2)}
+                  {movimientos.filter((m) => !esAsientoApertura(m)).reduce((s, m) => s + Number(m.haber || 0), 0).toFixed(2)}
                 </td>
                 <td style={{ padding: '12px', textAlign: 'right', color: '#34d399' }}>
                   {Number(movimientos[movimientos.length - 1]?.saldoAcumulado ?? 0).toFixed(2)}
