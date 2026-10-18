@@ -147,7 +147,9 @@ public class AsientoRegistroTests
         await using var context = CrearContexto();
         var controller = new AsientosController(
             new AsientoContableService(context),
-            new EmpresaAccessService(context));
+            new EmpresaAccessService(context),
+            context,
+            new MotorAsientosAutomaticos(context, new AsientoContableService(context), new MappingContable()));
 
         var resultado = await controller.CrearAsiento(null!);
 

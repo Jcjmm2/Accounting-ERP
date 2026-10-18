@@ -40,7 +40,9 @@ namespace Tyted.API.Models
         [Required, StringLength(20)]
         public string FacturaHasta { get; set; } = string.Empty;
 
-        // --- Montos del resumen (moneda base USD) ---
+        // --- Montos del resumen en BOLÍVARES (Bs.), capturados así en el
+        // formulario fiscal ("Expresado en Bs.") y usados tal cual por el
+        // motor de asientos (moneda legal del libro contable). ---
         [Column(TypeName = "decimal(18, 4)")]
         public decimal Exento { get; set; }
 

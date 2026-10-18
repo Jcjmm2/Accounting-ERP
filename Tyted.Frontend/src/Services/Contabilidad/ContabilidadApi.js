@@ -168,6 +168,16 @@ export const contabilidadApi = {
     return response.data;
   },
 
+  // Regenera los comprobantes automáticos de ventas/compras/gastos del rango
+  // en BOLÍVARES (moneda legal del libro contable). Sólo toca documentos cuyo
+  // comprobante esté en periodo ABIERTO; los periodos cerrados no se modifican.
+  regenerarComprobanteFiscal: async ({ empresaId, fechaInicio, fechaFin }) => {
+    const response = await api.post('/asientos/regenerar-fiscal', {
+      empresaId, fechaInicio, fechaFin
+    });
+    return response.data;
+  },
+
   // ---------------------------------------------------------------------------
   // GESTIÓN DE PERIODOS
   // ---------------------------------------------------------------------------

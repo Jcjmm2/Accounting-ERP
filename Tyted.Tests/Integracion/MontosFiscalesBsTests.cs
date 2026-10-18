@@ -214,9 +214,10 @@ public class MontosFiscalesBsTests
         var r = await motor.GenerarAsientoGastoAsync(gasto);
 
         Assert.True(r.Generada);
-        // Debe Gastos 100 + Debe IVA Crédito 16 | Haber Caja 116 (USD).
-        Assert.Equal(116m, r.TotalDebe);
-        Assert.Equal(116m, r.TotalHaber);
+        // MONEDA DEL COMPROBANTE: BOLÍVARES (moneda legal del libro contable).
+        // Debe Gastos 4000 Bs. + Debe IVA Crédito 640 Bs. | Haber Caja 4640 Bs.
+        Assert.Equal(4640m, r.TotalDebe);
+        Assert.Equal(4640m, r.TotalHaber);
 
         var asiento = await context.AsientosContables
             .Include(a => a.Detalles)
@@ -226,7 +227,7 @@ public class MontosFiscalesBsTests
         Assert.Equal(3, asiento.Detalles.Count);
         Assert.Equal(asiento.Detalles.Sum(d => d.Debe), asiento.Detalles.Sum(d => d.Haber));
         Assert.Contains(asiento.Detalles,
-            d => d.CuentaContable.CodigoCuenta == "1.1.5.02" && d.Debe == 16m);
-        Assert.Contains(asiento.Detalles, d => d.Haber == 116m);
+            d => d.CuentaContable.CodigoCuenta == "1.1.5.02" && d.Debe == 640m);
+        Assert.Contains(asiento.Detalles, d => d.Haber == 4640m);
     }
 }

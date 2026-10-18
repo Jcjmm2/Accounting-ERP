@@ -12,6 +12,8 @@ export default function PeriodosContables() {
   const [cargando, setCargando] = useState(false);
   // Id del periodo que está generando su asiento de cierre de resultados (spinner)
   const [generandoCierreId, setGenerandoCierreId] = useState(null);
+  // Spinner del botón de regeneración de comprobantes en BOLÍVARES.
+  const [regenerandoBs, setRegenerandoBs] = useState(false);
 
   const cargarPeriodos = async () => {
     if (!empresaActiva?.id) return;
@@ -135,6 +137,44 @@ export default function PeriodosContables() {
       alert(`❌ No se pudo generar el asiento de cierre:\n${mensajeErrorApi(error)}`);
     } finally {
       setGenerandoCierreId(null);
+    }
+  };
+
+  // Regenera los comprobantes AUTOMÁTICOS (ventas/compras/gastos) del periodo
+  // en BOLÍVARES (moneda legal del libro contable): reemplaza los comprobantes
+  // generados en otra moneda usando los montos congelados (*MonedaExt) de cada
+  // documento. SÓLO se tocan comprobantes de periodos ABIERTOS.
+  const regenerarEnBs = async (periodo) => {
+    const nombrePeriodo = periodo?.nombre || `ID ${periodo?.id}`;
+    const confirmado = window.confirm(
+      `Regenerar en BOLÍVARES los comprobantes automáticos del periodo «${nombrePeriodo}»?\n\n` +
+      'Se reemplazan los comprobantes de ventas, compras y gastos por comprobantes en Bs. ' +
+      '(moneda legal exigida para los libros contables), usando los montos congelados de cada documento.\n' +
+      'SÓLO se tocan comprobantes en periodo ABIERTO; los periodos cerrados no se modifican. ¿Continuar?'
+    );
+    if (!confirmado) return;
+
+    setRegenerandoBs(true);
+    try {
+      const r = await contabilidadApi.regenerarComprobanteFiscal({
+        empresaId: empresaActiva?.id,
+        fechaInicio: periodo.fechaInicio,
+        fechaFin: periodo.fechaFin
+      });
+      const mensajes = r.mensajes || [];
+      alert(
+        `✅ Regeneración en Bs. del periodo «${nombrePeriodo}» finalizada.\n\n` +
+        `Regenerados: ${r.regenerados}\nOmitidos: ${r.omitidos}\nFallidos: ${r.fallidos}\n\n` +
+        mensajes.slice(0, 12).join('\n') +
+        (mensajes.length > 12 ? `\n… y ${mensajes.length - 12} más (detalle en la consola del navegador).` : '')
+      );
+      if (mensajes.length > 0) console.info('Regenerar comprobantes en Bs.:', mensajes);
+      await cargarPeriodos();
+    } catch (error) {
+      console.error('Error regenerando comprobantes en Bs.:', error);
+      alert(`❌ No se pudieron regenerar los comprobantes:\n${mensajeErrorApi(error)}`);
+    } finally {
+      setRegenerandoBs(false);
     }
   };
 
@@ -438,6 +478,23 @@ export default function PeriodosContables() {
                               }}
                             >
                               {generandoCierreId === sub.id ? '⏳' : '📉 Cierre'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => regenerarEnBs(sub)}
+                              disabled={sub.estado !== 'Abierto' || regenerandoBs || generandoCierreId !== null}
+                              title={sub.estado !== 'Abierto'
+                                ? 'Sólo los periodos ABIERTOS permiten regenerar comprobantes'
+                                : 'Regenerar los comprobantes automáticos (ventas/compras/gastos) del periodo en BOLÍVARES — moneda legal del libro contable'}
+                              style={{
+                                background: sub.estado === 'Abierto' ? '#0ea5e9' : '#334155',
+                                color: '#fff', border: 'none', borderRadius: '6px', padding: '4px 10px',
+                                fontSize: '0.7rem', fontWeight: 'bold', marginLeft: '4px',
+                                cursor: sub.estado === 'Abierto' && !regenerandoBs ? 'pointer' : 'not-allowed',
+                                opacity: sub.estado === 'Abierto' && !regenerandoBs ? 1 : 0.5
+                              }}
+                            >
+                              {regenerandoBs ? '⏳ Bs…' : '💱 Bs.'}
                             </button>
                             <button
                               type="button"

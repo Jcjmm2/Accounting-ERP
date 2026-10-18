@@ -839,7 +839,7 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
       pdf.text(`RIF ${empresaActiva?.rif || 'J-000000000'}`, 40, 52);
       pdf.text(`${estructura.titulo} del ${formatearFecha(periodoInfo?.fechaInicio)} al ${formatearFecha(periodoInfo?.fechaFin)}`, 40, 64);
       pdf.setFont('helvetica', 'normal');
-      pdf.text('Expresado en Bolívar', 40, 76);
+      pdf.text('Expresado en Bolívares (Bs.) — moneda legal', 40, 76);
     };
     
     // Preparar filas: se conserva el contenido y la negrita de los subtotales
@@ -923,7 +923,7 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
           [empresaActiva?.nombre?.toUpperCase() || 'EMPRESA PRINCIPAL, C.A'],
           [`RIF ${empresaActiva?.rif || 'J-000000000'}`],
           [`${estructura.titulo} del ${formatearFecha(periodoInfo?.fechaInicio)} al ${formatearFecha(periodoInfo?.fechaFin)}`],
-          ['Expresado en Bolívar'],
+          ['Expresado en Bolívares (Bs.) — moneda legal'],
           [], // Fila en blanco de separación
           estructura.columnas,
           ...cleanFilas,
@@ -1127,7 +1127,7 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
                 <div style={{ fontWeight: 'bold' }}>
                   {reporteData.titulo} del {formatearFecha((periodoConsultadoData || periodoSeleccionadoData)?.fechaInicio)} al {formatearFecha((periodoConsultadoData || periodoSeleccionadoData)?.fechaFin)}
                 </div>
-                <div>Expresado en Bolívar</div>
+                <div>Expresado en Bolívares (Bs.) — moneda legal</div>
               </div>
 
             {/* Tabla Principal */}

@@ -449,13 +449,20 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
                 </tbody>
                 <tfoot>
                   <tr style={{ background: '#1e293b', fontWeight: 'bold', fontSize: '1.1rem' }}>
-                    <td style={{ padding: '12px', textAlign: 'right' }}>TOTALES:</td>
+                    <td style={{ padding: '12px', textAlign: 'right' }}>TOTALES (Bs.):</td>
                     <td style={{ padding: '12px', textAlign: 'right', color: '#60a5fa' }}>{totalDebe.toFixed(2)}</td>
                     <td style={{ padding: '12px', textAlign: 'right', color: '#f87171' }}>{totalHaber.toFixed(2)}</td>
                     <td></td>
                   </tr>
                 </tfoot>
               </table>
+            </div>
+
+            {/* Moneda legal del libro contable: los comprobantes (manuales y
+                automáticos) se registran en BOLÍVARES, según la normativa
+                venezolana. */}
+            <div style={{ marginTop: '8px', fontSize: '0.8rem', color: '#94a3b8' }}>
+              💵 Los montos del asiento se registran en <b style={{ color: '#fbbf24' }}>Bolívares (Bs.)</b> — moneda legal exigida para los libros contables.
             </div>
 
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '20px', flexWrap: 'wrap', gap: '10px' }}>

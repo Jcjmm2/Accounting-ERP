@@ -78,6 +78,11 @@ public class MotorAsientosAutomaticosTests
         SubtotalMonedaBase = subtotal,
         IvaMonedaBase = iva,
         TotalMonedaBase = subtotal + iva,
+        // Dualidad fiscal: montos congelados en BOLÍVARES (tasa 1 en la
+        // semilla ⇒ iguales a la moneda base). El comprobante sale en Bs.
+        SubtotalMonedaExt = subtotal,
+        IvaMonedaExt = iva,
+        TotalMonedaExt = subtotal + iva,
         ClienteId = 1,
         EsCredito = credito
     };
@@ -95,6 +100,11 @@ public class MotorAsientosAutomaticosTests
         SubtotalMonedaBase = subtotal,
         IvaMonedaBase = iva,
         TotalMonedaBase = subtotal + iva,
+        // Dualidad fiscal: montos congelados en BOLÍVARES (tasa 1 en la
+        // semilla ⇒ iguales a la moneda base). El comprobante sale en Bs.
+        SubtotalMonedaExt = subtotal,
+        IvaMonedaExt = iva,
+        TotalMonedaExt = subtotal + iva,
         EsCredito = credito
     };
 
@@ -343,5 +353,103 @@ public class MotorAsientosAutomaticosTests
         Assert.Equal(200m, Assert.Single(asiento.Detalles, d => d.CuentaContableId == compras.Id).Haber);
         Assert.Equal(32m, Assert.Single(asiento.Detalles, d => d.CuentaContableId == ivaCredito.Id).Haber);
         Assert.Equal(232m, Assert.Single(asiento.Detalles, d => d.CuentaContableId == proveedores.Id).Debe);
+    }
+
+    // -------------------------------------------------------------------------
+    // MONEDA DEL COMPROBANTE: BOLÍVARES (moneda legal del libro contable).
+    // El motor debe leer los montos congelados *MonedaExt y SÓLO recurrir a
+    // MonedaBase × tasa en documentos legados sin dualidad fiscal.
+    // -------------------------------------------------------------------------
+
+    [Fact]
+    public async Task Venta_ComprobanteEnBolivares_UsaMonedaExtCongelado()
+    {
+        await using var context = CrearContexto();
+        await SembrarPeriodoYPlanAsync(context);
+
+        // Base 10 USD con tasa actual 50 ⇒ Base × tasa = 500, pero los montos
+        // CONGELADOS en Bs. al facturar fueron 480 (tasa del día 48): el
+        // comprobante debe salir en Bs. con los congelados (480 + 76,80).
+        var venta = CrearVenta(subtotal: 10m, iva: 1.6m);
+        venta.TasaDeCambio = 50m;
+        venta.SubtotalMonedaExt = 480m;
+        venta.IvaMonedaExt = 76.80m;
+        venta.TotalMonedaExt = 556.80m;
+        context.Ventas.Add(venta);
+        await context.SaveChangesAsync();
+        var ventaDb = await context.Ventas.SingleAsync();
+
+        var r = await CrearMotor(context).GenerarAsientoVentaAsync(ventaDb);
+
+        Assert.True(r.Generada);
+        Assert.Equal(556.80m, r.TotalDebe);
+        Assert.Equal(556.80m, r.TotalHaber);
+    }
+
+    [Fact]
+    public async Task Compra_DocumentoLegadoSinMonedaExt_ConviertePorTasaDelDocumento()
+    {
+        await using var context = CrearContexto();
+        await SembrarPeriodoYPlanAsync(context);
+
+        // Legado sin dualidad fiscal (MonedaExt = 0): el fallback convierte
+        // MonedaBase × tasa del documento ⇒ (10 + 1,60) × 40 = 464 Bs.
+        var compra = CrearCompra(subtotal: 10m, iva: 1.6m);
+        compra.TasaDeCambio = 40m;
+        compra.SubtotalMonedaExt = 0m;
+        compra.IvaMonedaExt = 0m;
+        compra.TotalMonedaExt = 0m;
+        context.Compras.Add(compra);
+        await context.SaveChangesAsync();
+        var compraDb = await context.Compras.SingleAsync();
+
+        var r = await CrearMotor(context).GenerarAsientoCompraAsync(compraDb);
+
+        Assert.True(r.Generada);
+        Assert.Equal(464m, r.TotalDebe);
+        Assert.Equal(464m, r.TotalHaber);
+    }
+
+    [Fact]
+    public async Task Gasto_IvaEnBolivares_NoSeConvierteAOtraMoneda()
+    {
+        await using var context = CrearContexto();
+        await SembrarPeriodoYPlanAsync(context);
+
+        // Gasto capturado en Bs. por el formulario fiscal: base 1000 Bs. +
+        // IVA 160 Bs. con tasa 500. El comprobante DEBE salir en Bs. tal cual
+        // (bug corregido: antes el IVA se dividía entre la tasa).
+        var gasto = new Gasto
+        {
+            EmpresaId = 1,
+            Fecha = new DateTime(2026, 10, 10),
+            Concepto = "Servicio de mantenimiento",
+            Monto = 2m,              // USD derivado (1000 ÷ 500)
+            TasaDeCambio = 500m,
+            MontoMonedaExt = 1000m,  // Bs. congelados (verdad fiscal)
+            IvaMonedaExt = 160m,
+            NumeroFactura = "G-001",
+            NumeroControl = "S/N",
+            TipoTransaccion = "01"
+        };
+        context.Gastos.Add(gasto);
+        await context.SaveChangesAsync();
+        var gastoDb = await context.Gastos.SingleAsync();
+
+        var r = await CrearMotor(context).GenerarAsientoGastoAsync(gastoDb);
+
+        Assert.True(r.Generada);
+        Assert.Equal(1160m, r.TotalDebe);
+        Assert.Equal(1160m, r.TotalHaber);
+
+        var asiento = await context.AsientosContables
+            .Include(a => a.Detalles)
+            .SingleAsync(a => a.Id == r.AsientoId);
+        var cuentaGastos = await context.CuentasContables.SingleAsync(c => c.CodigoCuenta == "5.1.2");
+        var ivaCredito = await context.CuentasContables.SingleAsync(c => c.CodigoCuenta == "1.1.5.02");
+        var caja = await context.CuentasContables.SingleAsync(c => c.CodigoCuenta == "1.1.1.1.01");
+        Assert.Equal(1000m, Assert.Single(asiento.Detalles, d => d.CuentaContableId == cuentaGastos.Id).Debe);
+        Assert.Equal(160m, Assert.Single(asiento.Detalles, d => d.CuentaContableId == ivaCredito.Id).Debe);
+        Assert.Equal(1160m, Assert.Single(asiento.Detalles, d => d.CuentaContableId == caja.Id).Haber);
     }
 }

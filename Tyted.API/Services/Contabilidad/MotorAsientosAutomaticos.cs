@@ -89,11 +89,18 @@ public class MotorAsientosAutomaticos
             ? venta.Detalles.ToList()
             : await _context.VentasDetalle.Where(d => d.VentaId == venta.VentaId).ToListAsync();
 
-        var subtotal = venta.SubtotalMonedaBase != 0m
+        // MONEDA DEL COMPROBANTE: BOLÍVARES (moneda legal del libro contable).
+        // Se leen los *MonedaExt congelados del documento; el fallback cubre
+        // documentos legados sin dualidad fiscal (MonedaBase × tasa).
+        var tasaVenta = venta.TasaDeCambio > 0 ? venta.TasaDeCambio : 1m;
+        var subtotalExt = venta.SubtotalMonedaExt != 0m
+            ? venta.SubtotalMonedaExt
+            : detalles.Sum(d => d.SubtotalLineaMonedaExt);
+        var subtotal = MontoBs(subtotalExt, venta.SubtotalMonedaBase != 0m
             ? venta.SubtotalMonedaBase
-            : detalles.Sum(d => d.SubtotalLineaMonedaBase);
-        var iva = venta.IvaMonedaBase;
-        var total = subtotal + iva;
+            : detalles.Sum(d => d.SubtotalLineaMonedaBase), tasaVenta);
+        var iva = MontoBs(venta.IvaMonedaExt, venta.IvaMonedaBase, tasaVenta);
+        var total = Math.Round(subtotal + iva, 2, MidpointRounding.AwayFromZero);
 
         if (Math.Abs(total) <= 0.005m)
             return new MotorAsientosResponse
@@ -154,7 +161,15 @@ public class MotorAsientosAutomaticos
                 {
                     codigoCuenta = ctaConcepto;
                 }
-                var baseLinea = Math.Round(Math.Abs(detalle.PrecioUnitarioMonedaBase * detalle.Cantidad), 2);
+                // Monto de la línea en BOLÍVARES: SubtotalLineaMonedaExt
+                // congelado; fallback PrecioUnitarioMonedaExt × cantidad; para
+                // legados sin dualidad, MonedaBase × tasa del documento.
+                var baseLinea = Math.Round(Math.Abs(
+                    detalle.SubtotalLineaMonedaExt != 0m
+                        ? detalle.SubtotalLineaMonedaExt
+                        : detalle.PrecioUnitarioMonedaExt != 0m
+                            ? detalle.PrecioUnitarioMonedaExt * detalle.Cantidad
+                            : detalle.PrecioUnitarioMonedaBase * detalle.Cantidad * tasaVenta), 2);
                 acumulado[codigoCuenta] = acumulado.TryGetValue(codigoCuenta, out var acum)
                     ? acum + baseLinea
                     : baseLinea;
@@ -223,7 +238,7 @@ public class MotorAsientosAutomaticos
         }
 
         var etiquetaVenta = esNotaCredito ? "NOTA DE CRÉDITO/ANULACIÓN VENTA" : "VENTA";
-        var concepto = $"{etiquetaVenta} {venta.NumeroFactura} [{venta.TipoTransaccion}] total {montoTotal:0.00}";
+        var concepto = $"{etiquetaVenta} {venta.NumeroFactura} [{venta.TipoTransaccion}] total {montoTotal:0.00} Bs.";
         var asiento = await _asientos.CrearAsientoAsync(new AsientoContable
         {
             EmpresaId = venta.EmpresaId,
@@ -336,7 +351,7 @@ public class MotorAsientosAutomaticos
             lineas.Add(new AsientoDetalle { CuentaContableId = cuentaIva!.Id, Debe = 0m, Haber = montoIva });
 
         var concepto = $"RESUMEN VENTAS Z{resumen.NumeroZ} [{resumen.TipoTransaccion}] " +
-                       $"{resumen.FacturaDesde}-{resumen.FacturaHasta} total {montoTotal:0.00}";
+                       $"{resumen.FacturaDesde}-{resumen.FacturaHasta} total {montoTotal:0.00} Bs.";
         var asiento = await _asientos.CrearAsientoAsync(new AsientoContable
         {
             EmpresaId = resumen.EmpresaId,
@@ -389,9 +404,13 @@ public class MotorAsientosAutomaticos
                 Advertencia = "Las compras anuladas no se contabilizan."
             };
 
-        var subtotal = compra.SubtotalMonedaBase;
-        var iva = compra.IvaMonedaBase;
-        var total = subtotal + iva;
+        // MONEDA DEL COMPROBANTE: BOLÍVARES (moneda legal del libro contable).
+        // *MonedaExt congelados; fallback legado MonedaBase × tasa (mismo
+        // criterio que RetencionIvaService para el IVA de la factura).
+        var tasaCompra = compra.TasaDeCambio > 0 ? compra.TasaDeCambio : 1m;
+        var subtotal = MontoBs(compra.SubtotalMonedaExt, compra.SubtotalMonedaBase, tasaCompra);
+        var iva = MontoBs(compra.IvaMonedaExt, compra.IvaMonedaBase, tasaCompra);
+        var total = Math.Round(subtotal + iva, 2, MidpointRounding.AwayFromZero);
 
         if (Math.Abs(total) <= 0.005m)
             return new MotorAsientosResponse
@@ -456,7 +475,7 @@ public class MotorAsientosAutomaticos
 
         var numero = string.IsNullOrWhiteSpace(compra.NumeroFactura) ? "(s/n)" : compra.NumeroFactura;
         var etiquetaCompra = esNotaCredito ? "NOTA DE CRÉDITO/ANULACIÓN COMPRA" : "COMPRA";
-        var concepto = $"{etiquetaCompra} {numero} control {compra.NumeroControl ?? "-"} total {montoTotal:0.00}";
+        var concepto = $"{etiquetaCompra} {numero} control {compra.NumeroControl ?? "-"} total {montoTotal:0.00} Bs.";
         var asiento = await _asientos.CrearAsientoAsync(new AsientoContable
         {
             EmpresaId = compra.EmpresaId,
@@ -510,7 +529,11 @@ public class MotorAsientosAutomaticos
                 Advertencia = "Los gastos anulados no se contabilizan."
             };
 
-        var monto = Math.Abs(gasto.Monto);
+        // MONEDA DEL COMPROBANTE: BOLÍVARES. La base del gasto es
+        // montoMonedaExt (Bs. congelados por el formulario fiscal); fallback
+        // Monto × tasa para documentos legados sin dualidad fiscal.
+        var tasaGasto = gasto.TasaDeCambio > 0 ? gasto.TasaDeCambio : 1m;
+        var monto = Math.Abs(MontoBs(gasto.MontoMonedaExt, gasto.Monto, tasaGasto));
         if (monto <= 0.005m)
             return new MotorAsientosResponse
             {
@@ -541,12 +564,10 @@ public class MotorAsientosAutomaticos
         var cuentaDebe = await BuscarCuentaActivaAsync(gasto.EmpresaId, codigoDebe, faltantes);
         var cuentaHaber = await BuscarCuentaActivaAsync(gasto.EmpresaId, codigoHaber, faltantes);
 
-        // IVA del gasto (alícuota 8/16 capturada en Bs. por el formulario
-        // fiscal): se deriva a la moneda del libro contable (USD) y se debita
-        // como IVA Crédito Fiscal; el Haber pasa a ser base + IVA.
-        var ivaBs = Math.Abs(gasto.IvaMonedaExt);
-        var tasaGasto = gasto.TasaDeCambio > 0 ? gasto.TasaDeCambio : 1m;
-        var iva = ivaBs > 0.005m ? Math.Round(ivaBs / tasaGasto, 2) : 0m;
+        // IVA del gasto capturado en Bs. (alícuota 8/16 del formulario
+        // fiscal): se debita TAL CUAL como IVA Crédito Fiscal — SIN conversión
+        // a otra moneda; el Haber es base + IVA, todo en Bolívares.
+        var iva = Math.Abs(gasto.IvaMonedaExt);
         var cuentaIva = iva > 0m
             ? await BuscarCuentaActivaAsync(gasto.EmpresaId,
                 await ResolverCodigoCuentaAsync(gasto.EmpresaId, "IVA_CREDITO", _mapping.IvaCreditoFiscal), faltantes)
@@ -564,7 +585,7 @@ public class MotorAsientosAutomaticos
 
         var periodo = await BuscarPeriodoAbiertoAsync(gasto.EmpresaId, gasto.Fecha);
 
-        var concepto = $"GASTO [{gasto.TipoTransaccion}] {gasto.Categoria ?? "S/CAT"} {gasto.Concepto} total {monto:0.00}";
+        var concepto = $"GASTO [{gasto.TipoTransaccion}] {gasto.Categoria ?? "S/CAT"} {gasto.Concepto} total {monto:0.00} Bs.";
         var asiento = await _asientos.CrearAsientoAsync(new AsientoContable
         {
             EmpresaId = gasto.EmpresaId,
@@ -656,7 +677,7 @@ public class MotorAsientosAutomaticos
 
         var origen = string.IsNullOrWhiteSpace(retencion.NumeroFactura) ? "(s/n)" : retencion.NumeroFactura;
         var conceptoTexto = $"RETENCIÓN ISLR {retencion.NumeroComprobante} ({retencion.CodigoConcepto ?? "S/COD"}) " +
-                            $"{retencion.PorcentajeRetencion:0.##}% sobre factura {origen} — monto {monto:0.00}";
+                            $"{retencion.PorcentajeRetencion:0.##}% sobre factura {origen} — monto {monto:0.00} Bs.";
         var asiento = await _asientos.CrearAsientoAsync(new AsientoContable
         {
             EmpresaId = retencion.EmpresaId,
@@ -732,7 +753,7 @@ public class MotorAsientosAutomaticos
         var periodo = await BuscarPeriodoAbiertoAsync(retencion.EmpresaId, DateTime.Now);
 
         var origen = string.IsNullOrWhiteSpace(retencion.NumeroFactura) ? "(s/n)" : retencion.NumeroFactura;
-        var conceptoTexto = $"REVERSO RETENCIÓN ISLR {retencion.NumeroComprobante} sobre factura {origen} — monto {monto:0.00}";
+        var conceptoTexto = $"REVERSO RETENCIÓN ISLR {retencion.NumeroComprobante} sobre factura {origen} — monto {monto:0.00} Bs.";
         var asiento = await _asientos.CrearAsientoAsync(new AsientoContable
         {
             EmpresaId = retencion.EmpresaId,
@@ -812,6 +833,17 @@ public class MotorAsientosAutomaticos
 
         return (detalles, faltantes);
     }
+
+    /// <summary>
+    /// Monto del comprobante en BOLÍVARES (moneda legal del libro contable,
+    /// exigida por la normativa venezolana): lee el valor congelado en
+    /// *MonedaExt; si el documento es legado sin dualidad fiscal, lo deriva de
+    /// la moneda base × tasa del documento (redondeo comercial a 2 decimales).
+    /// </summary>
+    private static decimal MontoBs(decimal montoExt, decimal montoBase, decimal tasa)
+        => montoExt != 0m
+            ? montoExt
+            : Math.Round(montoBase * (tasa > 0 ? tasa : 1m), 2, MidpointRounding.AwayFromZero);
 
     /// <summary>
     /// Código de cuenta BASE de una operación: consulta primero el catálogo de
