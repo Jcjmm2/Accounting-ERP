@@ -71,7 +71,10 @@ export default function DeclaracionesSeniat() {
         fiscalApi.getRetencionesIslr({ empresaId, fechaInicio: inicio, fechaFin: fin })
       ]);
       const listaIva = Array.isArray(iva) ? iva : (iva?.$values || []);
-      const listaIslr = Array.isArray(isl) ? isl : (isl?.$values || []);
+      // Sólo las retenciones VIGENTES (Estado = Emitida) entran en el XML: el
+      // backend también las excluye al generar el archivo.
+      const listaIslr = (Array.isArray(isl) ? isl : (isl?.$values || []))
+        .filter((r) => (r.estado || 'Emitida') === 'Emitida');
       // Corte quincenal LOCAL (sólo informativo): el backend vuelve a filtrar
       // por fechas al generar el archivo.
       setRetIva(listaIva.filter((r) => {

@@ -1254,6 +1254,12 @@ namespace Tyted.API.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<int?>("AsientoContableId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("AsientoReversoId")
+                        .HasColumnType("int");
+
                     b.Property<decimal>("BaseImponibleBs")
                         .HasColumnType("decimal(18, 4)");
 
@@ -1275,6 +1281,9 @@ namespace Tyted.API.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("nvarchar(20)");
 
+                    b.Property<DateTime?>("FechaAnulacion")
+                        .HasColumnType("datetime2");
+
                     b.Property<DateTime>("FechaRetencion")
                         .HasColumnType("datetime2");
 
@@ -1286,6 +1295,10 @@ namespace Tyted.API.Migrations
 
                     b.Property<decimal>("MontoRetenidoUsd")
                         .HasColumnType("decimal(18, 4)");
+
+                    b.Property<string>("MotivoAnulacion")
+                        .HasMaxLength(300)
+                        .HasColumnType("nvarchar(300)");
 
                     b.Property<string>("NumeroComprobante")
                         .IsRequired()
@@ -1319,11 +1332,15 @@ namespace Tyted.API.Migrations
 
                     b.HasKey("Id");
 
-                    b.HasIndex("CompraId");
+                    b.HasIndex("CompraId")
+                        .IsUnique()
+                        .HasFilter("[CompraId] IS NOT NULL AND [Estado] = 'Emitida'");
 
                     b.HasIndex("ConceptoOperacionalId");
 
-                    b.HasIndex("GastoId");
+                    b.HasIndex("GastoId")
+                        .IsUnique()
+                        .HasFilter("[GastoId] IS NOT NULL AND [Estado] = 'Emitida'");
 
                     b.ToTable("RetencionesIslrEmitidas");
                 });

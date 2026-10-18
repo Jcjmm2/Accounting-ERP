@@ -55,7 +55,8 @@ public class ConceptosOperacionalesTests
         return new ConceptosOperacionalesController(
             context,
             new EmpresaAccessService(context),
-            new ConfigurationBuilder().Build())
+            new ConfigurationBuilder().Build(),
+            new ConfigService(context))
         {
             ControllerContext = new ControllerContext
             {
@@ -110,7 +111,7 @@ public class ConceptosOperacionalesTests
         Assert.Equal(6.66m, guardado.PorcentajeRetencion!.Value);
         Assert.True(guardado.AplicaSustraendo);
         // El sustraendo se recalcula en el servidor con la UT vigente.
-        Assert.Equal(CatalogoIslr.CalcularSustraendo(6.66m), guardado.MontoSustraendoBs!.Value);
+        Assert.Equal(CatalogoIslr.CalcularSustraendo(6.66m, CatalogoIslr.UnidadTributariaDefault), guardado.MontoSustraendoBs!.Value);
         Assert.True(guardado.MontoSustraendoBs > 0);
     }
 
@@ -206,6 +207,6 @@ public class ConceptosOperacionalesTests
         var guardado = await context.ConceptosOperacionales.AsNoTracking().SingleAsync();
         Assert.Equal("ISLR", guardado.TipoOperacion);
         Assert.Equal("010", guardado.CodigoSeniat);
-        Assert.Equal(CatalogoIslr.CalcularSustraendo(4m), guardado.MontoSustraendoBs!.Value);
+        Assert.Equal(CatalogoIslr.CalcularSustraendo(4m, CatalogoIslr.UnidadTributariaDefault), guardado.MontoSustraendoBs!.Value);
     }
 }

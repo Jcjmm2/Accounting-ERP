@@ -21,12 +21,18 @@ namespace Tyted.API.Controllers
         private readonly TytedContext _context;
         private readonly EmpresaAccessService _access;
         private readonly IConfiguration _config;
+        private readonly ConfigService _configService;
 
-        public ConceptosOperacionalesController(TytedContext context, EmpresaAccessService access, IConfiguration config)
+        public ConceptosOperacionalesController(
+            TytedContext context,
+            EmpresaAccessService access,
+            IConfiguration config,
+            ConfigService configService)
         {
             _context = context;
             _access = access;
             _config = config;
+            _configService = configService;
         }
 
         // -------------------------------------------------------------------------
@@ -41,10 +47,11 @@ namespace Tyted.API.Controllers
         /// <summary>
         /// Normaliza los atributos fiscales ISLR del concepto. Sólo aplican cuando
         /// TipoOperacion == "ISLR" (en los demás tipos se limpian). El sustraendo
-        /// se calcula SIEMPRE en el servidor con la Unidad Tributaria vigente
-        /// (CatalogoIslr); nunca se acepta un monto enviado por el cliente.
+        /// se calcula SIEMPRE en el servidor con la Unidad Tributaria VIGENTE
+        /// (configuración global cambiable por Gaceta Oficial); nunca se acepta
+        /// un monto enviado por el cliente.
         /// </summary>
-        private static void AplicarAtributosIslr(ConceptoOperacional concepto)
+        private static void AplicarAtributosIslr(ConceptoOperacional concepto, decimal unidadTributariaVigente)
         {
             if (concepto.TipoOperacion != "ISLR")
             {
@@ -68,7 +75,7 @@ namespace Tyted.API.Controllers
                 concepto.AplicaSustraendo
                 && concepto.TipoPersona == "PNR"
                 && concepto.PorcentajeRetencion is > 0
-                    ? CatalogoIslr.CalcularSustraendo(concepto.PorcentajeRetencion.Value)
+                    ? CatalogoIslr.CalcularSustraendo(concepto.PorcentajeRetencion.Value, unidadTributariaVigente)
                     : null;
         }
 
@@ -156,8 +163,9 @@ namespace Tyted.API.Controllers
                 return BadRequest(new { message = "El tipo de operación debe ser COMPRA, VENTA, GASTO, ISLR o SISTEMA." });
 
             // Atributos fiscales ISLR: normaliza persona/código SENIAT y calcula el
-            // sustraendo en el SERVIDOR con la Unidad Tributaria vigente.
-            AplicarAtributosIslr(concepto);
+            // sustraendo en el SERVIDOR con la Unidad Tributaria VIGENTE.
+            var utVigente = (await _configService.GetUnidadTributariaVigenteAsync()).Valor;
+            AplicarAtributosIslr(concepto, utVigente);
 
             // Sujección ISLR de conceptos GASTO (modo híbrido): valida la marca
             // y el concepto ISLR sugerido (preselección; nunca emisión automática).
@@ -206,7 +214,8 @@ namespace Tyted.API.Controllers
             concepto.TipoPersona = datos.TipoPersona;
             concepto.PorcentajeRetencion = datos.PorcentajeRetencion;
             concepto.AplicaSustraendo = datos.AplicaSustraendo;
-            AplicarAtributosIslr(concepto);
+            var utVigente = (await _configService.GetUnidadTributariaVigenteAsync()).Valor;
+            AplicarAtributosIslr(concepto, utVigente);
 
             // Sujección ISLR de conceptos GASTO (modo híbrido): persiste la
             // marca y el concepto sugerido; fuera de GASTO se limpia.
@@ -285,6 +294,9 @@ namespace Tyted.API.Controllers
                 .Select(c => c.CodigoSeniat)
                 .ToListAsync();
 
+            // UT vigente (configuración global cambiable por Gaceta Oficial).
+            var utVigente = (await _configService.GetUnidadTributariaVigenteAsync()).Valor;
+
             var creados = 0;
             foreach (var fila in CatalogoIslr.Completar)
             {
@@ -301,7 +313,7 @@ namespace Tyted.API.Controllers
                     PorcentajeRetencion = fila.Porcentaje,
                     AplicaSustraendo = fila.AplicaSustraendo,
                     MontoSustraendoBs = fila.AplicaSustraendo
-                        ? CatalogoIslr.CalcularSustraendo(fila.Porcentaje)
+                        ? CatalogoIslr.CalcularSustraendo(fila.Porcentaje, utVigente)
                         : null
                 });
                 creados++;
@@ -314,8 +326,53 @@ namespace Tyted.API.Controllers
                 creados,
                 totalCatalogo = CatalogoIslr.Completar.Length,
                 cuentaDefault,
-                unidadTributaria = CatalogoIslr.UnidadTributaria
+                unidadTributaria = utVigente
             });
         }
+
+        // -------------------------------------------------------------------------
+        // UNIDAD TRIBUTARIA VIGENTE (política de estado: se decreta por Gaceta
+        // Oficial). Configuración GLOBAL; al cambiarla se recalcula el sustraendo
+        // (Bs.) de todos los conceptos ISLR del sistema. Las retenciones YA
+        // emitidas NO se modifican (sustraendo congelado en cada comprobante).
+        // -------------------------------------------------------------------------
+        [HttpGet("ut-vigente")]
+        public async Task<IActionResult> GetUtVigente()
+        {
+            var (valor, gaceta) = await _configService.GetUnidadTributariaVigenteAsync();
+            return Ok(new { valor, gaceta });
+        }
+
+        [HttpPut("ut-vigente")]
+        [Authorize(Roles = "AdministradorSistema,Administrador")]
+        public async Task<IActionResult> SetUtVigente([FromBody] ActualizarUtVigenteRequest request)
+        {
+            if (request is null || request.Valor <= 0)
+                return BadRequest(new { message = "Indique el valor de la Unidad Tributaria vigente (mayor a cero)." });
+
+            await _configService.SetUnidadTributariaVigenteAsync(request.Valor, request.Gaceta);
+            // Recálculo atómico de los sustraendos cacheados de los conceptos ISLR.
+            var recalculados = await _configService.RecalcularSustraendosIslrAsync(request.Valor);
+
+            return Ok(new
+            {
+                message = $"Unidad Tributaria vigente actualizada a Bs. {request.Valor:0.####}. " +
+                          $"Sustraendos recalculados en {recalculados} concepto(s) ISLR. " +
+                          "Las retenciones ya emitidas no se modifican.",
+                valor = request.Valor,
+                gaceta = request.Gaceta,
+                recalculados
+            });
+        }
+    }
+
+    /// <summary>Solicitud de actualización de la Unidad Tributaria vigente (Gaceta Oficial).</summary>
+    public class ActualizarUtVigenteRequest
+    {
+        /// <summary>Nuevo valor de la UT en Bolívares (decretado en Gaceta Oficial).</summary>
+        public decimal Valor { get; set; }
+
+        /// <summary>Referencia de la Gaceta Oficial/Resolución (ej: «G.O. N° 6.906 de 30/12/2024»).</summary>
+        public string? Gaceta { get; set; }
     }
 }

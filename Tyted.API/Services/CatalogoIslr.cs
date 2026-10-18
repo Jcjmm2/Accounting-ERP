@@ -4,18 +4,20 @@ namespace Tyted.API.Services;
 /// Catálogo estático del Decreto 1.808 (retenciones de ISLR) para la semilla.
 /// Cada concepto lleva su código de operación SENIAT, tipo de persona, tarifa y
 /// si aplica sustraendo (sólo personas naturales residentes). La Unidad
-/// Tributaria 2025 es Bs. 43 y el sustraendo se calcula como 83,3334 × UT × %.
+/// Tributaria VIGENTE se lee de la configuración global (EmpresaConfigs:
+/// «UnidadTributariaVigente») y se cambia cuando es decretada por Gaceta
+/// Oficial; ésta constante es SÓLO el default de siembra/fallback.
 /// </summary>
 public static class CatalogoIslr
 {
-    /// <summary>Unidad Tributaria vigente 2025 (Bs.) usada para el sustraendo.</summary>
-    public const decimal UnidadTributaria = 43m;
+    /// <summary>Unidad Tributaria por DEFECTO (siembra/fallback si no hay configuración vigente).</summary>
+    public const decimal UnidadTributariaDefault = 43m;
 
     private const decimal FactorSustraendo = 83.3334m;
 
-    /// <summary>Sustraendo = 83,3334 × UT × % (redondeado a 2 decimales).</summary>
-    public static decimal CalcularSustraendo(decimal porcentaje)
-        => Math.Round(FactorSustraendo * UnidadTributaria * (porcentaje / 100m), 2);
+    /// <summary>Sustraendo = 83,3334 × UT vigente × % (redondeado a 2 decimales).</summary>
+    public static decimal CalcularSustraendo(decimal porcentaje, decimal unidadTributaria)
+        => Math.Round(FactorSustraendo * unidadTributaria * (porcentaje / 100m), 2);
 
     /// <summary>
     /// Fila del catálogo: código SENIAT, nombre, tipo de persona (PNR/PNNR/PJD),

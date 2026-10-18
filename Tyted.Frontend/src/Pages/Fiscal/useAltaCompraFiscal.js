@@ -1,0 +1,169 @@
+import { useState, useContext } from 'react';
+import { ConfigContext } from '../../Context/ConfigContext';
+import { fiscalApi, mensajeErrorApi } from '../../Services/Fiscal/FiscalApi';
+import { guiaCuentasBase } from './libroComprasHelpers';
+
+// ---------------------------------------------------------------------------
+// HOOK DE ALTA DE COMPRA FISCAL (factura con líneas de producto): documento
+// declarativo SIN inventario (sin stock, sin costos, sin kardex). Captura en
+// BOLÍVARES (la verdad fiscal vive en *MonedaExt) y puede contabilizarse
+// automáticamente con el motor de asientos (BE-F4).
+// ---------------------------------------------------------------------------
+const formCompraInicial = () => ({
+  fecha: new Date().toISOString().slice(0, 10),
+  codigoProv: '',
+  numeroFactura: '',
+  numeroControl: '',
+  tipoTransaccion: '01'
+});
+
+export function useAltaCompraFiscal({ empresaId, cargarCompras }) {
+  const { tasa } = useContext(ConfigContext);
+
+  const [guardandoCompra, setGuardandoCompra] = useState(false);
+  const [contabilizarAuto, setContabilizarAuto] = useState(true);
+  const [formCompra, setFormCompra] = useState(formCompraInicial());
+  const [lineasCompra, setLineasCompra] = useState([]);
+  const [buscadorProd, setBuscadorProd] = useState('');
+  const [resultadosProd, setResultadosProd] = useState([]);
+
+  // Limpia el modo FACTURA al abrir el formulario único.
+  const limpiar = () => {
+    setFormCompra(formCompraInicial());
+    setLineasCompra([]);
+    setBuscadorProd('');
+    setResultadosProd([]);
+  };
+
+  // Totales del formulario en Bs. con desglose por alícuota (Providencia 0049):
+  // exento, base reducida 8%, base general 16% y total con IVA.
+  const totalesFormCompra = lineasCompra.reduce((acc, l) => {
+    const base = Number(l.costo) * Number(l.cantidad);
+    const iva = base * (Number(l.tasaIVA) / 100);
+    acc.subtotal += base;
+    acc.iva += iva;
+    if (Number(l.tasaIVA) === 0) acc.exento += base;
+    else if (Number(l.tasaIVA) === 8) { acc.base8 += base; acc.iva8 += iva; }
+    else { acc.base16 += base; acc.iva16 += iva; }
+    return acc;
+  }, { subtotal: 0, iva: 0, exento: 0, base8: 0, iva8: 0, base16: 0, iva16: 0 });
+  totalesFormCompra.total = totalesFormCompra.subtotal + totalesFormCompra.iva;
+
+  const buscarProdFiscal = async (valor) => {
+    setBuscadorProd(valor);
+    if (valor.trim().length < 2) { setResultadosProd([]); return; }
+    try {
+      const data = await fiscalApi.buscarProductos(valor, Number(tasa) || 1);
+      const unicos = [];
+      const vistos = new Set();
+      (Array.isArray(data) ? data : []).forEach((p) => {
+        if (!vistos.has(p.codigoProd)) { vistos.add(p.codigoProd); unicos.push(p); }
+      });
+      setResultadosProd(unicos);
+    } catch {
+      setResultadosProd([]);
+    }
+  };
+
+  const agregarLineaCompra = (prod) => {
+    // El formulario fiscal captura en BOLÍVARES: el costo del producto se
+    // precarga convertido a Bs. con la tasa del día (USD × tasa).
+    const tasaDia = Number(tasa) || 1;
+    const costoUsd = Number(prod.costoUSD || prod.costoUnitarioMonedaBase || prod.precioUSD || 0);
+    setLineasCompra(prev => [...prev, {
+      idProductoUnidad: prod.idProductoUnidad,
+      codigoProd: prod.codigoProd,
+      descripcion: prod.descripcion || 'PRODUCTO',
+      unidad: prod.unidad || 'UND',
+      costo: Number((costoUsd * tasaDia).toFixed(2)),
+      cantidad: 1,
+      tasaIVA: Number(prod.porcentajeIva || 0)
+    }]);
+    setBuscadorProd('');
+    setResultadosProd([]);
+  };
+
+  const modificarLineaCompra = (idx, campo, valor) => {
+    setLineasCompra(prev => prev.map((l, i) => (i === idx ? { ...l, [campo]: valor } : l)));
+  };
+
+  const quitarLineaCompra = (idx) => {
+    setLineasCompra(prev => prev.filter((_, i) => i !== idx));
+  };
+
+  const guardarCompraFiscal = async () => {
+    if (lineasCompra.length === 0) { alert('⚠️ Agregue al menos una línea a la compra fiscal.'); return; }
+    if (!formCompra.fecha) { alert('⚠️ Indique la fecha de la factura (debe estar dentro del periodo contable).'); return; }
+    if (!formCompra.codigoProv) { alert('⚠️ Seleccione el proveedor (su RIF alimenta el Libro de Compras).'); return; }
+    if (!formCompra.numeroFactura?.trim()) { alert('⚠️ Indique el N° de factura (dato obligatorio del Libro de Compras).'); return; }
+    if (formCompra.tipoTransaccion === '01' && !formCompra.numeroControl?.trim()) {
+      alert('⚠️ El N° de control es obligatorio para el tipo 01 (Registro).\n\nEs un dato obligatorio del Libro de Compras; si el documento no tiene control, escriba «S/N».');
+      return;
+    }
+
+    const confirmado = window.confirm(
+      'Registrar la compra fiscal (documento declarativo).\n\n' +
+      'NO afecta el inventario: sin aumento de stock, sin actualización de costos y sin kardex.' +
+      (contabilizarAuto ? '\nSe generará además su comprobante contable.' : '')
+    );
+    if (!confirmado) return;
+
+    setGuardandoCompra(true);
+    try {
+      const creada = await fiscalApi.crearCompraFiscal({
+        empresaId,
+        codigoProv: Number(formCompra.codigoProv),
+        fechaCompra: `${formCompra.fecha}T12:00:00`,
+        numeroFactura: formCompra.numeroFactura,
+        numeroControl: formCompra.numeroControl || null,
+        tipoTransaccion: formCompra.tipoTransaccion,
+        // El formulario fiscal captura en BOLÍVARES: TipoMoneda VES le indica al
+        // backend que los costos llegan en CostoUnitarioMonedaExt (Bs. exactos).
+        tipoMoneda: 'VES',
+        tasaDeCambio: Number(tasa) || 1,
+        aplicaLibroCompras: true,
+        esGastoServicio: false,
+        detalles: lineasCompra.map(l => ({
+          codigoProd: l.codigoProd,
+          idProductoUnidad: Number(l.idProductoUnidad),
+          unidadCompra: l.unidad,
+          cantidad: Number(l.cantidad),
+          // En modo VES la verdad fiscal vive en *MonedaExt (Bs.).
+          costoUnitarioMonedaBase: 0,
+          costoUnitarioMonedaExt: Number(l.costo),
+          tasaIVA: Number(l.tasaIVA)
+        }))
+      });
+
+      if (contabilizarAuto && creada?.id) {
+        try {
+          const r = await fiscalApi.contabilizarCompra(creada.id);
+          if (!r.generada) alert(`⚠️ Compra registrada, pero el comprobante no se generó:\n${r.advertencia || r.mensaje || ''}${guiaCuentasBase(r.advertencia)}`);
+        } catch (errorC) {
+          alert(`⚠️ Compra registrada; el comprobante contable falló:\n${mensajeErrorApi(errorC)}`);
+        }
+      }
+
+      alert('✅ Compra fiscal registrada (sin efectos en inventario).');
+      await cargarCompras();
+      return true;
+    } catch (error) {
+      console.error('Error creando compra fiscal:', error);
+      alert(`❌ No se pudo registrar la compra fiscal:\n${mensajeErrorApi(error)}`);
+      return false;
+    } finally {
+      setGuardandoCompra(false);
+    }
+  };
+
+  return {
+    formCompra, setFormCompra,
+    lineasCompra,
+    buscadorProd, resultadosProd, buscarProdFiscal,
+    agregarLineaCompra, modificarLineaCompra, quitarLineaCompra,
+    totalesFormCompra,
+    contabilizarAuto, setContabilizarAuto,
+    guardandoCompra,
+    guardarCompraFiscal, limpiar
+  };
+}

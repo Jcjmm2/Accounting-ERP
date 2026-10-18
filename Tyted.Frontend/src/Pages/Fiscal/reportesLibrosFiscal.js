@@ -244,14 +244,14 @@ export const desgloseGasto = (g) => {
 // orígenes se fusionan en UNA sola lista ordenada por fecha, y el resumen de
 // Créditos Fiscales (Forma 30) incluye el IVA de facturas Y gastos.
 // ---------------------------------------------------------------------------
-export const estructuraLibroCompras = ({ empresa, periodo, totales, compras, gastos = [], retencionPorCompra }) => {
+export const estructuraLibroCompras = ({ empresa, periodo, totales, compras, gastos = [], retencionPorCompra, retencionIslrPorCompra = null, retencionIslrPorGasto = null }) => {
   const columnas = [
     'N° Op', 'Fecha Doc.', 'Nº R.I.F.', 'Proveedor', 'Tipo', 'Comp Ret', 'Fecha Ret',
     'N° Factura', 'N° Control', 'N° N/D', 'N° N/C', 'Trans.', 'Afectada',
     'Total Compra', 'Exentas', 'Base 16%', '%', 'IVA 16%', 'Base 8%', '%', 'IVA 8%', 'IVA Ret.',
-    'Concepto Contable'
+    'ISLR Ret.', 'Concepto Contable'
   ];
-  const indicesMonto = [13, 14, 15, 17, 18, 20, 21];
+  const indicesMonto = [13, 14, 15, 17, 18, 20, 21, 22];
 
   // Cabeceras de 2 niveles exclusivas de la exportación Excel (SENIAT).
   const excelHeaders = [
@@ -260,16 +260,16 @@ export const estructuraLibroCompras = ({ empresa, periodo, totales, compras, gas
       'N° de Comprobante', 'Fecha Aplic. Ret.', 'N° Factura', 'N° Control', 'N° Nota Débito', 'N° Nota Crédito',
       'Tipo Transacción', 'Doc. Afectado', 'Total Compras', 'Compras Exentas',
       'Base Imponible', '', 'Impuesto IVA', 'Base Imponible', '', 'Impuesto IVA', 'IVA Retenido',
-      'Concepto Contable'
+      'ISLR Retenido', 'Concepto Contable'
     ],
     [
       '', '', '', '', '', '', '', '', '', '', '', '', '', '', '',
-      '16%', '', '16%', '8%', '', '8%', '', ''
+      '16%', '', '16%', '8%', '', '8%', '', '', ''
     ]
   ];
 
-  // Fusiones de celdas (SheetJS): verticales en 0-14, 17, 20, 21 y 22 (la
-  // nueva columna "Concepto Contable"); las bases imponibles agrupan su
+  // Fusiones de celdas (SheetJS): verticales en 0-14, 17, 20-23 (IVA Ret.,
+  // ISLR Ret. y Concepto Contable); las bases imponibles agrupan su
   // columna de alícuota (15-16 y 18-19).
   const excelMerges = [];
   for (let i = 0; i <= 14; i += 1) excelMerges.push({ s: { r: 0, c: i }, e: { r: 1, c: i } });
@@ -279,8 +279,9 @@ export const estructuraLibroCompras = ({ empresa, periodo, totales, compras, gas
   excelMerges.push({ s: { r: 0, c: 20 }, e: { r: 1, c: 20 } });
   excelMerges.push({ s: { r: 0, c: 21 }, e: { r: 1, c: 21 } });
   excelMerges.push({ s: { r: 0, c: 22 }, e: { r: 1, c: 22 } });
+  excelMerges.push({ s: { r: 0, c: 23 }, e: { r: 1, c: 23 } });
 
-  let sumTotal = 0, sumExento = 0, sumB16 = 0, sumI16 = 0, sumB8 = 0, sumI8 = 0, sumRet = 0;
+  let sumTotal = 0, sumExento = 0, sumB16 = 0, sumI16 = 0, sumB8 = 0, sumI8 = 0, sumRet = 0, sumRetIslr = 0;
 
   // Filas de AMBOS orígenes (facturas + gastos): se fusionan en un único
   // libro y se ordenan cronológicamente antes de numerar (N° Op correlativo).
@@ -321,12 +322,18 @@ export const estructuraLibroCompras = ({ empresa, periodo, totales, compras, gas
       : null;
     // Monto retenido YA en Bolívares (Bs.) congelado por el backend.
     const montoRet = retencion ? Number(retencion.montoRetenidoBs ?? retencion.montoRetenido ?? 0) : 0;
+    // Retención de ISLR vigente de la factura (sólo Estado = Emitida).
+    const retIslr = typeof retencionIslrPorCompra?.get === 'function'
+      ? retencionIslrPorCompra.get(Number(c.id))
+      : null;
+    const montoRetIslr = retIslr ? Number(retIslr.montoRetenidoBs ?? 0) : 0;
 
     sumTotal += total;
     sumExento += exento;
     sumB16 += base16; sumI16 += iva16;
     sumB8 += base8; sumI8 += iva8;
     sumRet += montoRet;
+    sumRetIslr += montoRetIslr;
 
     filasRaw.push({
       fecha: c.fechaCompra,
@@ -342,6 +349,7 @@ export const estructuraLibroCompras = ({ empresa, periodo, totales, compras, gas
         fmtMoneda(base16), '16%', fmtMoneda(iva16),
         fmtMoneda(base8), '8%', fmtMoneda(iva8),
         fmtMoneda(montoRet),
+        fmtMoneda(montoRetIslr),
         // Concepto contable del Debe según el tipo de documento (BE-TAX-402).
         c.esGastoServicio ? 'Gastos' : 'Compras'
       ]
@@ -352,10 +360,16 @@ export const estructuraLibroCompras = ({ empresa, periodo, totales, compras, gas
     // GASTO dentro del Libro de Compras: sus alícuotas aportan al crédito
     // fiscal del período y su concepto operacional define la cuenta del Debe.
     const d = desgloseGasto(g);
+    // Retención de ISLR vigente del gasto (sólo Estado = Emitida).
+    const retIslrGasto = typeof retencionIslrPorGasto?.get === 'function'
+      ? retencionIslrPorGasto.get(Number(g.id))
+      : null;
+    const montoRetIslrGasto = retIslrGasto ? Number(retIslrGasto.montoRetenidoBs ?? 0) : 0;
     sumTotal += d.total;
     sumExento += d.exento;
     sumB16 += d.base16; sumI16 += d.iva16;
     sumB8 += d.base8; sumI8 += d.iva8;
+    sumRetIslr += montoRetIslrGasto;
 
     filasRaw.push({
       fecha: g.fecha,
@@ -373,6 +387,7 @@ export const estructuraLibroCompras = ({ empresa, periodo, totales, compras, gas
         fmtMoneda(d.base16), '16%', fmtMoneda(d.iva16),
         fmtMoneda(d.base8), '8%', fmtMoneda(d.iva8),
         fmtMoneda(0),
+        fmtMoneda(montoRetIslrGasto),
         g.categoria || 'GASTO'
       ]
     });
@@ -390,7 +405,7 @@ export const estructuraLibroCompras = ({ empresa, periodo, totales, compras, gas
     fmtMoneda(sumTotal), fmtMoneda(sumExento),
     fmtMoneda(sumB16), '', fmtMoneda(sumI16),
     fmtMoneda(sumB8), '', fmtMoneda(sumI8),
-    fmtMoneda(sumRet), ''
+    fmtMoneda(sumRet), fmtMoneda(sumRetIslr), ''
   ];
 
   // --- RESUMEN DE FORMA 30: CRÉDITOS FISCALES (se inyecta al final del libro) ---

@@ -96,10 +96,12 @@ export const generarComprobanteIVA = (retencion, compra, empresa, periodo) => {
   pdf.save(`Comprobante_IVA_${retencion.numeroComprobante}_${proveedor.rif || 'S-RIF'}.pdf`);
 };
 
-export const generarComprobanteISLR = (retencion, compra, empresa) => {
+export const generarComprobanteISLR = (retencion, docOrigen, empresa) => {
   if (!retencion) return;
   const pdf = new jsPDF({ orientation: 'portrait', unit: 'pt', format: 'letter' });
-  const proveedor = compra?.proveedor || {};
+  // El «documento origen» puede ser una COMPRA (factura) o un GASTO fiscal:
+  // ambos aportan numeroFactura y proveedor (sujeto retenido).
+  const proveedor = docOrigen?.proveedor || {};
   const ancho = pdf.internal.pageSize.getWidth();
 
   pdf.setFontSize(11);
@@ -114,7 +116,7 @@ export const generarComprobanteISLR = (retencion, compra, empresa) => {
   pdf.setFont('helvetica', 'bold');
   pdf.setFontSize(9);
   pdf.text(`N° COMPROBANTE: ${retencion.numeroComprobante || 'S/N'}`, ancho - 230, 185);
-  pdf.text(`FECHA: ${formatearFecha(retencion.fechaRetencion || compra?.fechaCompra)}`, ancho - 230, 197);
+  pdf.text(`FECHA: ${formatearFecha(retencion.fechaRetencion || docOrigen?.fechaCompra || docOrigen?.fecha)}`, ancho - 230, 197);
 
   autoTable(pdf, {
     startY: 220,
@@ -123,7 +125,7 @@ export const generarComprobanteISLR = (retencion, compra, empresa) => {
       'Sustraendo (Bs.)', 'Total Retenido (Bs.)'
     ]],
     body: [[
-      retencion.numeroFactura || compra?.numeroFactura || '0',
+      retencion.numeroFactura || docOrigen?.numeroFactura || '0',
       retencion.codigoConcepto || '—',
       fmt(retencion.baseImponibleBs),
       `${retencion.porcentajeRetencion}%`,

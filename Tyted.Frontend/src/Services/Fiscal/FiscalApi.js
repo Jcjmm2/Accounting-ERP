@@ -125,9 +125,36 @@ export const fiscalApi = {
     return response.data;
   },
 
+  // Contabiliza la retención ISLR emitida (Debe Proveedores / Haber ISLR
+  // retenido por pagar) con el motor de asientos automáticos. Idempotente.
+  contabilizarRetencionIslr: async (id) => {
+    const response = await api.post(`/retenciones-islr/${id}/contabilizar`);
+    return response.data;
+  },
+
+  // Anula una retención ISLR emitida (motivo auditado). Si estaba contabilizada
+  // el backend genera además el comprobante de REVERSO contable.
+  anularRetencionIslr: async (id, motivo) => {
+    const response = await api.put(`/retenciones-islr/${id}/anular`, { motivo });
+    return response.data;
+  },
+
   // Semilla del catálogo ISLR (Decreto 1.808) para una empresa. Idempotente.
   seedCatalogoIslr: async (empresaId) => {
     const response = await api.post(`/conceptos-operacionales/seed-islr?empresaId=${empresaId}`);
+    return response.data;
+  },
+
+  // UNIDAD TRIBUTARIA VIGENTE (política de estado: se decreta por Gaceta
+  // Oficial). Configuración GLOBAL; al cambiarla el backend recalcula el
+  // sustraendo de los conceptos ISLR (las retenciones emitidas no cambian).
+  getUtVigente: async () => {
+    const response = await api.get('/conceptos-operacionales/ut-vigente');
+    return response.data;
+  },
+
+  setUtVigente: async (valor, gaceta) => {
+    const response = await api.put('/conceptos-operacionales/ut-vigente', { valor, gaceta });
     return response.data;
   },
 

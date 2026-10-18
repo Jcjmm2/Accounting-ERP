@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.EntityFrameworkCore;
 using Tyted.API.Models;
 using Tyted.API.Services;
 
@@ -18,11 +19,13 @@ public class RetencionIslrController : ControllerBase
 {
     private readonly RetencionIslrService _service;
     private readonly EmpresaAccessService _access;
+    private readonly Tyted.API.Data.TytedContext _context;
 
-    public RetencionIslrController(RetencionIslrService service, EmpresaAccessService access)
+    public RetencionIslrController(RetencionIslrService service, EmpresaAccessService access, Tyted.API.Data.TytedContext context)
     {
         _service = service;
         _access = access;
+        _context = context;
     }
 
     /// <summary>Retenciones ISLR del periodo/empresa activos (filtros opcionales).</summary>
@@ -76,6 +79,69 @@ public class RetencionIslrController : ControllerBase
             return BadRequest(new { message = ex.Message });
         }
     }
+
+    /// <summary>
+    /// Contabiliza la retención emitida (Debe Proveedores | Haber ISLR retenido
+    /// por pagar) con el motor de asientos automáticos. Idempotente.
+    /// </summary>
+    [HttpPost("{id}/contabilizar")]
+    public async Task<ActionResult<MotorAsientosResponse>> Contabilizar(int id)
+    {
+        var retencion = await _service.GetPorIdAsync(id);
+        if (retencion == null) return NotFound(new { message = "La retención de ISLR no existe." });
+
+        await _access.ValidarAccesoAsync(User, retencion.EmpresaId);
+
+        try
+        {
+            var usuarioId = await ObtenerUsuarioIdAsync();
+            var respuesta = await _service.ContabilizarAsync(retencion, usuarioId);
+            return Ok(respuesta);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    /// <summary>
+    /// Anula una retención de ISLR emitida (con motivo auditado). Si ya estaba
+    /// contabilizada se genera automáticamente el comprobante de REVERSO.
+    /// </summary>
+    [HttpPut("{id}/anular")]
+    public async Task<ActionResult<RetencionIslrEmitida>> Anular(int id, [FromBody] AnularRetencionIslrRequest? request)
+    {
+        var retencion = await _service.GetPorIdAsync(id);
+        if (retencion == null) return NotFound(new { message = "La retención de ISLR no existe." });
+
+        await _access.ValidarAccesoAsync(User, retencion.EmpresaId);
+
+        try
+        {
+            var usuarioId = await ObtenerUsuarioIdAsync();
+            var anulada = await _service.AnularAsync(retencion, request?.Motivo, usuarioId);
+            return Ok(anulada);
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    /// <summary>Id real del usuario autenticado (auditoría y comprobantes).</summary>
+    private async Task<int> ObtenerUsuarioIdAsync()
+    {
+        var nombre = User.Identity?.Name;
+        if (string.IsNullOrEmpty(nombre)) return 1;
+        var usuario = await _context.Usuarios.AsNoTracking().FirstOrDefaultAsync(u => u.Username == nombre);
+        return usuario?.Id ?? 1;
+    }
+}
+
+/// <summary>Solicitud de anulación de una retención de ISLR (motivo auditado).</summary>
+public class AnularRetencionIslrRequest
+{
+    public string? Motivo { get; set; }
 }
 
 /// <summary>Solicitud de emisión de un comprobante de retención de ISLR.</summary>

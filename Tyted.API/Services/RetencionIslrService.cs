@@ -15,11 +15,19 @@ namespace Tyted.API.Services;
 public class RetencionIslrService
 {
     private readonly TytedContext _context;
+    private readonly MotorAsientosAutomaticos _motor;
+    private readonly ConfigService _config;
 
-    public RetencionIslrService(TytedContext context)
+    public RetencionIslrService(TytedContext context, MotorAsientosAutomaticos motor, ConfigService config)
     {
         _context = context;
+        _motor = motor;
+        _config = config;
     }
+
+    /// <summary>Retención por Id con seguimiento (para anular/contabilizar).</summary>
+    public async Task<RetencionIslrEmitida?> GetPorIdAsync(int id)
+        => await _context.RetencionesIslrEmitidas.FirstOrDefaultAsync(r => r.Id == id);
 
     /// <summary>Listado filtrado por empresa y rango del periodo contable activo.</summary>
     public async Task<List<RetencionIslrEmitida>> GetListAsync(int? empresaId = null, DateTime? fechaInicio = null, DateTime? fechaFin = null)
@@ -67,6 +75,20 @@ public class RetencionIslrService
         if (compraId.HasValue && gastoId.HasValue)
             throw new InvalidOperationException(
                 "La retención de ISLR no puede asociarse a una compra y a un gasto al mismo tiempo: elija UN documento de origen.");
+        if (!compraId.HasValue && !gastoId.HasValue)
+            throw new InvalidOperationException(
+                "Indique el documento origen de la retención de ISLR (compra o gasto): no se emiten comprobantes sin documento soporte.");
+
+        // UNA SOLA RETENCIÓN VIGENTE POR DOCUMENTO (blindaje a nivel servidor; el
+        // índice único filtrado de la BD es la última línea de defensa).
+        var yaEmitida = await _context.RetencionesIslrEmitidas
+            .AnyAsync(r => r.Estado == "Emitida"
+                && ((compraId.HasValue && r.CompraId == compraId.Value)
+                    || (gastoId.HasValue && r.GastoId == gastoId.Value)));
+        if (yaEmitida)
+            throw new InvalidOperationException(
+                "El documento origen ya tiene un comprobante de retención de ISLR vigente (una sola retención por documento). " +
+                "Si la retención anterior fue incorrecta, anúlela primero y luego re-emita.");
 
         var tasa = tasaDeCambio > 0 ? tasaDeCambio : 1m;
 
@@ -84,6 +106,18 @@ public class RetencionIslrService
                 throw new InvalidOperationException("La compra no pertenece a la empresa activa.");
             if (compra.IsAnulada)
                 throw new InvalidOperationException("No se emiten retenciones de ISLR sobre compras anuladas.");
+
+            // Tope de base imponible (H3): nunca mayor al subtotal SIN IVA de la
+            // factura (valor fiscal congelado en Bs.; fallback con la tasa de la
+            // factura para compras antiguas sin backfill de *MonedaExt).
+            var tasaFactura = compra.TasaDeCambio > 0 ? compra.TasaDeCambio : 1m;
+            var baseMaxCompra = compra.SubtotalMonedaExt > 0m
+                ? compra.SubtotalMonedaExt
+                : Math.Round(compra.SubtotalMonedaBase * tasaFactura, 4, MidpointRounding.AwayFromZero);
+            if (baseImponible > baseMaxCompra + 0.01m)
+                throw new InvalidOperationException(
+                    $"La base imponible (Bs. {baseImponible:0.00}) excede el subtotal sin IVA de la factura origen (Bs. {baseMaxCompra:0.00}): " +
+                    "la retención de ISLR no puede superar la base del documento soporte.");
         }
 
         // Documento de origen GASTO (módulo fiscal): exige proveedor con RIF,
@@ -109,6 +143,17 @@ public class RetencionIslrService
             if (string.IsNullOrWhiteSpace(gasto.Proveedor?.RIF))
                 throw new InvalidOperationException(
                     "El gasto origen no tiene proveedor con RIF; el comprobante de retención de ISLR requiere el RIF del sujeto retenido.");
+
+            // Tope de base imponible (H3): nunca mayor a la BASE sin IVA del
+            // gasto (montoMonedaExt congelado en Bs.; fallback Monto × tasa).
+            var tasaGasto = gasto.TasaDeCambio > 0 ? gasto.TasaDeCambio : 1m;
+            var baseMaxGasto = gasto.MontoMonedaExt > 0m
+                ? gasto.MontoMonedaExt
+                : Math.Round(gasto.Monto * tasaGasto, 4, MidpointRounding.AwayFromZero);
+            if (baseImponible > baseMaxGasto + 0.01m)
+                throw new InvalidOperationException(
+                    $"La base imponible (Bs. {baseImponible:0.00}) excede la base sin IVA del gasto origen (Bs. {baseMaxGasto:0.00}): " +
+                    "la retención de ISLR no puede superar la base del documento soporte.");
         }
 
         // Concepto del Decreto 1.808 (si se emitió desde el catálogo).
@@ -120,14 +165,33 @@ public class RetencionIslrService
                 .FirstOrDefaultAsync(c => c.Id == conceptoOperacionalId.Value && c.EmpresaId == empresaId);
             if (concepto is null)
                 throw new InvalidOperationException("El concepto de retención de ISLR no existe o no pertenece a la empresa.");
+            if (concepto.TipoOperacion != "ISLR")
+                throw new InvalidOperationException(
+                    $"El concepto «{concepto.NombreConcepto}» no pertenece al catálogo ISLR (TipoOperacion = {concepto.TipoOperacion}): " +
+                    "seleccione un concepto de retención del Decreto 1.808.");
+            if (concepto.PorcentajeRetencion is null or <= 0m)
+                throw new InvalidOperationException(
+                    $"El concepto «{concepto.NombreConcepto}» no tiene tarifa de retención configurada: edítelo en 🧮 Conceptos → 📑 Retenciones ISLR.");
+            // AUTORIDAD DEL CATÁLOGO (H2): la tarifa y el sustraendo se toman del
+            // concepto en el SERVIDOR; el % enviado por el cliente no se usa para
+            // calcular (sólo se valida antes como cortesía).
+            porcentaje = concepto.PorcentajeRetencion.Value;
         }
 
         // Decreto 1.808: Monto a retener = (Base Imponible × %) − Sustraendo.
         // El sustraendo sólo aplica a personas naturales residentes (conceptos
-        // con AplicaSustraendo). Se usa el sustraendo precalculado del concepto.
-        var sustraendo = (concepto?.AplicaSustraendo == true)
-            ? (concepto.MontoSustraendoBs ?? 0m)
-            : 0m;
+        // con AplicaSustraendo y TipoPersona PNR). Se RECALCULA al momento de
+        // emitir con la UT VIGENTE (configuración global cambiada por Gaceta
+        // Oficial): fuente de verdad única, sin depender del cache del concepto.
+        // El valor queda congelado en la retención (inmutabilidad fiscal).
+        decimal sustraendo = 0m;
+        if (concepto?.AplicaSustraendo == true
+            && concepto.TipoPersona == "PNR"
+            && concepto.PorcentajeRetencion is > 0)
+        {
+            var utVigente = (await _config.GetUnidadTributariaVigenteAsync()).Valor;
+            sustraendo = CatalogoIslr.CalcularSustraendo(concepto.PorcentajeRetencion.Value, utVigente);
+        }
 
         // Redondeo comercial AwayFromZero a 2 decimales; tope en 0 (no hay retención negativa).
         var bruto = baseImponible * porcentaje / 100m;
@@ -162,6 +226,45 @@ public class RetencionIslrService
         await _context.SaveChangesAsync();
         return retencion;
     }
+    /// <summary>
+    /// Anula una retención de ISLR emitida (rastro auditable: nunca se borra la
+    /// fila). Si la retención ya fue contabilizada, genera automáticamente el
+    /// comprobante de REVERSO (Debe ISLR retenido | Haber Proveedores).
+    /// </summary>
+    public async Task<RetencionIslrEmitida> AnularAsync(RetencionIslrEmitida retencion, string? motivo, int usuarioId = 1)
+    {
+        if (retencion.Estado == "Anulada")
+            throw new InvalidOperationException("La retención de ISLR ya está anulada.");
+
+        // Reverso contable (si ya fue contabilizada): si falla (p. ej. plan de
+        // cuentas incompleto) NO se anula, para no dejar el libro mayor mal
+        // cuadrado. Idempotente: si ya hay reverso se continúa.
+        if (retencion.AsientoContableId.HasValue && !retencion.AsientoReversoId.HasValue)
+        {
+            var reverso = await _motor.GenerarAsientoReversoRetencionIslrAsync(retencion, usuarioId);
+            if (!reverso.Generada)
+                throw new InvalidOperationException(
+                    "No se pudo anular: falló el comprobante de reverso contable de la retención. " +
+                    (reverso.Advertencia ?? reverso.Mensaje));
+        }
+
+        retencion.Estado = "Anulada";
+        retencion.FechaAnulacion = DateTime.Now;
+        retencion.MotivoAnulacion = string.IsNullOrWhiteSpace(motivo)
+            ? "Anulada sin motivo registrado."
+            : motivo.Trim().Length > 300 ? motivo.Trim()[..300] : motivo.Trim();
+        await _context.SaveChangesAsync();
+        return retencion;
+    }
+
+    /// <summary>
+    /// Contabiliza la retención de ISLR emitida (Debe Proveedores | Haber ISLR
+    /// retenido por pagar) vía motor de asientos automáticos. Idempotente: si ya
+    /// tiene comprobante no se duplica.
+    /// </summary>
+    public Task<MotorAsientosResponse> ContabilizarAsync(RetencionIslrEmitida retencion, int usuarioId = 1)
+        => _motor.GenerarAsientoRetencionIslrAsync(retencion, usuarioId);
+
     /// <summary>
     /// Número de comprobante SENIAT de ISLR: AAAAMM + 8 dígitos correlativos,
     /// con secuencia por empresa. Reintenta ante condición de carrera.

@@ -77,6 +77,17 @@ export default function ConceptosOperacionales() {
   // de los conceptos GASTO (modo híbrido; carga bajo demanda).
   const [conceptosIslrSugeribles, setConceptosIslrSugeribles] = useState([]);
 
+  // UNIDAD TRIBUTARIA VIGENTE (configuración GLOBAL, decreto por Gaceta
+  // Oficial): rige el sustraendo del Decreto 1.808. Se carga una vez y se
+  // gestiona desde la pestaña ISLR.
+  const [utVigente, setUtVigente] = useState({ valor: '', gaceta: '' });
+  const [guardandoUt, setGuardandoUt] = useState(false);
+  useEffect(() => {
+    fiscalApi.getUtVigente()
+      .then((r) => setUtVigente({ valor: String(r?.valor ?? ''), gaceta: r?.gaceta || '' }))
+      .catch((error) => console.warn('Error cargando la UT vigente:', error));
+  }, []);
+
   const cargarConceptos = useCallback(async (tipo) => {
     if (!empresaId || !tipo) { setConceptos([]); return; }
     setCargando(true);
@@ -222,6 +233,35 @@ export default function ConceptosOperacionales() {
       alert(`❌ No se pudo precargar el catálogo:\n${mensajeErrorApi(error)}`);
     } finally {
       setSembrando(false);
+    }
+  };
+
+  // Cambio de la UT vigente (decreto por Gaceta Oficial): el backend actualiza
+  // la configuración global y recalcula el sustraendo (Bs.) de TODOS los
+  // conceptos ISLR. Las retenciones ya emitidas NO se modifican (inmutabilidad).
+  const guardarUt = async () => {
+    const valor = Number(utVigente.valor);
+    if (!(valor > 0)) {
+      alert('⚠️ Indique el valor de la Unidad Tributaria vigente (mayor a cero).');
+      return;
+    }
+    const ok = window.confirm(
+      `Actualizar la Unidad Tributaria vigente a Bs. ${valor}?\n\n` +
+      (utVigente.gaceta ? `Gaceta/Resolución: ${utVigente.gaceta}\n` : '') +
+      'El sustraendo (Bs.) de TODOS los conceptos ISLR se recalculará con la nueva UT.\n' +
+      'Las retenciones de ISLR ya emitidas NO se modifican (su monto está congelado).\n\n¿Continuar?'
+    );
+    if (!ok) return;
+    setGuardandoUt(true);
+    try {
+      const r = await fiscalApi.setUtVigente(valor, utVigente.gaceta || null);
+      alert(`✅ ${r.message}`);
+      await cargarConceptos(tipoActivo);
+    } catch (error) {
+      console.error('Error actualizando la UT vigente:', error);
+      alert(`❌ No se pudo actualizar la Unidad Tributaria:\n${mensajeErrorApi(error)}`);
+    } finally {
+      setGuardandoUt(false);
     }
   };
 
@@ -391,6 +431,56 @@ export default function ConceptosOperacionales() {
               </button>
             ))}
           </div>
+
+          {/* UNIDAD TRIBUTARIA VIGENTE (Gaceta Oficial): rige el sustraendo del
+              Decreto 1.808; al aplicarla se recalculan los conceptos ISLR. */}
+          {tipoActivo === 'ISLR' && (
+            <div style={{ background: '#0c2947', border: '1px solid #2563eb', borderRadius: '10px', padding: '14px 16px', marginBottom: '18px' }}>
+              <div style={{ fontSize: '0.85rem', color: '#93c5fd', fontWeight: 'bold', marginBottom: '8px' }}>
+                🧾 Unidad Tributaria vigente (política de estado — Gaceta Oficial)
+              </div>
+              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap', alignItems: 'flex-end' }}>
+                <div>
+                  <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Valor (Bs.)</label>
+                  <input
+                    type="number"
+                    min="0.01"
+                    step="0.01"
+                    value={utVigente.valor}
+                    onChange={(e) => setUtVigente({ ...utVigente, valor: e.target.value })}
+                    style={{ display: 'block', background: '#0f172a', color: '#fff', border: '1px solid #475569', borderRadius: '6px', padding: '7px 9px', width: '130px', marginTop: '4px' }}
+                  />
+                </div>
+                <div style={{ flex: 1, minWidth: '220px' }}>
+                  <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Referencia Gaceta Oficial / Resolución</label>
+                  <input
+                    type="text"
+                    value={utVigente.gaceta}
+                    onChange={(e) => setUtVigente({ ...utVigente, gaceta: e.target.value })}
+                    placeholder="Ej: G.O. N° 6.906 de 30/12/2024"
+                    style={{ display: 'block', background: '#0f172a', color: '#fff', border: '1px solid #475569', borderRadius: '6px', padding: '7px 9px', width: '100%', marginTop: '4px' }}
+                  />
+                </div>
+                <button
+                  onClick={guardarUt}
+                  disabled={guardandoUt}
+                  style={{
+                    background: '#1d4ed8', color: '#fff', border: 'none', borderRadius: '8px',
+                    padding: '8px 14px', cursor: guardandoUt ? 'wait' : 'pointer', fontWeight: 'bold',
+                    opacity: guardandoUt ? 0.6 : 1
+                  }}
+                  title="Actualiza la UT vigente y recalcula el sustraendo de los conceptos ISLR (las retenciones emitidas no cambian)"
+                >
+                  {guardandoUt ? '⏳ Aplicando…' : '💾 Aplicar UT vigente'}
+                </button>
+              </div>
+              <span style={{ display: 'block', fontSize: '0.72rem', color: '#64748b', marginTop: '8px', lineHeight: '1.5' }}>
+                Sustraendo = 83,3334 × UT × % (sólo personas naturales residentes). Al cambiar la UT se
+                recalcula el sustraendo de todos los conceptos ISLR del sistema; las retenciones ya
+                emitidas conservan su sustraendo congelado (inmutabilidad fiscal).
+              </span>
+            </div>
+          )}
 
           {/* Explicación para cuentas de SISTEMA (cuentas base del asiento) */}
           {tipoActivo === 'SISTEMA' && (

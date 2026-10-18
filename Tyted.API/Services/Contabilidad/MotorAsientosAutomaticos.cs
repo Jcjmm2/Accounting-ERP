@@ -606,6 +606,214 @@ public class MotorAsientosAutomaticos
     }
 
     /// <summary>
+    /// Comprobante de la retención de ISLR emitida (Decreto 1.808): Debe
+    /// Proveedores (el retenido se descuenta a la deuda con el proveedor) |
+    /// Haber ISLR retenido por pagar (la CuentaContable del concepto ISLR del
+    /// catálogo; si no hubiera concepto se usa la clave SISTEMA ISLR_RETENCION
+    /// o el mapping global). Idempotencia por AsientoContableId de la retención.
+    /// </summary>
+    public async Task<MotorAsientosResponse> GenerarAsientoRetencionIslrAsync(RetencionIslrEmitida retencion, int usuarioId = 1)
+    {
+        if (retencion.AsientoContableId.HasValue)
+            return new MotorAsientosResponse
+            {
+                Generada = false,
+                AsientoId = retencion.AsientoContableId.Value,
+                Mensaje = "La retención de ISLR ya tiene comprobante contable.",
+                Advertencia = $"Ya contabilizada (asiento {retencion.AsientoContableId.Value}): no se duplica el comprobante."
+            };
+
+        if (retencion.Estado == "Anulada")
+            return new MotorAsientosResponse
+            {
+                Generada = false,
+                Mensaje = "Retención de ISLR anulada.",
+                Advertencia = "Las retenciones anuladas no se contabilizan."
+            };
+
+        var monto = Math.Abs(retencion.MontoRetenidoBs);
+        if (monto <= 0.005m)
+            return new MotorAsientosResponse
+            {
+                Generada = false,
+                Mensaje = "Sin montos que contabilizar.",
+                Advertencia = "La retención de ISLR no tiene monto retenido."
+            };
+
+        var (lineas, faltantes) = await ConstruirLineasRetencionIslrAsync(retencion, monto, reverso: false);
+        if (faltantes.Count > 0)
+            return new MotorAsientosResponse
+            {
+                Generada = false,
+                Mensaje = "Plan de cuentas incompleto.",
+                Advertencia = $"No se encontraron activas en el plan de la empresa: {string.Join(", ", faltantes)}. " +
+                    "Son cuentas base del asiento de la retención ISLR (proveedores o ISLR retenido por pagar): " +
+                    "créelas o reactívelas en Contabilidad → Plan de Cuentas, o bien asígneles una cuenta distinta " +
+                    "en 🧮 Conceptos → pestaña ⚙️ SISTEMA (ISLR_RETENCION) y vuelva a intentar."
+            };
+
+        var periodo = await BuscarPeriodoAbiertoAsync(retencion.EmpresaId, retencion.FechaRetencion);
+
+        var origen = string.IsNullOrWhiteSpace(retencion.NumeroFactura) ? "(s/n)" : retencion.NumeroFactura;
+        var conceptoTexto = $"RETENCIÓN ISLR {retencion.NumeroComprobante} ({retencion.CodigoConcepto ?? "S/COD"}) " +
+                            $"{retencion.PorcentajeRetencion:0.##}% sobre factura {origen} — monto {monto:0.00}";
+        var asiento = await _asientos.CrearAsientoAsync(new AsientoContable
+        {
+            EmpresaId = retencion.EmpresaId,
+            PeriodoContableId = periodo.Id,
+            NumeroComprobante = string.Empty,
+            FechaComprobante = retencion.FechaRetencion,
+            Concepto = conceptoTexto.Length > 500 ? conceptoTexto[..500] : conceptoTexto,
+            TipoComprobante = "Diario",
+            Estado = "Aprobado",
+            UsuarioId = usuarioId,
+            Detalles = lineas
+        });
+
+        // Vínculo retención ↔ comprobante (base de la idempotencia)
+        retencion.AsientoContableId = asiento.Id;
+        await _context.SaveChangesAsync();
+
+        return new MotorAsientosResponse
+        {
+            Generada = true,
+            AsientoId = asiento.Id,
+            NumeroComprobante = asiento.NumeroComprobante,
+            TotalDebe = monto,
+            TotalHaber = monto,
+            Mensaje = "Comprobante contable de la retención de ISLR generado."
+        };
+    }
+
+    /// <summary>
+    /// Comprobante de REVERSO de una retención de ISLR anulada: lados invertidos
+    /// (Debe ISLR retenido por pagar | Haber Proveedores). Se genera una sola vez
+    /// al anular (idempotencia por AsientoReversoId) y deja rastro contable del
+    /// desconocimiento del retenido sin borrar el asiento original.
+    /// </summary>
+    public async Task<MotorAsientosResponse> GenerarAsientoReversoRetencionIslrAsync(RetencionIslrEmitida retencion, int usuarioId = 1)
+    {
+        if (retencion.AsientoReversoId.HasValue)
+            return new MotorAsientosResponse
+            {
+                Generada = false,
+                AsientoId = retencion.AsientoReversoId.Value,
+                Mensaje = "La retención de ISLR ya tiene comprobante de reverso.",
+                Advertencia = $"Ya reversado (asiento {retencion.AsientoReversoId.Value}): no se duplica el comprobante."
+            };
+
+        if (!retencion.AsientoContableId.HasValue)
+            return new MotorAsientosResponse
+            {
+                Generada = false,
+                Mensaje = "Sin asiento que reversar.",
+                Advertencia = "La retención de ISLR no tenía comprobante contable: no hay nada que reversar."
+            };
+
+        var monto = Math.Abs(retencion.MontoRetenidoBs);
+        if (monto <= 0.005m)
+            return new MotorAsientosResponse
+            {
+                Generada = false,
+                Mensaje = "Sin montos que reversar.",
+                Advertencia = "La retención de ISLR no tiene monto retenido."
+            };
+
+        var (lineas, faltantes) = await ConstruirLineasRetencionIslrAsync(retencion, monto, reverso: true);
+        if (faltantes.Count > 0)
+            return new MotorAsientosResponse
+            {
+                Generada = false,
+                Mensaje = "Plan de cuentas incompleto.",
+                Advertencia = $"No se encontraron activas en el plan de la empresa: {string.Join(", ", faltantes)}. " +
+                    "No se puede generar el reverso sin las cuentas base (proveedores o ISLR retenido por pagar)."
+            };
+
+        var periodo = await BuscarPeriodoAbiertoAsync(retencion.EmpresaId, DateTime.Now);
+
+        var origen = string.IsNullOrWhiteSpace(retencion.NumeroFactura) ? "(s/n)" : retencion.NumeroFactura;
+        var conceptoTexto = $"REVERSO RETENCIÓN ISLR {retencion.NumeroComprobante} sobre factura {origen} — monto {monto:0.00}";
+        var asiento = await _asientos.CrearAsientoAsync(new AsientoContable
+        {
+            EmpresaId = retencion.EmpresaId,
+            PeriodoContableId = periodo.Id,
+            NumeroComprobante = string.Empty,
+            FechaComprobante = DateTime.Now,
+            Concepto = conceptoTexto.Length > 500 ? conceptoTexto[..500] : conceptoTexto,
+            TipoComprobante = "Diario",
+            Estado = "Aprobado",
+            UsuarioId = usuarioId,
+            Detalles = lineas
+        });
+
+        // Vínculo reverso ↔ retención (idempotencia del reverso)
+        retencion.AsientoReversoId = asiento.Id;
+        await _context.SaveChangesAsync();
+
+        return new MotorAsientosResponse
+        {
+            Generada = true,
+            AsientoId = asiento.Id,
+            NumeroComprobante = asiento.NumeroComprobante,
+            TotalDebe = monto,
+            TotalHaber = monto,
+            Mensaje = "Comprobante de reverso de la retención de ISLR generado."
+        };
+    }
+
+    /// <summary>
+    /// Partida doble del retenido ISLR: Debe Proveedores | Haber ISLR retenido
+    /// por pagar (cuenta del concepto del catálogo ISLR; fallback clave SISTEMA
+    /// ISLR_RETENCION → mapping global). Con `reverso` se invierten los lados.
+    /// </summary>
+    private async Task<(List<AsientoDetalle> Detalles, List<string> Faltantes)> ConstruirLineasRetencionIslrAsync(
+        RetencionIslrEmitida retencion, decimal monto, bool reverso)
+    {
+        var faltantes = new List<string>();
+
+        // Debe: Proveedores (el importe retenido reduce lo que se le paga).
+        var cuentaProveedores = await BuscarCuentaActivaAsync(retencion.EmpresaId,
+            await ResolverCodigoCuentaAsync(retencion.EmpresaId, "PROVEEDORES", _mapping.Proveedores), faltantes);
+
+        // Haber: el pasivo «ISLR retenido por pagar». La CuentaContable del
+        // concepto ISLR del catálogo ES ese pasivo (diseño del puente UI↔plan).
+        string codigoIslr;
+        if (retencion.ConceptoOperacionalId.HasValue)
+        {
+            var concepto = await _context.ConceptosOperacionales
+                .AsNoTracking()
+                .FirstOrDefaultAsync(c => c.Id == retencion.ConceptoOperacionalId.Value
+                    && c.EmpresaId == retencion.EmpresaId
+                    && c.TipoOperacion == "ISLR");
+            codigoIslr = !string.IsNullOrWhiteSpace(concepto?.CuentaContable)
+                ? concepto!.CuentaContable.Trim()
+                : await ResolverCodigoCuentaAsync(retencion.EmpresaId, "ISLR_RETENCION", _mapping.IslrRetenidoPorPagar);
+        }
+        else
+        {
+            codigoIslr = await ResolverCodigoCuentaAsync(retencion.EmpresaId, "ISLR_RETENCION", _mapping.IslrRetenidoPorPagar);
+        }
+        var cuentaIslr = await BuscarCuentaActivaAsync(retencion.EmpresaId, codigoIslr, faltantes);
+
+        if (cuentaProveedores == null || cuentaIslr == null)
+            return (new List<AsientoDetalle>(), faltantes);
+
+        var detalles = reverso
+            ? new List<AsientoDetalle>
+            {
+                new() { CuentaContableId = cuentaIslr.Id, Debe = monto, Haber = 0m },
+                new() { CuentaContableId = cuentaProveedores.Id, Debe = 0m, Haber = monto }
+            }
+            : new List<AsientoDetalle>
+            {
+                new() { CuentaContableId = cuentaProveedores.Id, Debe = monto, Haber = 0m },
+                new() { CuentaContableId = cuentaIslr.Id, Debe = 0m, Haber = monto }
+            };
+
+        return (detalles, faltantes);
+    }
+
+    /// <summary>
     /// Código de cuenta BASE de una operación: consulta primero el catálogo de
     /// conceptos de la empresa con TipoOperacion = "SISTEMA" (clave canónica
     /// tipo IVA_DEBITO, CAJA_PRINCIPAL, CXC_CLIENTES… configurada desde el

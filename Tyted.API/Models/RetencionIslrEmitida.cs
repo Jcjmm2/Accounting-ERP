@@ -92,5 +92,29 @@ namespace Tyted.API.Models
         /// <summary>Emitida | Anulada.</summary>
         [Required, StringLength(20)]
         public string Estado { get; set; } = "Emitida";
+
+        // ------------------------------------------------------------------
+        // CONTABILIZACIÓN (integración administrativo-contable): comprobante
+        // de diario del retenido (Debe Proveedores | Haber ISLR retenido por
+        // pagar) generado por el motor de asientos automáticos, idempotente.
+        // ------------------------------------------------------------------
+
+        /// <summary>Comprobante contable del retenido (idempotencia: no se duplica).</summary>
+        public int? AsientoContableId { get; set; }
+
+        /// <summary>Comprobante de REVERSO generado al anular la retención (auditoría contable).</summary>
+        public int? AsientoReversoId { get; set; }
+
+        // ------------------------------------------------------------------
+        // ANULACIÓN (sólo con motivo y fecha: rastro auditable; nunca se
+        // borran filas de retenciones emitidas).
+        // ------------------------------------------------------------------
+
+        /// <summary>Fecha/hora de anulación de la retención (null mientras esté Emitida).</summary>
+        public DateTime? FechaAnulacion { get; set; }
+
+        /// <summary>Motivo de la anulación registrado por el usuario.</summary>
+        [StringLength(300)]
+        public string? MotivoAnulacion { get; set; }
     }
 }

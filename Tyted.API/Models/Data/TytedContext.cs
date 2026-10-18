@@ -183,6 +183,20 @@ namespace Tyted.API.Data
             modelBuilder.Entity<ResumenVentaFiscal>()
                 .HasIndex(r => new { r.EmpresaId, r.Fecha });
 
+            // Retención de ISLR: UNA sola retención VIGENTE (Estado='Emitida')
+            // por documento origen. El índice único filtrado convive con las
+            // retenciones anuladas (Estado='Anulada' no compite en el índice),
+            // de modo que tras anular mal se pueda re-emitir sin duplicados.
+            modelBuilder.Entity<RetencionIslrEmitida>()
+                .HasIndex(r => r.CompraId)
+                .IsUnique()
+                .HasFilter("[CompraId] IS NOT NULL AND [Estado] = 'Emitida'");
+
+            modelBuilder.Entity<RetencionIslrEmitida>()
+                .HasIndex(r => r.GastoId)
+                .IsUnique()
+                .HasFilter("[GastoId] IS NOT NULL AND [Estado] = 'Emitida'");
+
             // 3. CONFIGURACIÓN DE RELACIONES Y SEEDING (Omitido para brevedad, mantener igual)
             // ... (Tus relaciones y DataSeed de Usuario, Empresa, etc.)
         }
