@@ -23,6 +23,9 @@ public class MappingContable
     /// <summary>Pasivo "ISLR retenido por pagar": cuenta por defecto que se asigna
     /// a los conceptos ISLR al sembrar el catálogo del Decreto 1.808.</summary>
     public string IslrRetenidoPorPagar { get; set; } = "2.1.1.02";
+    /// <summary>Pasivo "IVA Retenido por Entregar (SENIAT)": cuenta por defecto
+    /// de la retención de IVA (clave SISTEMA IVA_RETENCION).</summary>
+    public string IvaRetenidoPorEntregar { get; set; } = "2.1.5.01";
 }
 
 /// <summary>Respuesta del motor de asientos automáticos.</summary>
@@ -838,6 +841,273 @@ public class MotorAsientosAutomaticos
             };
 
         return (detalles, faltantes);
+    }
+
+    /// <summary>
+    /// Comprobante de la RETENCIÓN DE IVA en compras de CONTADO (pago ya
+    /// realizado): el efectivo salió por el total al registrar la compra
+    /// (Haber Caja), por lo que emitir la retención re-clasifica lo retenido
+    /// —que nunca salió de la caja— como pasivo hacia el SENIAT:
+    /// Debe Caja | Haber «IVA Retenido por Entregar». Idempotencia por
+    /// AsientoContableId de la retención.
+    /// </summary>
+    public async Task<MotorAsientosResponse> GenerarAsientoRetencionIvaContadoAsync(
+        Compra compra, RetencionIvaEmitida retencion, int usuarioId = 1)
+    {
+        if (retencion.AsientoContableId.HasValue)
+            return new MotorAsientosResponse
+            {
+                Generada = false,
+                AsientoId = retencion.AsientoContableId.Value,
+                Mensaje = "La retención de IVA ya tiene comprobante contable.",
+                Advertencia = $"Ya contabilizada (asiento {retencion.AsientoContableId.Value}): no se duplica el comprobante."
+            };
+
+        if (retencion.Estado == "Anulada")
+            return new MotorAsientosResponse
+            {
+                Generada = false,
+                Mensaje = "Retención de IVA anulada.",
+                Advertencia = "Las retenciones anuladas no se contabilizan."
+            };
+
+        if (compra.EsCredito)
+            return new MotorAsientosResponse
+            {
+                Generada = false,
+                Mensaje = "La factura es a CRÉDITO.",
+                Advertencia = "En compras a crédito el asiento de la retención de IVA se genera al registrar el PAGO (💵 Registrar pago)."
+            };
+
+        if (!compra.AsientoContableId.HasValue)
+            return new MotorAsientosResponse
+            {
+                Generada = false,
+                Mensaje = "La factura aún no tiene comprobante contable.",
+                Advertencia = "Contabilice primero la factura (botón 🧾) y luego pulse de nuevo para contabilizar la retención de IVA."
+            };
+
+        var monto = Math.Abs(retencion.MontoRetenidoBs);
+        if (monto <= 0.005m)
+            return new MotorAsientosResponse
+            {
+                Generada = false,
+                Mensaje = "Sin montos que contabilizar.",
+                Advertencia = "La retención de IVA no tiene monto retenido."
+            };
+
+        var faltantes = new List<string>();
+        var cuentaCaja = await BuscarCuentaActivaAsync(compra.EmpresaId,
+            await ResolverCodigoCuentaAsync(compra.EmpresaId, "CAJA_PRINCIPAL", _mapping.Caja), faltantes);
+        var cuentaIvaRetenido = await BuscarCuentaActivaAsync(compra.EmpresaId,
+            await ResolverCodigoCuentaAsync(compra.EmpresaId, "IVA_RETENCION", _mapping.IvaRetenidoPorEntregar), faltantes);
+
+        if (faltantes.Count > 0)
+            return new MotorAsientosResponse
+            {
+                Generada = false,
+                Mensaje = "Plan de cuentas incompleto.",
+                Advertencia = $"No se encontraron activas en el plan de la empresa: {string.Join(", ", faltantes)}. " +
+                    "Son cuentas base del asiento de la retención de IVA (caja o IVA retenido por entregar): " +
+                    "créelas o reactívelas en Contabilidad → Plan de Cuentas, o bien asígneles una cuenta distinta " +
+                    "en 🧮 Conceptos → pestaña ⚙️ SISTEMA (IVA_RETENCION) y vuelva a intentar."
+            };
+
+        var periodo = await BuscarPeriodoAbiertoAsync(compra.EmpresaId, retencion.FechaRetencion);
+        var numero = string.IsNullOrWhiteSpace(compra.NumeroFactura) ? "(s/n)" : compra.NumeroFactura;
+        var concepto = $"RETENCIÓN IVA {retencion.NumeroComprobante} ({retencion.PorcentajeRetencion}%) sobre factura {numero} — monto {monto:0.00} Bs.";
+
+        var asiento = await _asientos.CrearAsientoAsync(new AsientoContable
+        {
+            EmpresaId = compra.EmpresaId,
+            PeriodoContableId = periodo.Id,
+            NumeroComprobante = string.Empty,
+            FechaComprobante = retencion.FechaRetencion,
+            Concepto = concepto.Length > 500 ? concepto[..500] : concepto,
+            TipoComprobante = "Diario",
+            Estado = "Aprobado",
+            UsuarioId = usuarioId,
+            Detalles = new List<AsientoDetalle>
+            {
+                new() { CuentaContableId = cuentaCaja!.Id, Debe = monto, Haber = 0m },
+                new() { CuentaContableId = cuentaIvaRetenido!.Id, Debe = 0m, Haber = monto }
+            }
+        });
+
+        // Vínculo retención ↔ comprobante (base de la idempotencia)
+        retencion.AsientoContableId = asiento.Id;
+        await _context.SaveChangesAsync();
+
+        return new MotorAsientosResponse
+        {
+            Generada = true,
+            AsientoId = asiento.Id,
+            NumeroComprobante = asiento.NumeroComprobante,
+            TotalDebe = monto,
+            TotalHaber = monto,
+            Mensaje = "Comprobante contable de la retención de IVA generado (compra de contado)."
+        };
+    }
+
+    /// <summary>
+    /// Comprobante del PAGO de una factura de compra a CRÉDITO (retenciones
+    /// «al momento del pago»): Debe Proveedores por la deuda neta (total −
+    /// ISLR retenido, que ya se debitó en su propio asiento) | Haber Caja por
+    /// el efectivo entregado | Haber «IVA Retenido por Entregar» por lo
+    /// retenido al proveedor. Si la factura tiene una retención ISLR vigente
+    /// sin contabilizar, se contabiliza PRIMERO (queda debida antes de pagar).
+    /// Idempotencia por Compra.AsientoPagoId.
+    /// </summary>
+    public async Task<MotorAsientosResponse> GenerarAsientoPagoCompraAsync(Compra compra, DateTime fechaPago, int usuarioId = 1)
+    {
+        if (compra.IsAnulada)
+            return new MotorAsientosResponse
+            {
+                Generada = false,
+                Mensaje = "Compra anulada.",
+                Advertencia = "Las compras anuladas no se registran como pagadas."
+            };
+
+        if (!compra.EsCredito)
+            return new MotorAsientosResponse
+            {
+                Generada = false,
+                Mensaje = "La factura es de CONTADO.",
+                Advertencia = "No hay pago pendiente: en compras de contado la retención de IVA se contabiliza al emitirla (botón 🧾)."
+            };
+
+        if (compra.AsientoPagoId.HasValue)
+            return new MotorAsientosResponse
+            {
+                Generada = false,
+                AsientoId = compra.AsientoPagoId.Value,
+                Mensaje = "La factura ya tiene su pago contabilizado.",
+                Advertencia = $"Ya pagada (asiento {compra.AsientoPagoId.Value}): no se duplica el comprobante de pago."
+            };
+
+        if (!compra.AsientoContableId.HasValue)
+            return new MotorAsientosResponse
+            {
+                Generada = false,
+                Mensaje = "La factura aún no tiene comprobante contable.",
+                Advertencia = "Contabilice primero la factura (botón 🧾) antes de registrar su pago."
+            };
+
+        // Retenciones VIGENTES del documento (trackeadas: al final se vincula el
+        // asiento de pago a la retención IVA y se guarda el ISLR contabilizado).
+        var retencionIva = await _context.RetencionesIvaEmitidas
+            .FirstOrDefaultAsync(r => r.CompraId == compra.Id && r.Estado == "Emitida");
+        var retencionIslr = await _context.RetencionesIslrEmitidas
+            .FirstOrDefaultAsync(r => r.CompraId == compra.Id && r.Estado == "Emitida");
+
+        // Montos del documento en BOLÍVARES (verdad congelada *MonedaExt).
+        var tasaCompra = compra.TasaDeCambio > 0 ? compra.TasaDeCambio : 1m;
+        var total = MontoBs(compra.TotalMonedaExt, compra.TotalMonedaBase, tasaCompra);
+        if (total <= 0.005m)
+            return new MotorAsientosResponse
+            {
+                Generada = false,
+                Mensaje = "Sin montos que contabilizar.",
+                Advertencia = "La factura no tiene total."
+            };
+
+        var islrRetenido = retencionIslr != null ? Math.Abs(retencionIslr.MontoRetenidoBs) : 0m;
+        var ivaRetenido = retencionIva != null ? Math.Abs(retencionIva.MontoRetenidoBs) : 0m;
+        // Blindaje: lo retenido nunca puede superar la deuda de la factura.
+        if (islrRetenido > total) islrRetenido = total;
+        if (ivaRetenido > total - islrRetenido) ivaRetenido = total - islrRetenido;
+        var efectivo = Math.Round(total - islrRetenido - ivaRetenido, 2);
+        var deudaProveedores = Math.Round(total - islrRetenido, 2);
+
+        // La retención ISLR del documento debe estar contabilizada ANTES de
+        // pagar (su asiento ya debitó Proveedores por lo retenido); si aún no
+        // lo está, se genera aquí (idempotente) y sólo se aborta si falla.
+        if (retencionIslr != null && !retencionIslr.AsientoContableId.HasValue)
+        {
+            var rIslr = await GenerarAsientoRetencionIslrAsync(retencionIslr, usuarioId);
+            if (!rIslr.Generada)
+                return new MotorAsientosResponse
+                {
+                    Generada = false,
+                    Mensaje = "No se pudo contabilizar la retención de ISLR de la factura (requisito previo del pago).",
+                    Advertencia = rIslr.Advertencia ?? rIslr.Mensaje
+                };
+        }
+
+        var faltantes = new List<string>();
+        var cuentaProveedores = await BuscarCuentaActivaAsync(compra.EmpresaId,
+            await ResolverCodigoCuentaAsync(compra.EmpresaId, "PROVEEDORES", _mapping.Proveedores), faltantes);
+        var cuentaCaja = await BuscarCuentaActivaAsync(compra.EmpresaId,
+            await ResolverCodigoCuentaAsync(compra.EmpresaId, "CAJA_PRINCIPAL", _mapping.Caja), faltantes);
+        var cuentaIvaRetenido = ivaRetenido > 0.005m
+            ? await BuscarCuentaActivaAsync(compra.EmpresaId,
+                await ResolverCodigoCuentaAsync(compra.EmpresaId, "IVA_RETENCION", _mapping.IvaRetenidoPorEntregar), faltantes)
+            : null;
+
+        if (faltantes.Count > 0)
+            return new MotorAsientosResponse
+            {
+                Generada = false,
+                Mensaje = "Plan de cuentas incompleto.",
+                Advertencia = $"No se encontraron activas en el plan de la empresa: {string.Join(", ", faltantes)}. " +
+                    "Son cuentas base del asiento de pago (proveedores, caja o IVA retenido por entregar): " +
+                    "créelas o reactívelas en Contabilidad → Plan de Cuentas, o bien asígneles una cuenta distinta " +
+                    "en 🧮 Conceptos → pestaña ⚙️ SISTEMA y vuelva a intentar."
+            };
+
+        var periodo = await BuscarPeriodoAbiertoAsync(compra.EmpresaId, fechaPago);
+
+        var lineas = new List<AsientoDetalle>();
+        if (deudaProveedores > 0.005m)
+            lineas.Add(new AsientoDetalle { CuentaContableId = cuentaProveedores!.Id, Debe = deudaProveedores, Haber = 0m });
+        if (efectivo > 0.005m)
+            lineas.Add(new AsientoDetalle { CuentaContableId = cuentaCaja!.Id, Debe = 0m, Haber = efectivo });
+        if (ivaRetenido > 0.005m)
+            lineas.Add(new AsientoDetalle { CuentaContableId = cuentaIvaRetenido!.Id, Debe = 0m, Haber = ivaRetenido });
+
+        if (lineas.Count == 0 || Math.Abs(lineas.Sum(l => l.Debe) - lineas.Sum(l => l.Haber)) > 0.005m)
+            return new MotorAsientosResponse
+            {
+                Generada = false,
+                Mensaje = "Los montos del pago no cuadran.",
+                Advertencia = "Total − ISLR − IVA retenido no forma partida doble válida. Verifique las retenciones emitidas de la factura."
+            };
+
+        var numero = string.IsNullOrWhiteSpace(compra.NumeroFactura) ? "(s/n)" : compra.NumeroFactura;
+        var concepto = $"PAGO COMPRA {numero} — efectivo {efectivo:0.00}" +
+            (ivaRetenido > 0 ? $" + IVA retenido {ivaRetenido:0.00}" : string.Empty) +
+            (islrRetenido > 0 ? $" + ISLR retenido {islrRetenido:0.00}" : string.Empty) +
+            $" (total {total:0.00} Bs.)";
+
+        var asiento = await _asientos.CrearAsientoAsync(new AsientoContable
+        {
+            EmpresaId = compra.EmpresaId,
+            PeriodoContableId = periodo.Id,
+            NumeroComprobante = string.Empty,
+            FechaComprobante = fechaPago,
+            Concepto = concepto.Length > 500 ? concepto[..500] : concepto,
+            TipoComprobante = "Diario",
+            Estado = "Aprobado",
+            UsuarioId = usuarioId,
+            Detalles = lineas
+        });
+
+        // Vínculos: pago de la compra (idempotencia) y retención IVA contabilizada.
+        compra.AsientoPagoId = asiento.Id;
+        compra.FechaPago = fechaPago;
+        if (retencionIva != null)
+            retencionIva.AsientoContableId = asiento.Id;
+        await _context.SaveChangesAsync();
+
+        return new MotorAsientosResponse
+        {
+            Generada = true,
+            AsientoId = asiento.Id,
+            NumeroComprobante = asiento.NumeroComprobante,
+            TotalDebe = deudaProveedores,
+            TotalHaber = deudaProveedores,
+            Mensaje = $"Comprobante de pago de la factura {numero} generado (efectivo {efectivo:0.00} + IVA retenido {ivaRetenido:0.00} Bs.)."
+        };
     }
 
     /// <summary>

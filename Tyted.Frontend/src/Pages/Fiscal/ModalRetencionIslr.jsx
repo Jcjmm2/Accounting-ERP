@@ -7,7 +7,7 @@ import { fmt, calcularRetencionIslr } from './libroComprasHelpers';
 // que el backend. Presentacional: el estado y la emisión viven en el hook
 // useRetencionIslr (la página los pasa como props).
 // ---------------------------------------------------------------------------
-export default function ModalRetencionIslr({ modal, conceptos, onCambio, onEmitir, onCerrar, emitiendo }) {
+export default function ModalRetencionIslr({ modal, conceptos, onCambio, onEmitir, onCerrar, emitiendo, contabilizarAuto = true, onCambioContabilizarAuto }) {
   if (!modal) return null;
   const docIslr = modal.compra || modal.gasto;
   const proveedorIslr = docIslr?.proveedor || {};
@@ -84,6 +84,21 @@ export default function ModalRetencionIslr({ modal, conceptos, onCambio, onEmiti
             </div>
           );
         })()}
+
+        {/* Contabilización automática (default activo): el asiento nace en el
+            periodo del documento origen (fecha de la retención = fecha del
+            gasto/factura), Debe Proveedores | Haber ISLR retenido. */}
+        <label style={{
+          display: 'flex', alignItems: 'center', gap: '8px', marginTop: '14px',
+          fontSize: '0.8rem', color: '#cbd5e1', cursor: 'pointer'
+        }}>
+          <input
+            type="checkbox"
+            checked={contabilizarAuto}
+            onChange={(e) => onCambioContabilizarAuto?.(e.target.checked)}
+          />
+          🧾 Contabilizar automáticamente (Debe Proveedores / Haber ISLR retenido, en el periodo del documento)
+        </label>
 
         <div style={{ display: 'flex', gap: '10px', marginTop: '20px', justifyContent: 'flex-end' }}>
           <button onClick={onCerrar} style={{ background: '#475569', color: '#fff', border: 'none', borderRadius: '8px', padding: '9px 16px', cursor: 'pointer', fontWeight: 'bold' }}>Cancelar</button>

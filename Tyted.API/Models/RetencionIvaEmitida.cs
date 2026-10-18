@@ -57,6 +57,15 @@ namespace Tyted.API.Models
         /// <summary>Monto retenido al proveedor = IVA × porcentaje.</summary>
         public decimal MontoRetenido { get; set; }
 
+        // --- INTEGRACIÓN CONTABLE (retención de IVA) ---
+        /// <summary>
+        /// Comprobante contable asociado a la retención: en compras de CONTADO
+        /// se genera al EMITIR (Debe Caja | Haber IVA Retenido por Entregar) y
+        /// en compras a CRÉDITO al registrar el PAGO (parte Haber del asiento
+        /// de pago). Null = retención aún sin asiento.
+        /// </summary>
+        public int? AsientoContableId { get; set; }
+
         // ------------------------------------------------------------------
         // DUALIDAD FISCAL (Inmutabilidad Fiscal): equivalente exacto en
         // Bolívares (Bs.) congelado al momento de emitir la retención, a la

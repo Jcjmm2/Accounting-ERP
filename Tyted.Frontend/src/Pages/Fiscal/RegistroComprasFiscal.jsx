@@ -244,10 +244,86 @@ export default function RegistroComprasFiscal() {
         `✅ Comprobante de retención ${r.numeroComprobante} emitido.\n` +
         `IVA (Bs.): ${fmt(r.ivaCalculadoBs ?? r.ivaCalculado)} · Retenido (${r.porcentajeRetencion}%): ${fmt(r.montoRetenidoBs ?? r.montoRetenido)} Bs.`
       );
+
+      // RETENCIÓN DE IVA «AL MOMENTO DEL PAGO»:
+      // - CONTADO: el pago ya se realizó con la factura ⇒ el asiento se
+      //   genera AQUÍ (Debe Caja | Haber IVA Retenido por Entregar).
+      // - CRÉDITO: el asiento se genera al registrar el PAGO (💵).
+      if (c.esCredito) {
+        alert('ℹ️ Factura a CRÉDITO: el comprobante contable de la retención de IVA se generará al registrar el PAGO (💵) de la factura.');
+      } else if (!c.asientoContableId) {
+        alert('⚠️ Retención emitida. La factura aún NO tiene comprobante contable: contabilícela primero (🧾 de la factura) y después contabilice la retención.');
+      } else {
+        try {
+          const asiento = await fiscalApi.contabilizarRetencionIva(r.id);
+          if (asiento.generada) {
+            alert(`✅ Comprobante contable ${asiento.numeroComprobante} de la retención de IVA generado (compra de contado).\nDebe/Haber: ${fmt(asiento.totalDebe)} Bs.`);
+          } else {
+            alert(`⚠️ Retención emitida SIN comprobante contable:\n${asiento.advertencia || asiento.mensaje || ''}`);
+          }
+        } catch (errorC) {
+          alert(`⚠️ Retención emitida; el comprobante contable falló:\n${mensajeErrorApi(errorC)}\n\nUse el botón 🧾 de la retención para reintentar.`);
+        }
+      }
       await libro.cargarCompras();
     } catch (error) {
       console.error('Error emitiendo la retención de IVA:', error);
       alert(`❌ No se pudo emitir la retención:\n${mensajeErrorApi(error)}`);
+    }
+  };
+
+  // Contabiliza la retención de IVA de una factura de CONTADO (Debe Caja |
+  // Haber IVA Retenido por Entregar). Idempotente; en crédito lo hace el pago.
+  const contabilizarRetencionIvaAccion = async (c) => {
+    const ret = libro.retencionPorCompra.get(Number(c.id));
+    if (!ret || ret.asientoContableId) return;
+
+    const confirmado = window.confirm(
+      `Generar el comprobante contable de la retención de IVA ${ret.numeroComprobante} (${ret.porcentajeRetencion}%) sobre la factura ${c.numeroFactura || '(s/n)'}?\n\n` +
+      'Partida doble: Debe Caja | Haber IVA Retenido por Entregar. Idempotente: no se duplicará.'
+    );
+    if (!confirmado) return;
+
+    try {
+      const r = await fiscalApi.contabilizarRetencionIva(ret.id);
+      if (r.generada) alert(`✅ Comprobante ${r.numeroComprobante} generado.\nDebe/Haber: ${fmt(r.totalDebe)} Bs.`);
+      else alert(`⚠️ ${r.mensaje || 'No se generó el comprobante.'}\n${r.advertencia || ''}`);
+      await libro.cargarCompras();
+    } catch (error) {
+      console.error('Error contabilizando la retención de IVA:', error);
+      alert(`❌ No se pudo contabilizar la retención de IVA:\n${mensajeErrorApi(error)}`);
+    }
+  };
+
+  // Registra el PAGO TOTAL de una factura de compra a CRÉDITO y genera su
+  // comprobante: Debe Proveedores (total − ISLR) | Haber Caja (efectivo) +
+  // Haber IVA Retenido por Entregar. Si la factura tiene ISLR emitido sin
+  // contabilizar, el backend lo contabiliza primero. Idempotente.
+  const registrarPagoCompraAccion = async (c) => {
+    const retIva = libro.retencionPorCompra.get(Number(c.id));
+    const retIslr = libro.retencionIslrPorCompra.get(Number(c.id));
+    const hoy = new Date().toISOString().slice(0, 10);
+    const fecha = window.prompt(
+      `Fecha del pago de la factura ${c.numeroFactura || '(s/n)'} (AAAA-MM-DD):\n` +
+      '(debe estar dentro de un periodo contable abierto)', hoy);
+    if (fecha === null) return;
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(fecha.trim())) { alert('⚠️ Fecha inválida: use el formato AAAA-MM-DD.'); return; }
+
+    const confirmado = window.confirm(
+      `Registrar el pago total de la factura ${c.numeroFactura || '(s/n)'} con fecha ${fecha.trim()}.\n\n` +
+      (retIva ? `Retención IVA ${retIva.numeroComprobante}: se contabiliza con el pago (Haber IVA Retenido por Entregar).\n` : '') +
+      (retIslr ? `Retención ISLR ${retIslr.numeroComprobante}: se contabiliza antes del pago si aún no lo está.\n` : '') +
+      'Partida doble: Debe Proveedores | Haber Caja (efectivo) + IVA Retenido. Idempotente: sólo una vez por factura.'
+    );
+    if (!confirmado) return;
+
+    try {
+      const r = await fiscalApi.registrarPagoCompra(c.id, `${fecha.trim()}T12:00:00`);
+      alert(`✅ Pago contabilizado: comprobante ${r.numeroComprobante}.\nDebe/Haber: ${fmt(r.totalDebe)} Bs.`);
+      await libro.cargarCompras();
+    } catch (error) {
+      console.error('Error registrando el pago de la compra:', error);
+      alert(`❌ No se pudo registrar el pago:\n${mensajeErrorApi(error)}`);
     }
   };
 
@@ -408,6 +484,8 @@ export default function RegistroComprasFiscal() {
                   contabilizar={contabilizar}
                   contabilizarGastoAccion={contabilizarGastoAccion}
                   emitirRetencion={emitirRetencion}
+                  contabilizarRetencionIvaAccion={contabilizarRetencionIvaAccion}
+                  registrarPagoCompraAccion={registrarPagoCompraAccion}
                   abrirModalIslr={isl.abrirModalIslr}
                   contabilizarRetencionIslrAccion={isl.contabilizarRetencionIslrAccion}
                   anularRetencionIslrAccion={isl.anularRetencionIslrAccion}
@@ -428,6 +506,8 @@ export default function RegistroComprasFiscal() {
         onEmitir={isl.emitirRetencionIslr}
         onCerrar={() => isl.setModalIslr(null)}
         emitiendo={isl.emitiendoIslr}
+        contabilizarAuto={isl.contabilizarIslrAuto}
+        onCambioContabilizarAuto={isl.setContabilizarIslrAuto}
       />
 
       {/* --- MODAL DE RELACIÓN DE RETENCIÓN DE ISLR (Ley del Impuesto Sobre la

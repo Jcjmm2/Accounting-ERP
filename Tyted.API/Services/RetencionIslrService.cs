@@ -197,7 +197,18 @@ public class RetencionIslrService
         var bruto = baseImponible * porcentaje / 100m;
         var montoRetenidoBs = Math.Max(0m, Math.Round(bruto - sustraendo, 2, MidpointRounding.AwayFromZero));
 
-        var fecha = DateTime.Now;
+        // FECHA DE LA RETENCIÓN = FECHA DEL DOCUMENTO ORIGEN (regla «fecha ∈
+        // periodo»): el comprobante SENIAT AAAAMM y el asiento contable del
+        // retenido afectan al PERIODO del gasto/factura, no al día en que se
+        // emite desde la UI. Documentos legados sin fecha válida caen a hoy.
+        var fechaOrigen = gasto != null ? gasto.Fecha : compra!.FechaCompra;
+        if (fechaOrigen == default) fechaOrigen = DateTime.Now;
+
+        // Integridad contable: la retención sólo puede nacer dentro de un
+        // periodo ABIERTO de la empresa que contenga la fecha del documento.
+        await _context.ValidarPeriodoAbiertoParaDocumentoAsync(empresaId, fechaOrigen, "la retención de ISLR");
+
+        var fecha = fechaOrigen;
         var retencion = new RetencionIslrEmitida
         {
             EmpresaId = empresaId,

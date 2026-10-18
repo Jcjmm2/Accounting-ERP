@@ -18,6 +18,11 @@ export function useRetencionIslr({ empresaId, retencionIslrPorCompra, retencionI
   // Modal de emisión: { compra | gasto, conceptoId, baseMax, baseBs }.
   const [modalIslr, setModalIslr] = useState(null);
   const [emitiendoIslr, setEmitiendoIslr] = useState(false);
+  // Contabilización automática al emitir (default activo, igual que gastos y
+  // compras): genera el asiento Debe Proveedores | Haber ISLR retenido en el
+  // MISMO periodo del documento origen (la fecha de la retención = fecha del
+  // gasto/factura).
+  const [contabilizarIslrAuto, setContabilizarIslrAuto] = useState(true);
 
   // Abre el modal con un documento origen (compra o gasto), cargando el
   // catálogo ISLR de la empresa. El concepto puede venir sugerido por el
@@ -115,6 +120,21 @@ export function useRetencionIslr({ empresaId, retencionIslrPorCompra, retencionI
         `✅ Comprobante de retención ISLR ${r.numeroComprobante} emitido.\n` +
         `Base (Bs.): ${fmt(r.baseImponibleBs)} · Retenido (${r.porcentajeRetencion}%): ${fmt(r.montoRetenidoBs)} Bs.`
       );
+      // CONTABILIZACIÓN AUTOMÁTICA (idempotente): el asiento nace en el
+      // periodo del documento origen; si falla, la retención queda emitida y
+      // el botón 🧾 de la tabla permite reintentar.
+      if (contabilizarIslrAuto && r?.id) {
+        try {
+          const asiento = await fiscalApi.contabilizarRetencionIslr(r.id);
+          if (asiento.generada) {
+            alert(`✅ Comprobante contable ${asiento.numeroComprobante} de la retención ISLR generado.\nDebe/Haber: ${fmt(asiento.totalDebe)} Bs.`);
+          } else {
+            alert(`⚠️ Retención emitida SIN comprobante contable:\n${asiento.advertencia || asiento.mensaje || ''}`);
+          }
+        } catch (errorC) {
+          alert(`⚠️ Retención emitida; el comprobante contable falló:\n${mensajeErrorApi(errorC)}\n\nUse el botón 🧾 de la fila para reintentar.`);
+        }
+      }
       setModalIslr(null);
       await cargarCompras();
     } catch (error) {
@@ -185,6 +205,7 @@ export function useRetencionIslr({ empresaId, retencionIslrPorCompra, retencionI
 
   return {
     conceptosIslr, modalIslr, setModalIslr, emitiendoIslr,
+    contabilizarIslrAuto, setContabilizarIslrAuto,
     abrirModalIslr, emitirRetencionIslr,
     contabilizarRetencionIslrAccion, anularRetencionIslrAccion
   };

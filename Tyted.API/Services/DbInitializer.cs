@@ -149,6 +149,9 @@ namespace Tyted.API.Services
             //    gastos, ingresos y compras fiscales se contabilizan contra la
             //    cuenta asociada al concepto seleccionado (semilla idempotente).
             SembrarConceptosOperacionales(context);
+            // Cuentas base de retenciones (ISLR/IVA) y pagos: sin ellas el
+            // motor respondería «plan de cuentas incompleto».
+            AsegurarCuentasRetenciones(context);
 
             context.SaveChanges();
         }
@@ -276,6 +279,68 @@ IF NOT EXISTS (SELECT 1 FROM [dbo].[__EFMigrationsHistory] WHERE [MigrationId] =
         }
 
         // -------------------------------------------------------------------------
+        // CUENTAS BASE DE RETENCIONES (idempotente por empresa)
+        // -------------------------------------------------------------------------
+        /// <summary>
+        /// Crea en el plan de cada empresa, si faltan, las cuentas que usan los
+        /// asientos de RETENCIONES y PAGOS: «Proveedores» (2.1.1.01, apuntada por
+        /// el mapping PROVEEDORES), «ISLR retenido por pagar» (2.1.1.02),
+        /// «Impuestos por pagar» (2.1.5) e «IVA Retenido por Entregar»
+        /// (2.1.5.01, clave SISTEMA IVA_RETENCION). Sin ellas el motor responde
+        /// «plan de cuentas incompleto» y las retenciones no se contabilizarían.
+        /// </summary>
+        private static void AsegurarCuentasRetenciones(TytedContext context)
+        {
+            var cuentasBase = new (string Codigo, string Nombre, int Nivel)[]
+            {
+                ("2.1.1.01", "Proveedores", 5),
+                ("2.1.1.02", "ISLR retenido por pagar", 5),
+                ("2.1.5", "Impuestos por pagar", 3),
+                ("2.1.5.01", "IVA Retenido por Entregar (SENIAT)", 5)
+            };
+
+            foreach (var empresaId in context.Empresa.Select(e => e.Id).ToList())
+            {
+                var creadas = new List<CuentaContable>();
+                foreach (var (codigo, nombre, nivel) in cuentasBase)
+                {
+                    var existe = context.CuentasContables.Any(c =>
+                        c.EmpresaId == empresaId && c.CodigoCuenta == codigo);
+                    if (existe) continue;
+
+                    creadas.Add(new CuentaContable
+                    {
+                        EmpresaId = empresaId,
+                        CodigoCuenta = codigo,
+                        NombreCuenta = nombre,
+                        TipoCuenta = "Pasivo",
+                        Naturaleza = "C",
+                        EsMovimiento = nivel >= 5,
+                        Nivel = nivel,
+                        Activa = true
+                    });
+                }
+
+                if (creadas.Count == 0) continue;
+                context.CuentasContables.AddRange(creadas);
+                context.SaveChanges();
+
+                // Vincula el padre directo (2.1.1 / 2.1.5) cuando exista en el
+                // plan de la empresa (incluida la recién creada en este lote).
+                var plan = context.CuentasContables
+                    .Where(c => c.EmpresaId == empresaId)
+                    .ToDictionary(c => c.CodigoCuenta, c => c);
+                foreach (var cuenta in creadas)
+                {
+                    var codigoPadre = cuenta.CodigoCuenta[..cuenta.CodigoCuenta.LastIndexOf('.')];
+                    if (plan.TryGetValue(codigoPadre, out var padre) && padre.Id != cuenta.Id)
+                        cuenta.PadreCuentaId = padre.Id;
+                }
+                context.SaveChanges();
+            }
+        }
+
+        // -------------------------------------------------------------------------
         // CONCEPTOS DE OPERACIÓN (semilla por empresa, idempotente)
         // -------------------------------------------------------------------------
         /// <summary>
@@ -313,7 +378,11 @@ IF NOT EXISTS (SELECT 1 FROM [dbo].[__EFMigrationsHistory] WHERE [MigrationId] =
                 ("INGRESOS_VENTAS", "SISTEMA", "4.1.1"),
                 ("COMPRAS", "SISTEMA", "5.1.1"),
                 ("GASTOS", "SISTEMA", "5.1.2"),
-                ("PROVEEDORES", "SISTEMA", "2.1.1.01")
+                ("PROVEEDORES", "SISTEMA", "2.1.1.01"),
+                // Retenciones (ISLR e IVA): pasivos que el motor usa en los
+                // asientos de retención (ISLR al emitir) y de pago de facturas
+                // (IVA retenido «al momento del pago»).
+                ("IVA_RETENCION", "SISTEMA", "2.1.5.01")
             };
 
             var empresas = context.Empresa.Select(e => e.Id).ToList();

@@ -22,9 +22,28 @@ public class RetencionIvaServiceTests
         return new TytedContext(options);
     }
 
-    /// <summary>Semilla: proveedor (id 1) + compra de prueba. Idempotente.</summary>
+    private static MotorAsientosAutomaticos CrearMotor(TytedContext context) =>
+        new(context, new AsientoContableService(context), new MappingContable());
+
+    /// <summary>Semilla: periodo octubre 2026 abierto + proveedor (id 1) + compra de prueba. Idempotente.</summary>
     private static async Task<Compra> SembrarCompraAsync(TytedContext context, int empresaId = 1, decimal iva = 32m, string numeroFactura = "F-000456")
     {
+        if (!await context.PeriodosContables.AnyAsync(p => p.EmpresaId == empresaId))
+        {
+            context.PeriodosContables.Add(new PeriodoContable
+            {
+                EmpresaId = empresaId,
+                Anio = 2026,
+                Mes = 10,
+                TipoPeriodo = "Mensual",
+                Nombre = "Octubre 2026",
+                FechaInicio = new DateTime(2026, 10, 1),
+                FechaFin = new DateTime(2026, 10, 31, 23, 59, 59),
+                Estado = "Abierto",
+                Cerrado = false
+            });
+        }
+
         if (!await context.Proveedores.AnyAsync(p => p.CodigoProv == 1))
         {
             context.Proveedores.Add(new Proveedor
@@ -59,7 +78,7 @@ public class RetencionIvaServiceTests
         await using var context = CrearContexto();
         var compra = await SembrarCompraAsync(context);
 
-        var service = new RetencionIvaService(context);
+        var service = new RetencionIvaService(context, CrearMotor(context));
         var r = await service.EmitirAsync(compra.Id, empresaId: 1, porcentaje: 75);
 
         // IVA 32 → 75% retenido = 24
@@ -68,11 +87,12 @@ public class RetencionIvaServiceTests
         Assert.Equal(24m, r.MontoRetenido);
         Assert.Equal("Emitida", r.Estado);
 
-        // Número oficial SENIAT: AAAAMM + 8 dígitos, secuencia 1
-        var prefijo = DateTime.Now.ToString("yyyyMM");
-        Assert.StartsWith(prefijo, r.NumeroComprobante);
+        // Número oficial SENIAT: AAAAMM + 8 dígitos, secuencia 1. El prefijo
+        // usa la FECHA DE LA FACTURA (regla «fecha ∈ periodo»), no la de hoy.
+        Assert.StartsWith("202610", r.NumeroComprobante);
         Assert.Equal(14, r.NumeroComprobante.Length);
         Assert.EndsWith("00000001", r.NumeroComprobante);
+        Assert.Equal(new DateTime(2026, 10, 9), r.FechaRetencion);
 
         // Datos del proveedor para el TXT (SNAT/2015/0049)
         Assert.Equal("J-123456789", r.ProveedorRif);
@@ -87,7 +107,7 @@ public class RetencionIvaServiceTests
         var compra1 = await SembrarCompraAsync(context, numeroFactura: "F-001");
         var compra2 = await SembrarCompraAsync(context, numeroFactura: "F-002");
 
-        var service = new RetencionIvaService(context);
+        var service = new RetencionIvaService(context, CrearMotor(context));
         var r1 = await service.EmitirAsync(compra1.Id, 1, 100);
         var r2 = await service.EmitirAsync(compra2.Id, 1, 75);
 
@@ -103,7 +123,7 @@ public class RetencionIvaServiceTests
         await using var context = CrearContexto();
         var compra = await SembrarCompraAsync(context);
 
-        var service = new RetencionIvaService(context);
+        var service = new RetencionIvaService(context, CrearMotor(context));
         await service.EmitirAsync(compra.Id, 1, 75);
 
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(
@@ -118,7 +138,7 @@ public class RetencionIvaServiceTests
         await using var context = CrearContexto();
         var compra = await SembrarCompraAsync(context);
 
-        var service = new RetencionIvaService(context);
+        var service = new RetencionIvaService(context, CrearMotor(context));
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(
             () => service.EmitirAsync(compra.Id, 1, 85));
         Assert.Contains("75 o 100", ex.Message);
@@ -131,7 +151,7 @@ public class RetencionIvaServiceTests
         await using var context = CrearContexto();
         var compra = await SembrarCompraAsync(context, iva: 0m);
 
-        var service = new RetencionIvaService(context);
+        var service = new RetencionIvaService(context, CrearMotor(context));
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(
             () => service.EmitirAsync(compra.Id, 1, 75));
         Assert.Contains("no tiene IVA", ex.Message);
@@ -143,7 +163,7 @@ public class RetencionIvaServiceTests
         await using var context = CrearContexto();
         var compra = await SembrarCompraAsync(context);
 
-        var service = new RetencionIvaService(context);
+        var service = new RetencionIvaService(context, CrearMotor(context));
         var ex = await Assert.ThrowsAsync<InvalidOperationException>(
             () => service.EmitirAsync(compra.Id, empresaId: 2, porcentaje: 75));
         Assert.Contains("empresa activa", ex.Message);
@@ -156,7 +176,7 @@ public class RetencionIvaServiceTests
         var compra1 = await SembrarCompraAsync(context, numeroFactura: "F-100");
         var compra2 = await SembrarCompraAsync(context, numeroFactura: "F-200");
 
-        var service = new RetencionIvaService(context);
+        var service = new RetencionIvaService(context, CrearMotor(context));
         var r1 = await service.EmitirAsync(compra1.Id, 1, 75);
         var r2 = await service.EmitirAsync(compra2.Id, 1, 75);
 

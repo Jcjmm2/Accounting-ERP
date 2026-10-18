@@ -103,6 +103,22 @@ export const fiscalApi = {
     return response.data;
   },
 
+  // Contabiliza la retención de IVA de una factura de CONTADO (Debe Caja |
+  // Haber IVA Retenido por Entregar). En compras a CRÉDITO el asiento se
+  // genera al registrar el pago. Idempotente.
+  contabilizarRetencionIva: async (id) => {
+    const response = await api.post(`/retenciones-iva/${id}/contabilizar`);
+    return response.data;
+  },
+
+  // Registra el PAGO de una factura de compra a CRÉDITO y genera su
+  // comprobante (Debe Proveedores | Haber Caja + IVA Retenido por Entregar;
+  // contabiliza antes la retención ISLR si falta). Idempotente.
+  registrarPagoCompra: async (id, fecha) => {
+    const response = await api.post(`/Compras/${id}/registrar-pago`, { fecha });
+    return response.data;
+  },
+
   // -------------------------------------------------------------------------
   // RETENCIONES DE ISLR EMITIDAS (Decreto 1.808)
   // -------------------------------------------------------------------------

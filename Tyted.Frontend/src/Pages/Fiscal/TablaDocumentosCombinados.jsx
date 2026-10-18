@@ -12,6 +12,7 @@ export default function TablaDocumentosCombinados({
   documentosCombinados, retencionPorCompra, retencionIslrPorCompra, retencionIslrPorGasto,
   editandoId, setEditandoId, formFiscal, setFormFiscal, procesandoId,
   abrirEdicion, guardarFiscal, contabilizar, contabilizarGastoAccion, emitirRetencion,
+  contabilizarRetencionIvaAccion, registrarPagoCompraAccion,
   abrirModalIslr, contabilizarRetencionIslrAccion, anularRetencionIslrAccion,
   empresaActiva, periodoActivo
 }) {
@@ -102,25 +103,43 @@ export default function TablaDocumentosCombinados({
                 <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 'bold' }}>{fmt(d.total)}</td>
                 <td style={tdStyle}>
                   {esGasto ? (
-                    retencionIslrPorGasto.has(Number(c.id)) ? (
-                      <span style={{ color: '#60a5fa', fontSize: '0.75rem', fontWeight: 'bold' }}>
-                        📑 ISLR {retencionIslrPorGasto.get(Number(c.id)).numeroComprobante}
-                      </span>
-                    ) : (
+                    retencionIslrPorGasto.has(Number(c.id)) ? (() => {
+                      const retIslrGasto = retencionIslrPorGasto.get(Number(c.id));
+                      return (
+                        <span style={{ color: '#60a5fa', fontSize: '0.75rem', fontWeight: 'bold' }}>
+                          📑 ISLR {retIslrGasto.numeroComprobante}
+                          {retIslrGasto.asientoContableId
+                            ? <span style={{ color: '#34d399' }}> · ✅</span>
+                            : <span style={{ color: '#fbbf24' }}> · ⚠️ pendiente</span>}
+                        </span>
+                      );
+                    })() : (
                       <span style={{ color: '#64748b' }}>—</span>
                     )
                   ) : (
                     <>
-                      {retencionPorCompra.has(Number(c.id)) && (
-                        <span style={{ display: 'block', color: '#f472b6', fontSize: '0.75rem', fontWeight: 'bold' }}>
-                          🧮 IVA {retencionPorCompra.get(Number(c.id)).numeroComprobante} ({retencionPorCompra.get(Number(c.id)).porcentajeRetencion}%)
-                        </span>
-                      )}
-                      {retencionIslrPorCompra.has(Number(c.id)) && (
-                        <span style={{ display: 'block', color: '#60a5fa', fontSize: '0.75rem', fontWeight: 'bold' }}>
-                          📑 ISLR {retencionIslrPorCompra.get(Number(c.id)).numeroComprobante}
-                        </span>
-                      )}
+                      {retencionPorCompra.has(Number(c.id)) && (() => {
+                        const retIva = retencionPorCompra.get(Number(c.id));
+                        return (
+                          <span style={{ display: 'block', color: '#f472b6', fontSize: '0.75rem', fontWeight: 'bold' }}>
+                            🧮 IVA {retIva.numeroComprobante} ({retIva.porcentajeRetencion}%)
+                            {retIva.asientoContableId
+                              ? <span style={{ color: '#34d399' }}> · ✅ asiento #{retIva.asientoContableId}</span>
+                              : <span style={{ color: '#fbbf24' }}> · ⚠️ sin comprobante</span>}
+                          </span>
+                        );
+                      })()}
+                      {retencionIslrPorCompra.has(Number(c.id)) && (() => {
+                        const retIslrFila = retencionIslrPorCompra.get(Number(c.id));
+                        return (
+                          <span style={{ display: 'block', color: '#60a5fa', fontSize: '0.75rem', fontWeight: 'bold' }}>
+                            📑 ISLR {retIslrFila.numeroComprobante}
+                            {retIslrFila.asientoContableId
+                              ? <span style={{ color: '#34d399' }}> · ✅</span>
+                              : <span style={{ color: '#fbbf24' }}> · ⚠️ pendiente</span>}
+                          </span>
+                        );
+                      })()}
                       {!retencionPorCompra.has(Number(c.id)) && !retencionIslrPorCompra.has(Number(c.id)) && (
                         <span style={{ color: '#64748b' }}>—</span>
                       )}
@@ -241,6 +260,48 @@ export default function TablaDocumentosCombinados({
                       >
                         {retencionPorCompra.has(Number(c.id)) ? '🖨️' : '🧮'}
                       </button>
+                      {/* RETENCIÓN DE IVA: contabilizar (CONTADO, si quedó sin
+                          comprobante) o registrar el PAGO de la factura (CRÉDITO,
+                          momento en que nace el asiento del retenido). */}
+                      {(() => {
+                        const retIvaFila = retencionPorCompra.get(Number(c.id));
+                        const faltaAsientoIva = Boolean(retIvaFila && !retIvaFila.asientoContableId);
+                        const pendientePago = Boolean(c.esCredito && c.asientoContableId && !c.asientoPagoId);
+                        return (
+                          <>
+                            {faltaAsientoIva && !c.esCredito && c.asientoContableId && (
+                              <button
+                                onClick={() => contabilizarRetencionIvaAccion(c)}
+                                disabled={c.isAnulada}
+                                title="Contabilizar la retención de IVA (compra de contado): Debe Caja / Haber IVA Retenido por Entregar"
+                                style={{
+                                  background: '#be185d', color: '#fff', border: 'none', borderRadius: '5px',
+                                  padding: '5px 9px', cursor: c.isAnulada ? 'not-allowed' : 'pointer',
+                                  marginLeft: '6px', opacity: c.isAnulada ? 0.5 : 1
+                                }}
+                              >🧾</button>
+                            )}
+                            {pendientePago && (
+                              <button
+                                onClick={() => registrarPagoCompraAccion(c)}
+                                disabled={c.isAnulada}
+                                title="Registrar el pago total: Debe Proveedores | Haber Caja + IVA Retenido por Entregar (contabiliza antes el ISLR si falta)"
+                                style={{
+                                  background: '#0f766e', color: '#fff', border: 'none', borderRadius: '5px',
+                                  padding: '5px 9px', cursor: c.isAnulada ? 'not-allowed' : 'pointer',
+                                  marginLeft: '6px', opacity: c.isAnulada ? 0.5 : 1
+                                }}
+                              >💵</button>
+                            )}
+                            {c.esCredito && c.asientoPagoId && (
+                              <span
+                                title={`Pagada: comprobante de pago #${c.asientoPagoId}`}
+                                style={{ color: '#34d399', fontSize: '0.72rem', fontWeight: 'bold', marginLeft: '6px' }}
+                              >✅ Pagada</span>
+                            )}
+                          </>
+                        );
+                      })()}
                       {/* Retención de ISLR (Decreto 1.808): emisión o impresión */}
                       <button
                         onClick={() => retencionIslrPorCompra.has(Number(c.id))

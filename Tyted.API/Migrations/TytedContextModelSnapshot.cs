@@ -287,6 +287,9 @@ namespace Tyted.API.Migrations
                     b.Property<int?>("AsientoContableId")
                         .HasColumnType("int");
 
+                    b.Property<int?>("AsientoPagoId")
+                        .HasColumnType("int");
+
                     b.Property<int>("CodigoProv")
                         .HasColumnType("int");
 
@@ -300,6 +303,9 @@ namespace Tyted.API.Migrations
                         .HasColumnType("bit");
 
                     b.Property<DateTime>("FechaCompra")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("FechaPago")
                         .HasColumnType("datetime2");
 
                     b.Property<DateTime?>("FechaVencimiento")
@@ -1379,6 +1385,9 @@ namespace Tyted.API.Migrations
                         .HasColumnType("int");
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<int?>("AsientoContableId")
+                        .HasColumnType("int");
 
                     b.Property<decimal>("BaseImponible")
                         .HasColumnType("decimal(18, 4)");

@@ -15,11 +15,17 @@ namespace Tyted.API.Services;
 public class RetencionIvaService
 {
     private readonly TytedContext _context;
+    private readonly MotorAsientosAutomaticos _motor;
 
-    public RetencionIvaService(TytedContext context)
+    public RetencionIvaService(TytedContext context, MotorAsientosAutomaticos motor)
     {
         _context = context;
+        _motor = motor;
     }
+
+    /// <summary>Retención por Id con seguimiento (para contabilizar).</summary>
+    public async Task<RetencionIvaEmitida?> GetPorIdAsync(int id)
+        => await _context.RetencionesIvaEmitidas.FirstOrDefaultAsync(r => r.Id == id);
 
     /// <summary>Listado filtrado por empresa y rango del periodo contable activo.</summary>
     public async Task<List<RetencionIvaEmitida>> GetListAsync(int? empresaId = null, DateTime? fechaInicio = null, DateTime? fechaFin = null)
@@ -85,7 +91,17 @@ public class RetencionIvaService
 
         var montoRetenidoBs = Math.Round(ivaBs * porcentaje / 100m, 2, MidpointRounding.AwayFromZero);
 
-        var fecha = DateTime.Now;
+        // FECHA DE LA RETENCIÓN = FECHA DE LA FACTURA ORIGEN (regla «fecha ∈
+        // periodo»): el comprobante SENIAT AAAAMM y su asiento (contado) o el
+        // filtro de la relación de retenciones afectan al periodo del documento,
+        // no al día de la emisión.
+        var fecha = compra.FechaCompra;
+        if (fecha == default) fecha = DateTime.Now;
+
+        // Integridad contable: la retención sólo puede nacer dentro de un
+        // periodo ABIERTO de la empresa que contenga la fecha de la factura.
+        await _context.ValidarPeriodoAbiertoParaDocumentoAsync(empresaId, fecha, "la retención de IVA");
+
         var retencion = new RetencionIvaEmitida
         {
             EmpresaId = empresaId,
@@ -117,6 +133,36 @@ public class RetencionIvaService
         _context.RetencionesIvaEmitidas.Add(retencion);
         await _context.SaveChangesAsync();
         return retencion;
+    }
+
+    /// <summary>
+    /// Contabiliza la retención de IVA emitida sobre una factura de CONTADO
+    /// (Debe Caja | Haber IVA Retenido por Entregar) con el motor de asientos
+    /// automáticos. En compras a CRÉDITO el asiento se genera al registrar el
+    /// PAGO (endpoint Compras/{id}/registrar-pago); aquí se rechaza con
+    /// mensaje claro. Idempotente: si ya tiene comprobante no se duplica.
+    /// </summary>
+    public async Task<MotorAsientosResponse> ContabilizarAsync(int retencionId, int usuarioId = 1)
+    {
+        var retencion = await _context.RetencionesIvaEmitidas
+            .FirstOrDefaultAsync(r => r.Id == retencionId)
+            ?? throw new InvalidOperationException("La retención de IVA no existe.");
+
+        if (retencion.Estado == "Anulada")
+            throw new InvalidOperationException("La retención de IVA está anulada: no se contabiliza.");
+
+        if (!retencion.CompraId.HasValue)
+            throw new InvalidOperationException("La retención de IVA no tiene factura de compra origen.");
+
+        var compra = await _context.Compras
+            .FirstOrDefaultAsync(c => c.Id == retencion.CompraId.Value)
+            ?? throw new InvalidOperationException("La factura de compra origen de la retención no existe.");
+
+        if (compra.EsCredito)
+            throw new InvalidOperationException(
+                "La factura es a CRÉDITO: el asiento de la retención de IVA se genera al registrar el PAGO (💵 Registrar pago en el Libro de Compras).");
+
+        return await _motor.GenerarAsientoRetencionIvaContadoAsync(compra, retencion, usuarioId);
     }
 
     /// <summary>

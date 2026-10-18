@@ -184,6 +184,37 @@ namespace Tyted.API.Controllers
             }
         }
 
+        /// <summary>
+        /// Registra el PAGO de una factura de compra a CRÉDITO y genera su
+        /// comprobante: Debe Proveedores (total − ISLR retenido) | Haber Caja
+        /// (efectivo) + Haber IVA Retenido por Entregar. Retenciones «al
+        /// momento del pago». Idempotente: una sola vez por factura
+        /// (Compra.AsientoPagoId). El cuerpo es opcional: { "fecha": "AAAA-MM-DD" }
+        /// (default = hoy); la fecha debe caer en un periodo ABIERTO.
+        /// </summary>
+        [HttpPost("{id}/registrar-pago")]
+        public async Task<ActionResult<MotorAsientosResponse>> RegistrarPago(int id, [FromBody] RegistrarPagoCompraRequest? request)
+        {
+            var compra = await _context.Compras.FindAsync(id);
+            if (compra == null) return NotFound(new { message = "La compra no existe." });
+
+            await _access.ValidarAccesoAsync(User, compra.EmpresaId);
+
+            var fecha = request?.Fecha ?? DateTime.Now;
+            try
+            {
+                var usuarioId = await ObtenerUsuarioIdAsync();
+                var respuesta = await _motor.GenerarAsientoPagoCompraAsync(compra, fecha, usuarioId);
+                if (!respuesta.Generada)
+                    return BadRequest(new { message = respuesta.Mensaje, advertencia = respuesta.Advertencia });
+                return Ok(respuesta);
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+        }
+
         /// <summary>Id real del usuario autenticado (auditoría y comprobantes).</summary>
         private async Task<int> ObtenerUsuarioIdAsync()
         {
@@ -254,5 +285,12 @@ namespace Tyted.API.Controllers
         public decimal NuevoPrecioBase { get; set; }  // Mapea al Precio 1
         public decimal NuevoPrecio2Base { get; set; } // Mapea al Precio 2
         public decimal NuevoPrecio3Base { get; set; } // Mapea al Precio 3
+    }
+
+    /// <summary>Solicitud de registro de pago de una factura de compra a crédito.</summary>
+    public class RegistrarPagoCompraRequest
+    {
+        /// <summary>Fecha del pago (default = hoy); debe caer en un periodo contable abierto.</summary>
+        public DateTime? Fecha { get; set; }
     }
 }

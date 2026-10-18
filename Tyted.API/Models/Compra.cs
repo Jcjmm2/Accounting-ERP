@@ -82,6 +82,17 @@ namespace Tyted.API.Models
         public bool EsCredito { get; set; } = false;
         public DateTime? FechaVencimiento { get; set; }
 
+        // --- PAGO DE LA FACTURA (retenciones IVA "al momento del pago") ---
+        /// <summary>
+        /// Comprobante del ASIENTO DE PAGO (Debe Proveedores | Haber Caja +
+        /// Haber IVA Retenido por Entregar). Null = factura de crédito aún no
+        /// pagada; idempotencia del endpoint «registrar-pago».
+        /// </summary>
+        public int? AsientoPagoId { get; set; }
+
+        /// <summary>Fecha del pago registrado (rige el periodo contable del asiento de pago).</summary>
+        public DateTime? FechaPago { get; set; }
+
         // --- MULTIEMPRESA E INTEGRACIÓN FISCAL/CONTABLE (Libro de Compras SENIAT) ---
         /// <summary>Empresa a la que pertenece la compra (selector global empresaActiva).</summary>
         public int EmpresaId { get; set; } = 1;
