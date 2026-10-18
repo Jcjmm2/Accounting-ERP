@@ -750,7 +750,13 @@ public class MotorAsientosAutomaticos
                     "No se puede generar el reverso sin las cuentas base (proveedores o ISLR retenido por pagar)."
             };
 
-        var periodo = await BuscarPeriodoAbiertoAsync(retencion.EmpresaId, DateTime.Now);
+        // REVERSO en el periodo de la RETENCIÓN (fecha ∈ periodo): el reverso
+        // nace junto con la retención y afecta al mismo periodo mientras éste
+        // siga ABIERTO. Sólo si ese periodo ya fue cerrado se recurre al
+        // periodo abierto de HOY (el reverso siempre debe ser posible).
+        var periodoReverso = await _context.BuscarPeriodoAbiertoAsync(retencion.EmpresaId, retencion.FechaRetencion);
+        var fechaReverso = periodoReverso != null ? retencion.FechaRetencion : DateTime.Now;
+        var periodo = await BuscarPeriodoAbiertoAsync(retencion.EmpresaId, fechaReverso);
 
         var origen = string.IsNullOrWhiteSpace(retencion.NumeroFactura) ? "(s/n)" : retencion.NumeroFactura;
         var conceptoTexto = $"REVERSO RETENCIÓN ISLR {retencion.NumeroComprobante} sobre factura {origen} — monto {monto:0.00} Bs.";
@@ -759,7 +765,7 @@ public class MotorAsientosAutomaticos
             EmpresaId = retencion.EmpresaId,
             PeriodoContableId = periodo.Id,
             NumeroComprobante = string.Empty,
-            FechaComprobante = DateTime.Now,
+            FechaComprobante = fechaReverso,
             Concepto = conceptoTexto.Length > 500 ? conceptoTexto[..500] : conceptoTexto,
             TipoComprobante = "Diario",
             Estado = "Aprobado",
@@ -882,19 +888,13 @@ public class MotorAsientosAutomaticos
     /// <summary>
     /// Periodo ABIERTO de la empresa que contiene la fecha de la operación.
     /// Sin periodo no se contabiliza (lanza InvalidOperationException → HTTP 400).
+    /// El desempate a igual fecha prefiere el subperiodo MENSUAL sobre el ANUAL
+    /// (mismo criterio que el cierre de periodo) vía ValidacionPeriodoFiscal.
     /// </summary>
     private async Task<PeriodoContable> BuscarPeriodoAbiertoAsync(int empresaId, DateTime fecha)
     {
-        var dia = fecha.Date;
-        var periodo = await _context.PeriodosContables
-            .AsNoTracking()
-            .FirstOrDefaultAsync(p => p.EmpresaId == empresaId
-                && p.FechaInicio.Date <= dia
-                && p.FechaFin.Date >= dia
-                && !p.Cerrado
-                && p.Estado != "Cerrado");
-
+        var periodo = await _context.BuscarPeriodoAbiertoAsync(empresaId, fecha);
         return periodo ?? throw new InvalidOperationException(
-            $"No hay un periodo contable ABIERTO de la empresa {empresaId} que contenga la fecha {dia:dd/MM/yyyy}. Cree o abra el periodo antes de contabilizar.");
+            $"No hay un periodo contable ABIERTO de la empresa {empresaId} que contenga la fecha {fecha:dd/MM/yyyy}. Cree o abra el periodo antes de contabilizar.");
     }
 }

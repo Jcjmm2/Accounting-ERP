@@ -1,18 +1,25 @@
+import { useContext } from 'react';
+import { ConfigContext } from '../../Context/ConfigContext';
 import { fmt, TIPOS_TRANSACCION, inputChico } from './libroComprasHelpers';
+import SelectorPeriodoDoc from './SelectorPeriodoDoc';
+import { diaIso } from './periodoDocHelper';
 
 // ---------------------------------------------------------------------------
 // FORMULARIO DE ALTA DE FACTURA DE COMPRA FISCAL: documento declarativo con
 // líneas de producto, captura en BOLÍVARES, SIN efectos en inventario.
 // Presentacional: el estado y la guarda viven en useAltaCompraFiscal (prop
-// `alta`); el catálogo de proveedores lo aporta la página.
+// `alta`); el catálogo de proveedores lo aporta la página. El PERIODO AL QUE
+// AFECTA acota la fecha del documento (regla «fecha ∈ periodo»).
 // ---------------------------------------------------------------------------
 export default function FormularioCompraFiscal({ alta, proveedores, tasa, onCancelar }) {
+  const { periodos } = useContext(ConfigContext);
   const {
     formCompra, setFormCompra, lineasCompra,
     buscadorProd, resultadosProd, buscarProdFiscal,
     agregarLineaCompra, modificarLineaCompra, quitarLineaCompra,
     totalesFormCompra, contabilizarAuto, setContabilizarAuto,
-    guardandoCompra, guardarCompraFiscal
+    guardandoCompra, guardarCompraFiscal,
+    cambiarFechaCompra, cambiarPeriodoCompra, avisoPeriodo
   } = alta;
 
   return (
@@ -20,7 +27,21 @@ export default function FormularioCompraFiscal({ alta, proveedores, tasa, onCanc
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px', marginBottom: '14px' }}>
         <div>
           <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Fecha</label>
-          <input type="date" value={formCompra.fecha} onChange={(e) => setFormCompra({ ...formCompra, fecha: e.target.value })} style={inputChico} />
+          <input
+            type="date"
+            value={formCompra.fecha}
+            min={diaIso(alta.periodoDocCompra?.fechaInicio)}
+            max={diaIso(alta.periodoDocCompra?.fechaFin)}
+            onChange={(e) => cambiarFechaCompra(e.target.value)}
+            style={inputChico}
+          />
+        </div>
+        <div>
+          <SelectorPeriodoDoc
+            periodos={periodos}
+            periodoId={formCompra.periodoId}
+            onChange={cambiarPeriodoCompra}
+          />
         </div>
         <div>
           <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Proveedor</label>
@@ -46,6 +67,13 @@ export default function FormularioCompraFiscal({ alta, proveedores, tasa, onCanc
           </select>
         </div>
       </div>
+
+      {/* Aviso: el documento afecta a un periodo distinto del contexto */}
+      {avisoPeriodo && (
+        <div style={{ background: '#3a2f05', border: '1px solid #f59e0b', color: '#fcd34d', padding: '8px 12px', borderRadius: '8px', fontSize: '0.78rem', marginBottom: '14px' }}>
+          ⚠️ {avisoPeriodo}
+        </div>
+      )}
 
       <div style={{ position: 'relative', marginBottom: '10px' }}>
         <input

@@ -108,18 +108,10 @@ public class GastoService
         if (gasto.IvaMonedaExt < 0)
             gasto.IvaMonedaExt = 0m;
 
-        // Integridad contable: la fecha debe caer en un periodo ABIERTO de la empresa
-        var dia = gasto.Fecha.Date;
-        var hayPeriodoAbierto = await _context.PeriodosContables.AnyAsync(p =>
-            p.EmpresaId == gasto.EmpresaId
-            && p.FechaInicio.Date <= dia
-            && p.FechaFin.Date >= dia
-            && !p.Cerrado
-            && p.Estado != "Cerrado");
-
-        if (!hayPeriodoAbierto)
-            throw new InvalidOperationException(
-                $"No hay un periodo contable ABIERTO de la empresa {gasto.EmpresaId} que contenga la fecha {dia:dd/MM/yyyy}.");
+        // Integridad contable: la fecha debe caer en un periodo ABIERTO de la
+        // empresa (el periodo al que afecta el gasto lo define su fecha; el
+        // backend es la fuente de verdad de la regla «fecha ∈ periodo»).
+        await _context.ValidarPeriodoAbiertoParaDocumentoAsync(gasto.EmpresaId, gasto.Fecha, "gasto");
 
         gasto.Origen = "Fiscal";
         gasto.IsAnulada = false;

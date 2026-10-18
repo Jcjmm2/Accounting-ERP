@@ -215,6 +215,12 @@ namespace Tyted.API.Services
                 if (string.IsNullOrWhiteSpace(venta.Usuario)) venta.Usuario = "FISCAL";
                 venta.IsAnulada = false;
 
+                // Integridad contable: la venta fiscal sólo puede nacer dentro
+                // de un periodo ABIERTO de la empresa (el periodo al que
+                // afecta lo define la FECHA del documento; regla «fecha ∈
+                // periodo», igual que los Libros/Reportes por rango de fechas).
+                await _context.ValidarPeriodoAbiertoParaDocumentoAsync(venta.EmpresaId, venta.FechaVenta, "la venta fiscal");
+
                 var tasa = venta.TasaDeCambio > 0 ? venta.TasaDeCambio : 1m;
 
                 // CAPTURA EN BOLÍVARES (fiscal en Bs.): el formulario fiscal
@@ -335,6 +341,14 @@ namespace Tyted.API.Services
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
                 return venta;
+            }
+            catch (InvalidOperationException)
+            {
+                // Reglas de negocio tipadas (p. ej. «fecha ∈ periodo ABIERTO»):
+                // se propagan sin envolver para que el controller responda 400
+                // con el mensaje claro.
+                await transaction.RollbackAsync();
+                throw;
             }
             catch (Exception ex)
             {

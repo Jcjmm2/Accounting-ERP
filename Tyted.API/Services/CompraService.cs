@@ -211,6 +211,13 @@ namespace Tyted.API.Services
                 compra.Origen = "Fiscal";
                 if (compra.FechaCompra == default) compra.FechaCompra = DateHelper.GetVenezuelaTime();
                 compra.IsAnulada = false;
+
+                // Integridad contable: la compra fiscal sólo puede nacer dentro
+                // de un periodo ABIERTO de la empresa (el periodo al que
+                // afecta lo define la FECHA del documento; regla «fecha ∈
+                // periodo», igual que los Libros/Reportes por rango de fechas).
+                await _context.ValidarPeriodoAbiertoParaDocumentoAsync(compra.EmpresaId, compra.FechaCompra, "la compra fiscal");
+
                 if (string.IsNullOrWhiteSpace(compra.TipoMoneda)) compra.TipoMoneda = "USD";
                 var tasa = compra.TasaDeCambio > 0 ? compra.TasaDeCambio : 1m;
 
@@ -304,6 +311,14 @@ namespace Tyted.API.Services
                 await _context.SaveChangesAsync();
                 await transaction.CommitAsync();
                 return compra;
+            }
+            catch (InvalidOperationException)
+            {
+                // Reglas de negocio tipadas (p. ej. «fecha ∈ periodo ABIERTO»):
+                // se propagan sin envolver para que el controller responda 400
+                // con el mensaje claro.
+                await transaction.RollbackAsync();
+                throw;
             }
             catch (Exception ex)
             {

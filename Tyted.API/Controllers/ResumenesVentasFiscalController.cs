@@ -140,6 +140,18 @@ namespace Tyted.API.Controllers
             if (resumen.Fecha == default)
                 resumen.Fecha = DateTime.UtcNow;
 
+            // Integridad contable: el resumen Z sólo puede nacer dentro de un
+            // periodo ABIERTO de la empresa (el periodo al que afecta lo
+            // define la FECHA del cierre; regla «fecha ∈ periodo»).
+            try
+            {
+                await _context.ValidarPeriodoAbiertoParaDocumentoAsync(resumen.EmpresaId, resumen.Fecha, "el resumen Z");
+            }
+            catch (InvalidOperationException ex)
+            {
+                return BadRequest(new { message = ex.Message });
+            }
+
             _context.ResumenesVentasFiscales.Add(resumen);
             await _context.SaveChangesAsync();
             return Ok(resumen);

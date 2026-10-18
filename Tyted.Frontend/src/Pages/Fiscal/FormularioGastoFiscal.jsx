@@ -1,18 +1,25 @@
+import { useContext } from 'react';
+import { ConfigContext } from '../../Context/ConfigContext';
 import { fmt, TIPOS_TRANSACCION, inputChico } from './libroComprasHelpers';
+import SelectorPeriodoDoc from './SelectorPeriodoDoc';
+import { diaIso } from './periodoDocHelper';
 
 // ---------------------------------------------------------------------------
 // FORMULARIO DE ALTA DE GASTO FISCAL: concepto contable + alícuota en Bs.,
 // datos fiscales del documento soporte (Libro de Compras SENIAT) y bloque de
 // sujeción ISLR (modo híbrido; la emisión siempre es explícita por documento).
-// Presentacional: el estado viven en useAltaGasto (prop `alta`).
+// Presentacional: el estado viven en useAltaGasto (prop `alta`). El PERIODO
+// AL QUE AFECTA acota la fecha del documento (regla «fecha ∈ periodo»).
 // ---------------------------------------------------------------------------
 export default function FormularioGastoFiscal({ alta, proveedores, onCancelar }) {
+  const { periodos } = useContext(ConfigContext);
   const {
     formGasto, setFormGasto, conceptosGasto,
     islrEnGasto, setIslrEnGasto,
     alicuotaGasto, baseGastoBs, ivaGastoBs,
     contabilizarGastoAuto, setContabilizarGastoAuto,
-    guardandoGasto, guardarGasto
+    guardandoGasto, guardarGasto,
+    cambiarFechaGasto, cambiarPeriodoGasto, avisoPeriodo
   } = alta;
 
   return (
@@ -20,7 +27,21 @@ export default function FormularioGastoFiscal({ alta, proveedores, onCancelar })
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '12px', marginBottom: '14px' }}>
         <div>
           <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Fecha</label>
-          <input type="date" value={formGasto.fecha} onChange={(e) => setFormGasto({ ...formGasto, fecha: e.target.value })} style={inputChico} />
+          <input
+            type="date"
+            value={formGasto.fecha}
+            min={diaIso(alta.periodoDocGasto?.fechaInicio)}
+            max={diaIso(alta.periodoDocGasto?.fechaFin)}
+            onChange={(e) => cambiarFechaGasto(e.target.value)}
+            style={inputChico}
+          />
+        </div>
+        <div>
+          <SelectorPeriodoDoc
+            periodos={periodos}
+            periodoId={formGasto.periodoId}
+            onChange={cambiarPeriodoGasto}
+          />
         </div>
         <div style={{ gridColumn: 'span 2' }}>
           <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Concepto</label>
@@ -63,6 +84,13 @@ export default function FormularioGastoFiscal({ alta, proveedores, onCancelar })
           )}
         </div>
       </div>
+
+      {/* Aviso: el documento afecta a un periodo distinto del contexto */}
+      {avisoPeriodo && (
+        <div style={{ background: '#3a2f05', border: '1px solid #f59e0b', color: '#fcd34d', padding: '8px 12px', borderRadius: '8px', fontSize: '0.78rem', marginBottom: '14px' }}>
+          ⚠️ {avisoPeriodo}
+        </div>
+      )}
 
       {/* --- DATOS FISCALES DEL DOCUMENTO SOPORTE (Libro de Compras) --- */}
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '12px', marginBottom: '14px' }}>

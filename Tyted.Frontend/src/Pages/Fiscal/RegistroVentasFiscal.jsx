@@ -7,6 +7,17 @@ import {
   exportarLibroXls,
   esColumnaMonto
 } from './reportesLibrosFiscal';
+import SelectorPeriodoDoc from './SelectorPeriodoDoc';
+import {
+  fechaHoy,
+  diaIso,
+  etiquetaPeriodo,
+  periodoDefecto,
+  periodoPorFecha,
+  fechaAjustadaAlPeriodo,
+  validarFechaPeriodo,
+  avisoPeriodoDistinto
+} from './periodoDocHelper';
 
 // ---------------------------------------------------------------------------
 // HELPERS FISCALES (Libro de Ventas SENIAT)
@@ -79,7 +90,7 @@ const guiaCuentasBase = (texto) => {
 // empresa/periodo rige el rango de fechas consultado.
 // ---------------------------------------------------------------------------
 export default function RegistroVentasFiscal() {
-  const { empresaActiva, periodoActivo, tasa } = useContext(ConfigContext);
+  const { empresaActiva, periodoActivo, tasa, periodos } = useContext(ConfigContext);
 
   const [ventas, setVentas] = useState([]);
   const [cargando, setCargando] = useState(false);
@@ -94,6 +105,7 @@ export default function RegistroVentasFiscal() {
   const [clientes, setClientes] = useState([]);
   const [formVenta, setFormVenta] = useState({
     fecha: new Date().toISOString().slice(0, 10),
+    periodoId: '',
     clienteId: '',
     tipoTransaccion: '01',
     numeroControl: ''
@@ -124,6 +136,7 @@ export default function RegistroVentasFiscal() {
   const [contabilizarResumenAuto, setContabilizarResumenAuto] = useState(true);
   const [formResumen, setFormResumen] = useState({
     fecha: new Date().toISOString().slice(0, 10),
+    periodoId: '',
     numeroControlMaquina: '',
     numeroZ: '',
     facturaDesde: '',
@@ -146,6 +159,13 @@ export default function RegistroVentasFiscal() {
   const tasaCambio = Number(tasa) || 1;
   // Símbolo de la moneda de captura: Bs. (fiscal, prioridad) o $ (USD).
   const simbolo = (moneda) => (moneda === 'USD' ? '$' : 'Bs.');
+
+  // --- PERIODO AL QUE AFECTA CADA REGISTRO (regla «fecha ∈ periodo») ---
+  // El periodo elegido en el formulario es el del documento; su fecha debe
+  // caer dentro del rango del periodo (input date acotado con min/max). El
+  // default es el periodo que contiene la fecha del computador.
+  const periodoDocVenta = periodos.find((p) => Number(p.id) === Number(formVenta.periodoId)) || null;
+  const periodoDocResumen = periodos.find((p) => Number(p.id) === Number(formResumen.periodoId)) || null;
 
   // --- CONSULTA Bajo DEMANDA Y PANEL DE REPORTES ---
   // El libro NO se lista al entrar a la página: el usuario lo carga con el
@@ -328,8 +348,13 @@ export default function RegistroVentasFiscal() {
     setLineasResumen((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== idx) : prev));
 
   const abrirFormVentaFiscal = async () => {
+    // Periodo por defecto: el que contiene la FECHA DEL COMPUTADOR (o el
+    // primer periodo abierto si hoy no cae en ninguno). La fecha se acota
+    // al rango del periodo elegido.
+    const periodoIni = periodoDefecto(periodos);
     setFormVenta({
-      fecha: new Date().toISOString().slice(0, 10),
+      fecha: fechaAjustadaAlPeriodo(periodoIni, fechaHoy()),
+      periodoId: periodoIni?.id ?? '',
       clienteId: '',
       tipoTransaccion: '01',
       numeroControl: ''
@@ -387,8 +412,12 @@ export default function RegistroVentasFiscal() {
 
   // --- RESUMEN DE VENTAS DE LA MÁQUINA FISCAL (cierre Z) ---
   const abrirFormResumen = () => {
+    // Mismo criterio de periodo por defecto que la factura única: el periodo
+    // que contiene la fecha del computador (o el primer periodo abierto).
+    const periodoIni = periodoDefecto(periodos);
     setFormResumen({
-      fecha: new Date().toISOString().slice(0, 10),
+      fecha: fechaAjustadaAlPeriodo(periodoIni, fechaHoy()),
+      periodoId: periodoIni?.id ?? '',
       numeroControlMaquina: '',
       numeroZ: '',
       facturaDesde: '',
@@ -426,6 +455,33 @@ export default function RegistroVentasFiscal() {
     setMonedaCaptura(nuevaMoneda);
   };
 
+  // --- PERIODO AL QUE AFECTA: cambios cruzados fecha ↔ periodo ---
+  // Cambio de la FECHA: recalcula el periodo que la contiene (mensual tiene
+  // prioridad sobre anual, igual que en el backend). Si ninguna contiene la
+  // fecha, se conserva el periodo elegido y la validación del guardado
+  // bloqueará el registro (el input date ya está acotado con min/max).
+  const cambiarFechaFormVenta = (fecha) => {
+    const periodo = periodoPorFecha(periodos, fecha);
+    setFormVenta((prev) => ({ ...prev, fecha, periodoId: periodo?.id ?? prev.periodoId }));
+  };
+
+  // Cambio del PERIODO: la fecha se acota a su rango (hoy fuera del rango ⇒
+  // primer día del periodo).
+  const cambiarPeriodoFormVenta = (periodoId) => {
+    const periodo = periodos.find((p) => Number(p.id) === Number(periodoId)) || null;
+    setFormVenta((prev) => ({ ...prev, periodoId, fecha: fechaAjustadaAlPeriodo(periodo, prev.fecha) }));
+  };
+
+  const cambiarFechaFormResumen = (fecha) => {
+    const periodo = periodoPorFecha(periodos, fecha);
+    setFormResumen((prev) => ({ ...prev, fecha, periodoId: periodo?.id ?? prev.periodoId }));
+  };
+
+  const cambiarPeriodoFormResumen = (periodoId) => {
+    const periodo = periodos.find((p) => Number(p.id) === Number(periodoId)) || null;
+    setFormResumen((prev) => ({ ...prev, periodoId, fecha: fechaAjustadaAlPeriodo(periodo, prev.fecha) }));
+  };
+
   // Agrega una línea al formulario de factura única basada en un CONCEPTO de
   // ingreso (sin inventario, sin productos): descripción libre + precio + IVA.
   const agregarLineaNueva = () => {
@@ -456,9 +512,15 @@ export default function RegistroVentasFiscal() {
       alert('⚠️ La venta fiscal en Bs. requiere una tasa de cambio Bs./USD válida (mayor que 1) en la configuración global (empresa/periodo).');
       return;
     }
+    // PERIODO AL QUE AFECTA: la fecha debe caer dentro del periodo elegido y
+    // el periodo debe estar ABIERTO (el backend vuelve a validar la regla
+    // «fecha ∈ periodo» al crear el documento).
+    const errorPeriodo = validarFechaPeriodo({ periodo: periodoDocVenta, fecha: formVenta.fecha, empresaId });
+    if (errorPeriodo) { alert(`⚠️ ${errorPeriodo}`); return; }
 
     const confirmado = window.confirm(
       'Registrar la venta fiscal (documento declarativo).\n\n' +
+      `Periodo contable: ${etiquetaPeriodo(periodoDocVenta)}\n` +
       `Moneda de captura: ${simbolo(monedaCaptura)}` +
       (monedaCaptura === 'VES'
         ? ' (moneda fiscal — prioridad, se registra en Bs.)'
@@ -525,6 +587,11 @@ export default function RegistroVentasFiscal() {
   const guardarResumen = async () => {
     const { fecha, numeroControlMaquina, numeroZ, facturaDesde, facturaHasta, exento } = formResumen;
     if (!fecha) { alert('⚠️ Indique la fecha del resumen (cierre Z).'); return; }
+    // PERIODO AL QUE AFECTA: la fecha del cierre Z debe caer dentro del
+    // periodo elegido y el periodo debe estar ABIERTO (el backend vuelve a
+    // validar la regla «fecha ∈ periodo» al crear el documento).
+    const errorPeriodo = validarFechaPeriodo({ periodo: periodoDocResumen, fecha, empresaId });
+    if (errorPeriodo) { alert(`⚠️ ${errorPeriodo}`); return; }
     if (!numeroControlMaquina.trim()) { alert('⚠️ Indique el N° de control de la máquina fiscal.'); return; }
     if (!numeroZ.trim()) { alert('⚠️ Indique el N° Z.'); return; }
     if (!facturaDesde.trim() || !facturaHasta.trim()) { alert('⚠️ Indique el rango de facturas del resumen (Desde/Hasta).'); return; }
@@ -566,6 +633,7 @@ export default function RegistroVentasFiscal() {
       .join(' · ');
     const confirmado = window.confirm(
       `Registrar el resumen de ventas Z ${numeroZ} (${facturaDesde} – ${facturaHasta}) por ${fmt(montoExento + montoBase + montoIva)} Bs.` +
+      `\nPeriodo contable: ${etiquetaPeriodo(periodoDocResumen)}` +
       (enDolares
         ? ` (capturado en $ y convertido con la tasa ${fmt(tasaCambio)})`
         : ' (moneda fiscal)') +
@@ -748,7 +816,21 @@ export default function RegistroVentasFiscal() {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '12px', marginBottom: '14px' }}>
                 <div>
                   <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Fecha</label>
-                  <input type="date" value={formVenta.fecha} onChange={(e) => setFormVenta({ ...formVenta, fecha: e.target.value })} style={inputChico} />
+                  <input
+                    type="date"
+                    value={formVenta.fecha}
+                    min={diaIso(periodoDocVenta?.fechaInicio)}
+                    max={diaIso(periodoDocVenta?.fechaFin)}
+                    onChange={(e) => cambiarFechaFormVenta(e.target.value)}
+                    style={inputChico}
+                  />
+                </div>
+                <div>
+                  <SelectorPeriodoDoc
+                    periodos={periodos}
+                    periodoId={formVenta.periodoId}
+                    onChange={cambiarPeriodoFormVenta}
+                  />
                 </div>
                 <div>
                   <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Cliente</label>
@@ -778,6 +860,13 @@ export default function RegistroVentasFiscal() {
                   </select>
                 </div>
               </div>
+
+              {/* Aviso: el documento afecta a un periodo distinto del contexto */}
+              {avisoPeriodoDistinto(periodoDocVenta, periodoActivo) && (
+                <div style={{ background: '#3a2f05', border: '1px solid #f59e0b', color: '#fcd34d', padding: '8px 12px', borderRadius: '8px', fontSize: '0.78rem', marginBottom: '14px' }}>
+                  ⚠️ {avisoPeriodoDistinto(periodoDocVenta, periodoActivo)}
+                </div>
+              )}
 
               {/* Mini-formulario de líneas por CONCEPTO DE INGRESO (sin inventario) */}
               <div style={{ background: '#0f172a', padding: '12px', borderRadius: '8px', border: '1px solid #334155', marginBottom: '14px', display: 'flex', gap: '10px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
@@ -950,7 +1039,21 @@ export default function RegistroVentasFiscal() {
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px', marginBottom: '14px' }}>
                 <div>
                   <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Fecha (cierre Z)</label>
-                  <input type="date" value={formResumen.fecha} onChange={(e) => setFormResumen({ ...formResumen, fecha: e.target.value })} style={inputChico} />
+                  <input
+                    type="date"
+                    value={formResumen.fecha}
+                    min={diaIso(periodoDocResumen?.fechaInicio)}
+                    max={diaIso(periodoDocResumen?.fechaFin)}
+                    onChange={(e) => cambiarFechaFormResumen(e.target.value)}
+                    style={inputChico}
+                  />
+                </div>
+                <div>
+                  <SelectorPeriodoDoc
+                    periodos={periodos}
+                    periodoId={formResumen.periodoId}
+                    onChange={cambiarPeriodoFormResumen}
+                  />
                 </div>
                 <div>
                   <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>N° Control máquina</label>
@@ -988,6 +1091,13 @@ export default function RegistroVentasFiscal() {
                   <input type="number" min="0" step="0.01" value={formResumen.exento} onChange={(e) => setFormResumen({ ...formResumen, exento: e.target.value })} placeholder="0.00" style={inputChico} />
                 </div>
               </div>
+
+              {/* Aviso: el documento afecta a un periodo distinto del contexto */}
+              {avisoPeriodoDistinto(periodoDocResumen, periodoActivo) && (
+                <div style={{ background: '#3a2f05', border: '1px solid #f59e0b', color: '#fcd34d', padding: '8px 12px', borderRadius: '8px', fontSize: '0.78rem', marginBottom: '14px' }}>
+                  ⚠️ {avisoPeriodoDistinto(periodoDocResumen, periodoActivo)}
+                </div>
+              )}
 
               {/* BASES GRAVADAS POR ALÍCUOTA: una línea por cada tasa del Z */}
               <div style={{ background: '#0f172a', padding: '12px', borderRadius: '8px', border: '1px solid #334155', marginBottom: '14px' }}>

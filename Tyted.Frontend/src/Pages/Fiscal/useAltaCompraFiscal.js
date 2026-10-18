@@ -2,37 +2,68 @@ import { useState, useContext } from 'react';
 import { ConfigContext } from '../../Context/ConfigContext';
 import { fiscalApi, mensajeErrorApi } from '../../Services/Fiscal/FiscalApi';
 import { guiaCuentasBase } from './libroComprasHelpers';
+import {
+  fechaHoy,
+  periodoDefecto,
+  periodoPorFecha,
+  fechaAjustadaAlPeriodo,
+  validarFechaPeriodo,
+  avisoPeriodoDistinto,
+  etiquetaPeriodo
+} from './periodoDocHelper';
 
 // ---------------------------------------------------------------------------
 // HOOK DE ALTA DE COMPRA FISCAL (factura con líneas de producto): documento
 // declarativo SIN inventario (sin stock, sin costos, sin kardex). Captura en
 // BOLÍVARES (la verdad fiscal vive en *MonedaExt) y puede contabilizarse
-// automáticamente con el motor de asientos (BE-F4).
+// automáticamente con el motor de asientos (BE-F4). El PERIODO AL QUE AFECTA
+// lo define la fecha del documento (regla «fecha ∈ periodo»): el default es
+// el periodo que contiene la fecha del computador.
 // ---------------------------------------------------------------------------
-const formCompraInicial = () => ({
-  fecha: new Date().toISOString().slice(0, 10),
-  codigoProv: '',
-  numeroFactura: '',
-  numeroControl: '',
-  tipoTransaccion: '01'
-});
+const formCompraInicial = (periodos = []) => {
+  const periodoIni = periodoDefecto(periodos);
+  return {
+    fecha: fechaAjustadaAlPeriodo(periodoIni, fechaHoy()),
+    periodoId: periodoIni?.id ?? '',
+    codigoProv: '',
+    numeroFactura: '',
+    numeroControl: '',
+    tipoTransaccion: '01'
+  };
+};
 
 export function useAltaCompraFiscal({ empresaId, cargarCompras }) {
-  const { tasa } = useContext(ConfigContext);
+  const { tasa, periodos, periodoActivo } = useContext(ConfigContext);
 
   const [guardandoCompra, setGuardandoCompra] = useState(false);
   const [contabilizarAuto, setContabilizarAuto] = useState(true);
-  const [formCompra, setFormCompra] = useState(formCompraInicial());
+  const [formCompra, setFormCompra] = useState(() => formCompraInicial(periodos));
   const [lineasCompra, setLineasCompra] = useState([]);
   const [buscadorProd, setBuscadorProd] = useState('');
   const [resultadosProd, setResultadosProd] = useState([]);
 
-  // Limpia el modo FACTURA al abrir el formulario único.
+  // Limpia el modo FACTURA al abrir el formulario único (periodo por defecto:
+  // el que contiene la fecha del computador, o el primer periodo abierto).
   const limpiar = () => {
-    setFormCompra(formCompraInicial());
+    setFormCompra(formCompraInicial(periodos));
     setLineasCompra([]);
     setBuscadorProd('');
     setResultadosProd([]);
+  };
+
+  // --- PERIODO AL QUE AFECTA (regla «fecha ∈ periodo») ---
+  const periodoDocCompra = periodos.find((p) => Number(p.id) === Number(formCompra.periodoId)) || null;
+
+  // Cambio de FECHA: recalcula el periodo que la contiene (mensual > anual).
+  const cambiarFechaCompra = (fecha) => {
+    const periodo = periodoPorFecha(periodos, fecha);
+    setFormCompra((prev) => ({ ...prev, fecha, periodoId: periodo?.id ?? prev.periodoId }));
+  };
+
+  // Cambio de PERIODO: la fecha se acota a su rango del periodo elegido.
+  const cambiarPeriodoCompra = (periodoId) => {
+    const periodo = periodos.find((p) => Number(p.id) === Number(periodoId)) || null;
+    setFormCompra((prev) => ({ ...prev, periodoId, fecha: fechaAjustadaAlPeriodo(periodo, prev.fecha) }));
   };
 
   // Totales del formulario en Bs. con desglose por alícuota (Providencia 0049):
@@ -93,7 +124,11 @@ export function useAltaCompraFiscal({ empresaId, cargarCompras }) {
 
   const guardarCompraFiscal = async () => {
     if (lineasCompra.length === 0) { alert('⚠️ Agregue al menos una línea a la compra fiscal.'); return; }
-    if (!formCompra.fecha) { alert('⚠️ Indique la fecha de la factura (debe estar dentro del periodo contable).'); return; }
+    // PERIODO AL QUE AFECTA: la fecha debe caer dentro del periodo elegido y
+    // el periodo debe estar ABIERTO (el backend vuelve a validar la regla
+    // «fecha ∈ periodo» al crear el documento).
+    const errorPeriodo = validarFechaPeriodo({ periodo: periodoDocCompra, fecha: formCompra.fecha, empresaId });
+    if (errorPeriodo) { alert(`⚠️ ${errorPeriodo}`); return; }
     if (!formCompra.codigoProv) { alert('⚠️ Seleccione el proveedor (su RIF alimenta el Libro de Compras).'); return; }
     if (!formCompra.numeroFactura?.trim()) { alert('⚠️ Indique el N° de factura (dato obligatorio del Libro de Compras).'); return; }
     if (formCompra.tipoTransaccion === '01' && !formCompra.numeroControl?.trim()) {
@@ -103,6 +138,7 @@ export function useAltaCompraFiscal({ empresaId, cargarCompras }) {
 
     const confirmado = window.confirm(
       'Registrar la compra fiscal (documento declarativo).\n\n' +
+      `Periodo contable: ${etiquetaPeriodo(periodoDocCompra)}\n` +
       'NO afecta el inventario: sin aumento de stock, sin actualización de costos y sin kardex.' +
       (contabilizarAuto ? '\nSe generará además su comprobante contable.' : '')
     );
@@ -164,6 +200,11 @@ export function useAltaCompraFiscal({ empresaId, cargarCompras }) {
     totalesFormCompra,
     contabilizarAuto, setContabilizarAuto,
     guardandoCompra,
-    guardarCompraFiscal, limpiar
+    guardarCompraFiscal, limpiar,
+    // Periodo al que afecta el documento (regla «fecha ∈ periodo»): periodo
+    // elegido, cambio cruzado fecha ↔ periodo y aviso si difiere del activo.
+    periodoDocCompra,
+    cambiarFechaCompra, cambiarPeriodoCompra,
+    avisoPeriodo: avisoPeriodoDistinto(periodoDocCompra, periodoActivo)
   };
 }

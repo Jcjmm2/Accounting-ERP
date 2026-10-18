@@ -2,40 +2,55 @@ import { useState, useContext } from 'react';
 import { ConfigContext } from '../../Context/ConfigContext';
 import { fiscalApi, mensajeErrorApi } from '../../Services/Fiscal/FiscalApi';
 import { guiaCuentasBase } from './libroComprasHelpers';
+import {
+  fechaHoy,
+  periodoDefecto,
+  periodoPorFecha,
+  fechaAjustadaAlPeriodo,
+  validarFechaPeriodo,
+  avisoPeriodoDistinto,
+  etiquetaPeriodo
+} from './periodoDocHelper';
 
 // ---------------------------------------------------------------------------
 // HOOK DE ALTA DE GASTO FISCAL (entidad propia, sin inventario): concepto
-// contable + alícuota en Bs. Requiere periodo contable ABIERTO. Soporta el
+// contable + alícuota en Bs. Requiere periodo contable ABIERTO: el PERIODO AL
+// QUE AFECTA lo define la fecha del gasto (regla «fecha ∈ periodo»), con
+// default = periodo que contiene la fecha del computador. Soporta el
 // modo híbrido ISLR: el concepto GASTO puede marcar «sujeta a ISLR», lo que
 // preselecciona la casilla de emisión (siempre desmarcable). La emisión de la
 // retención es SIEMPRE explícita por documento, nunca automática.
 // ---------------------------------------------------------------------------
-const formGastoInicial = () => ({
-  fecha: new Date().toISOString().slice(0, 10),
-  concepto: '',
-  conceptoId: '',
-  codigoProv: '',
-  // Datos fiscales del documento soporte (Libro de Compras SENIAT):
-  // N° de factura/boleta y N° de control son OBLIGATORIOS («S/N» si el
-  // documento no tiene control) y el tipo de transacción es elegible.
-  numeroFactura: '',
-  numeroControl: '',
-  tipoTransaccion: '01',
-  monto: '',
-  // Alícuota del gasto: 0 (EXENTO) | 8 | 16. El monto tecleado es la BASE
-  // sin IVA y la alícuota calcula el IVA aparte (Bs.).
-  alicuota: '0'
-});
+const formGastoInicial = (periodos = []) => {
+  const periodoIni = periodoDefecto(periodos);
+  return {
+    fecha: fechaAjustadaAlPeriodo(periodoIni, fechaHoy()),
+    periodoId: periodoIni?.id ?? '',
+    concepto: '',
+    conceptoId: '',
+    codigoProv: '',
+    // Datos fiscales del documento soporte (Libro de Compras SENIAT):
+    // N° de factura/boleta y N° de control son OBLIGATORIOS («S/N» si el
+    // documento no tiene control) y el tipo de transacción es elegible.
+    numeroFactura: '',
+    numeroControl: '',
+    tipoTransaccion: '01',
+    monto: '',
+    // Alícuota del gasto: 0 (EXENTO) | 8 | 16. El monto tecleado es la BASE
+    // sin IVA y la alícuota calcula el IVA aparte (Bs.).
+    alicuota: '0'
+  };
+};
 
 export function useAltaGasto({ empresaId, proveedores, cargarCompras, abrirModalIslr }) {
-  const { tasa } = useContext(ConfigContext);
+  const { tasa, periodos, periodoActivo } = useContext(ConfigContext);
 
   const [guardandoGasto, setGuardandoGasto] = useState(false);
   const [contabilizarGastoAuto, setContabilizarGastoAuto] = useState(true);
   // Conceptos de operación tipo GASTO (catálogo por empresa, puente con el
   // plan de cuentas): reemplazan la lista estática de categorías.
   const [conceptosGasto, setConceptosGasto] = useState([]);
-  const [formGasto, setFormGasto] = useState(formGastoInicial());
+  const [formGasto, setFormGasto] = useState(() => formGastoInicial(periodos));
   // Modo híbrido ISLR: preselección de la casilla de emisión (desmarcable).
   const [islrEnGasto, setIslrEnGasto] = useState(false);
 
@@ -50,10 +65,26 @@ export function useAltaGasto({ empresaId, proveedores, cargarCompras, abrirModal
     }
   };
 
-  // Limpia el modo GASTO al abrir el formulario único.
+  // Limpia el modo GASTO al abrir el formulario único (periodo por defecto:
+  // el que contiene la fecha del computador, o el primer periodo abierto).
   const limpiar = () => {
-    setFormGasto(formGastoInicial());
+    setFormGasto(formGastoInicial(periodos));
     setIslrEnGasto(false);
+  };
+
+  // --- PERIODO AL QUE AFECTA (regla «fecha ∈ periodo») ---
+  const periodoDocGasto = periodos.find((p) => Number(p.id) === Number(formGasto.periodoId)) || null;
+
+  // Cambio de FECHA: recalcula el periodo que la contiene (mensual > anual).
+  const cambiarFechaGasto = (fecha) => {
+    const periodo = periodoPorFecha(periodos, fecha);
+    setFormGasto((prev) => ({ ...prev, fecha, periodoId: periodo?.id ?? prev.periodoId }));
+  };
+
+  // Cambio de PERIODO: la fecha se acota al rango del periodo elegido.
+  const cambiarPeriodoGasto = (periodoId) => {
+    const periodo = periodos.find((p) => Number(p.id) === Number(periodoId)) || null;
+    setFormGasto((prev) => ({ ...prev, periodoId, fecha: fechaAjustadaAlPeriodo(periodo, prev.fecha) }));
   };
 
   // Gasto en curso: base en Bs. digitada por el usuario + IVA derivado de la
@@ -63,7 +94,11 @@ export function useAltaGasto({ empresaId, proveedores, cargarCompras, abrirModal
   const ivaGastoBs = Number((baseGastoBs * alicuotaGasto / 100).toFixed(2));
 
   const guardarGasto = async () => {
-    if (!formGasto.fecha) { alert('⚠️ Indique la fecha del gasto (debe estar dentro del periodo contable abierto).'); return; }
+    // PERIODO AL QUE AFECTA: la fecha debe caer dentro del periodo elegido y
+    // el periodo debe estar ABIERTO (el backend vuelve a validar la regla
+    // «fecha ∈ periodo» al crear el gasto).
+    const errorPeriodo = validarFechaPeriodo({ periodo: periodoDocGasto, fecha: formGasto.fecha, empresaId });
+    if (errorPeriodo) { alert(`⚠️ ${errorPeriodo}`); return; }
     if (!formGasto.concepto.trim()) { alert('⚠️ Indique el concepto del gasto.'); return; }
     if (!formGasto.conceptoId) { alert('⚠️ Seleccione el concepto contable (GASTO).'); return; }
     if (!formGasto.numeroFactura?.trim()) { alert('⚠️ Indique el N° de factura/documento del gasto (dato obligatorio del Libro de Compras).'); return; }
@@ -95,6 +130,7 @@ export function useAltaGasto({ empresaId, proveedores, cargarCompras, abrirModal
 
     const confirmado = window.confirm(
       `Registrar el gasto «${formGasto.concepto}» por Bs. ${baseGastoBs.toFixed(2)} — ${etiquetaIva}.\n\n` +
+      `Periodo contable: ${etiquetaPeriodo(periodoDocGasto)}\n` +
       'El monto es la BASE sin IVA; el gasto es un documento fiscal propio: NO toca inventario ni compras.' +
       (contabilizarGastoAuto ? ' Se generará su comprobante contable (Debe Gastos + IVA Crédito / Haber Caja o Proveedores).' : '')
     );
@@ -164,6 +200,11 @@ export function useAltaGasto({ empresaId, proveedores, cargarCompras, abrirModal
     alicuotaGasto, baseGastoBs, ivaGastoBs,
     contabilizarGastoAuto, setContabilizarGastoAuto,
     guardandoGasto,
-    guardarGasto, limpiar
+    guardarGasto, limpiar,
+    // Periodo al que afecta el documento (regla «fecha ∈ periodo»): periodo
+    // elegido, cambio cruzado fecha ↔ periodo y aviso si difiere del activo.
+    periodoDocGasto,
+    cambiarFechaGasto, cambiarPeriodoGasto,
+    avisoPeriodo: avisoPeriodoDistinto(periodoDocGasto, periodoActivo)
   };
 }

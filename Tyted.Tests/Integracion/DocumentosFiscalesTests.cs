@@ -153,6 +153,7 @@ public class DocumentosFiscalesTests
         {
             EmpresaId = 1,
             ClienteId = 1,
+            FechaVenta = new DateTime(2026, 10, 10), // dentro del periodo sembrado (regla «fecha ∈ periodo»)
             Detalles = new List<VentaDetalle> { LineaVenta(uid) }
         });
 
@@ -201,6 +202,7 @@ public class DocumentosFiscalesTests
         {
             EmpresaId = 1,
             ClienteId = 1,
+            FechaVenta = new DateTime(2026, 10, 10), // dentro del periodo sembrado (regla «fecha ∈ periodo»)
             Detalles = new List<VentaDetalle> { LineaVenta(uid) } // total 23.20
         });
 
@@ -333,6 +335,7 @@ public class DocumentosFiscalesTests
         {
             EmpresaId = 1,
             ClienteId = 1,
+            FechaVenta = new DateTime(2026, 10, 10), // dentro del periodo sembrado (regla «fecha ∈ periodo»)
             Detalles = new List<VentaDetalle> { LineaVenta(uid) }
         });
 
