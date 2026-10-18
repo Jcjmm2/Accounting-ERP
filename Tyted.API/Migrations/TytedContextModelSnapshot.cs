@@ -1246,6 +1246,33 @@ namespace Tyted.API.Migrations
                     b.ToTable("ResumenesVentasFiscales");
                 });
 
+            modelBuilder.Entity("Tyted.API.Models.ResumenVentaFiscalDetalle", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<decimal>("BaseBs")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<decimal>("IvaBs")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.Property<int>("ResumenVentaFiscalId")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("TasaIVA")
+                        .HasColumnType("decimal(18, 4)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ResumenVentaFiscalId");
+
+                    b.ToTable("ResumenesVentasFiscalesDetalles");
+                });
+
             modelBuilder.Entity("Tyted.API.Models.RetencionIslrEmitida", b =>
                 {
                     b.Property<int>("Id")
@@ -1989,6 +2016,17 @@ namespace Tyted.API.Migrations
                     b.Navigation("UnidadMedida");
                 });
 
+            modelBuilder.Entity("Tyted.API.Models.ResumenVentaFiscalDetalle", b =>
+                {
+                    b.HasOne("Tyted.API.Models.ResumenVentaFiscal", "Resumen")
+                        .WithMany("Detalles")
+                        .HasForeignKey("ResumenVentaFiscalId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Resumen");
+                });
+
             modelBuilder.Entity("Tyted.API.Models.RetencionIslrEmitida", b =>
                 {
                     b.HasOne("Tyted.API.Models.Compra", "Compra")
@@ -2130,6 +2168,11 @@ namespace Tyted.API.Migrations
             modelBuilder.Entity("Tyted.API.Models.Proveedor", b =>
                 {
                     b.Navigation("Compras");
+                });
+
+            modelBuilder.Entity("Tyted.API.Models.ResumenVentaFiscal", b =>
+                {
+                    b.Navigation("Detalles");
                 });
 
             modelBuilder.Entity("Tyted.API.Models.Usuario", b =>

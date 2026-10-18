@@ -77,7 +77,9 @@ export function useLibroCompras() {
   const retencionesIslrVigentes = retencionesIslr.filter((r) => (r.estado || 'Emitida') === 'Emitida');
   const retencionIslrPorCompra = new Map(retencionesIslrVigentes.filter((r) => r.compraId).map((r) => [Number(r.compraId), r]));
   const retencionIslrPorGasto = new Map(retencionesIslrVigentes.filter((r) => r.gastoId).map((r) => [Number(r.gastoId), r]));
-  // Total de ISLR retenido en el periodo (tarjeta de resumen y columna del libro).
+  // Total de ISLR retenido en el periodo (tarjeta de resumen de consultas; el
+  // Libro de Compras —ley del IVA— no muestra columna de ISLR: se reporta en
+  // su propia relación, modal «📑 Retenciones ISLR»).
   const totalIslrRetenido = retencionesIslrVigentes.reduce((s, r) => s + Number(r.montoRetenidoBs ?? 0), 0);
 
   // Resumen COMBINADO del período (líneas 30/33/34 del formato SENIAT):

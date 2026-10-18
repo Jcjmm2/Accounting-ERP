@@ -50,6 +50,7 @@ namespace Tyted.API.Data
         public DbSet<RetencionIslrEmitida> RetencionesIslrEmitidas { get; set; } = default!;
         /// <summary>Resúmenes de la máquina fiscal (cierre Z) del Libro de Ventas SENIAT.</summary>
         public DbSet<ResumenVentaFiscal> ResumenesVentasFiscales { get; set; } = default!;
+public DbSet<ResumenVentaFiscalDetalle> ResumenesVentasFiscalesDetalles { get; set; } = default!;
         /// <summary>Conceptos de operación (GASTO/VENTA/COMPRA) por empresa: puente al plan de cuentas.</summary>
         public DbSet<ConceptoOperacional> ConceptosOperacionales { get; set; } = default!;
 

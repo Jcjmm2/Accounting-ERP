@@ -77,6 +77,10 @@ export const estructuraLibroVentas = ({ empresa, periodo, totales, documentos })
   excelMerges.push({ s: { r: 0, c: 22 }, e: { r: 1, c: 22 } });
   let op = 1;
   let sumTotal = 0, sumExento = 0, sumBaseC = 0, sumIvaC = 0, sumBaseNC = 0, sumIvaNC = 0, sumRet = 0;
+  // Forma 30 por alícuota: 16% → casilla 3 (general), 31% → casilla 4 (general
+  // más adicional) y 8% → casilla 5 (reducida); se llena desde los detalles de
+  // cada documento (líneas de la factura / detalle persistido del cierre Z).
+  let sumBaseGrav16 = 0, sumIvaGrav16 = 0, sumBaseGrav31 = 0, sumIvaGrav31 = 0, sumBaseGrav8 = 0, sumIvaGrav8 = 0;
 
   const filas = documentos.map(({ esResumen, dato: doc }) => {
     // --- RESUMEN DE VENTAS DE LA MÁQUINA FISCAL (cierre Z) ---
@@ -87,6 +91,29 @@ export const estructuraLibroVentas = ({ empresa, periodo, totales, documentos })
       const exento = Number(doc.exento || 0);
       const base = Number(doc.baseGravada || 0);
       const iva = Number(doc.iva || 0);
+      // Desglose POR ALÍCUOTA persistido del cierre Z (8%, 16%, 31%): una
+      // sola tasa se muestra tal cual; varias, «Varias»; los resúmenes
+      // antiguos sin detalle conservan el 16% histórico.
+      const lineasZ = doc?.detalles?.$values || doc?.detalles || [];
+      const tasasZ = [...new Set(lineasZ.map((l) => Number(l.tasaIVA)).filter((t) => t > 0))]
+        .sort((a, b) => a - b);
+      const etiquetaTasa = tasasZ.length === 0
+        ? '16%'
+        : (tasasZ.length === 1 ? `${tasasZ[0]}%` : `${tasasZ.join('/')}%`);
+      // Forma 30: 8% → casilla 5 (reducida), 31% → casilla 4 (adicional) y
+      // los resúmenes sin detalle → casilla 3 (general 16%).
+      if (lineasZ.length > 0) {
+        lineasZ.forEach((l) => {
+          const b = Number(l.baseBs ?? 0);
+          const i = Number(l.ivaBs ?? 0);
+          const t = Number(l.tasaIVA ?? 16);
+          if (t === 8) { sumBaseGrav8 += b; sumIvaGrav8 += i; }
+          else if (t === 31) { sumBaseGrav31 += b; sumIvaGrav31 += i; }
+          else { sumBaseGrav16 += b; sumIvaGrav16 += i; }
+        });
+      } else {
+        sumBaseGrav16 += base; sumIvaGrav16 += iva;
+      }
       sumTotal += total;
       sumExento += exento;
       sumBaseNC += base;
@@ -98,8 +125,8 @@ export const estructuraLibroVentas = ({ empresa, periodo, totales, documentos })
         doc.facturaDesde || '—', doc.facturaHasta || '—',
         '', '', doc.tipoTransaccion || '01-REG', '', '',
         fmtMoneda(total), fmtMoneda(exento),
-        fmtMoneda(0), '16%', fmtMoneda(0),
-        fmtMoneda(base), '16%', fmtMoneda(iva),
+        fmtMoneda(0), etiquetaTasa, fmtMoneda(0),
+        fmtMoneda(base), etiquetaTasa, fmtMoneda(iva),
         fmtMoneda(0)
       ];
     }
@@ -117,6 +144,30 @@ export const estructuraLibroVentas = ({ empresa, periodo, totales, documentos })
       .filter((l) => Number(l.tasaIVA ?? 0) === 0)
       .reduce((s, l) => s + Number(l.subtotalLineaMonedaExt ?? 0), 0);
     const baseGravada = Math.max(base - exento, 0);
+
+    // Alícuota(s) de la fila para la columna «%»: la tasa real de las líneas
+    // (una sola) o «Varias» si la factura mezcla tasas; sin líneas, 16%.
+    const tasasFila = [...new Set(lineas.map((l) => Number(l.tasaIVA)).filter((t) => t > 0))]
+      .sort((a, b) => a - b);
+    const etiquetaTasaF = tasasFila.length === 0
+      ? (baseGravada > 0 ? '16%' : '')
+      : (tasasFila.length === 1 ? `${tasasFila[0]}%` : `${tasasFila.join('/')}%`);
+
+    // Forma 30 por alícuota desde las líneas congeladas de la factura: 8% →
+    // casilla 5 (reducida), 31% → casilla 4 (adicional) y el resto → 3 (16%).
+    if (lineas.length > 0) {
+      lineas.forEach((l) => {
+        const b = Number(l.subtotalLineaMonedaExt ?? 0);
+        const i = Number(l.ivaLineaMonedaExt ?? 0);
+        const t = Number(l.tasaIVA ?? 16);
+        if (t === 8) { sumBaseGrav8 += b; sumIvaGrav8 += i; }
+        else if (t === 31) { sumBaseGrav31 += b; sumIvaGrav31 += i; }
+        else if (t > 0) { sumBaseGrav16 += b; sumIvaGrav16 += i; }
+      });
+    } else {
+      // Sin desglose de líneas: la base gravada se atribuye a la general 16%.
+      sumBaseGrav16 += baseGravada; sumIvaGrav16 += iva;
+    }
 
     // Segregación: CONTRIBUYENTE (J/G) vs NO CONTRIBUYENTE (V/E/P o sin RIF).
     let baseC = 0, ivaC = 0, baseNC = 0, ivaNC = 0;
@@ -141,8 +192,8 @@ export const estructuraLibroVentas = ({ empresa, periodo, totales, documentos })
       doc.numeroFactura || '—', doc.numeroControl || '—', '', '', '',
       '', '', doc.tipoTransaccion || '01-REG', '', '',
       fmtMoneda(total), fmtMoneda(exento),
-      fmtMoneda(baseC), '16%', fmtMoneda(ivaC),
-      fmtMoneda(baseNC), '16%', fmtMoneda(ivaNC),
+      fmtMoneda(baseC), etiquetaTasaF, fmtMoneda(ivaC),
+      fmtMoneda(baseNC), etiquetaTasaF, fmtMoneda(ivaNC),
       fmtMoneda(0)
     ];
   });
@@ -159,9 +210,18 @@ export const estructuraLibroVentas = ({ empresa, periodo, totales, documentos })
   ];
 
   // --- RESUMEN DE FORMA 30: DÉBITOS FISCALES (se inyecta al final del libro) ---
-  const base16Total = sumBaseC + sumBaseNC;
-  const iva16Total = sumIvaC + sumIvaNC;
-  const totalBaseDeterminacion = sumExento + base16Total;
+  // Por alícuota real: general 16% (casilla 3), general más adicional 31%
+  // (casilla 4) y reducida 8% (casilla 5); el total de gravadas reemplaza al
+  // antiguo lump de la casilla 3.
+  const base16Total = sumBaseGrav16;
+  const iva16Total = sumIvaGrav16;
+  const base31Total = sumBaseGrav31;
+  const iva31Total = sumIvaGrav31;
+  const base8Total = sumBaseGrav8;
+  const iva8Total = sumIvaGrav8;
+  const totalGravadas = base16Total + base31Total + base8Total;
+  const totalIvaGravadas = iva16Total + iva31Total + iva8Total;
+  const totalBaseDeterminacion = sumExento + totalGravadas;
 
   const resumenExcel = [
     [], [], // Espacios en blanco
@@ -169,12 +229,12 @@ export const estructuraLibroVentas = ({ empresa, periodo, totales, documentos })
     ['', '1', 'Ventas Internas no Gravadas', '', '', sumExento, '', ''],
     ['', '2', 'Ventas de Exportación', '', '', 0, '', ''],
     ['', '3', 'Ventas Internas Gravadas por Alícuota General 16%', '', '', base16Total, '', iva16Total],
-    ['', '4', 'Ventas Internas Gravadas por Alícuota General más Adicional', '', '', 0, '', 0],
-    ['', '5', 'Ventas Internas Gravadas por Alícuota Reducida', '', '', 0, '', 0],
-    ['', '6', 'Total Ventas y Débitos Fiscal para efectos de Determinación', '', '', totalBaseDeterminacion, '', iva16Total],
+    ['', '4', 'Ventas Internas Gravadas por Alícuota General más Adicional', '', '', base31Total, '', iva31Total],
+    ['', '5', 'Ventas Internas Gravadas por Alícuota Reducida', '', '', base8Total, '', iva8Total],
+    ['', '6', 'Total Ventas y Débitos Fiscal para efectos de Determinación', '', '', totalBaseDeterminacion, '', totalIvaGravadas],
     ['', '7', 'Ajustes a los Débitos Fiscales de períodos anteriores', '', '', '', '', 0],
     ['', '8', 'Certificados de Débitos Fiscales Exonerados', '', '', '', '', 0],
-    ['', '9', 'Total Débitos Fiscales', '', '', totalBaseDeterminacion, '', iva16Total]
+    ['', '9', 'Total Débitos Fiscales', '', '', totalBaseDeterminacion, '', totalIvaGravadas]
   ];
 
   // Fusiones del resumen: títulos en la fila 2 y descripciones (c2-c4) por ítem.
@@ -190,12 +250,12 @@ export const estructuraLibroVentas = ({ empresa, periodo, totales, documentos })
       ['1', 'Ventas Internas no Gravadas', fmtMoneda(sumExento), ''],
       ['2', 'Ventas de Exportación', fmtMoneda(0), ''],
       ['3', 'Ventas Internas Gravadas por Alícuota General 16%', fmtMoneda(base16Total), fmtMoneda(iva16Total)],
-      ['4', 'Ventas Internas Gravadas por Alícuota General más Adicional', fmtMoneda(0), fmtMoneda(0)],
-      ['5', 'Ventas Internas Gravadas por Alícuota Reducida', fmtMoneda(0), fmtMoneda(0)],
-      ['6', 'Total Ventas y Débitos Fiscal para efectos de Determinación', fmtMoneda(totalBaseDeterminacion), fmtMoneda(iva16Total)],
+      ['4', 'Ventas Internas Gravadas por Alícuota General más Adicional', fmtMoneda(base31Total), fmtMoneda(iva31Total)],
+      ['5', 'Ventas Internas Gravadas por Alícuota Reducida', fmtMoneda(base8Total), fmtMoneda(iva8Total)],
+      ['6', 'Total Ventas y Débitos Fiscal para efectos de Determinación', fmtMoneda(totalBaseDeterminacion), fmtMoneda(totalIvaGravadas)],
       ['7', 'Ajustes a los Débitos Fiscales de períodos anteriores', '', fmtMoneda(0)],
       ['8', 'Certificados de Débitos Fiscales Exonerados', '', fmtMoneda(0)],
-      ['9', 'Total Débitos Fiscales', fmtMoneda(totalBaseDeterminacion), fmtMoneda(iva16Total)]
+      ['9', 'Total Débitos Fiscales', fmtMoneda(totalBaseDeterminacion), fmtMoneda(totalIvaGravadas)]
     ]
   };
 
@@ -240,18 +300,20 @@ export const desgloseGasto = (g) => {
 
 // ---------------------------------------------------------------------------
 // LIBRO DE COMPRAS Y GASTOS (facturas + gastos del período + retención de IVA)
-// 22 columnas del formato SENIAT + columna "Concepto Contable": ambos
-// orígenes se fusionan en UNA sola lista ordenada por fecha, y el resumen de
-// Créditos Fiscales (Forma 30) incluye el IVA de facturas Y gastos.
+// 22 columnas del formato SENIAT: el libro es una obligación de la LEY DEL IVA
+// y NO se mezcla con impuestos de otras leyes — las retenciones de ISLR (Ley
+// de Impuesto Sobre la Renta, Decreto 1.808) se reportan en su propia relación
+// (modal «📑 Retenciones ISLR»). Ambos orígenes (facturas + gastos) se
+// fusionan en UNA sola lista ordenada por fecha, y el resumen de Créditos
+// Fiscales (Forma 30) incluye el IVA de facturas Y gastos.
 // ---------------------------------------------------------------------------
-export const estructuraLibroCompras = ({ empresa, periodo, totales, compras, gastos = [], retencionPorCompra, retencionIslrPorCompra = null, retencionIslrPorGasto = null }) => {
+export const estructuraLibroCompras = ({ empresa, periodo, totales, compras, gastos = [], retencionPorCompra }) => {
   const columnas = [
     'N° Op', 'Fecha Doc.', 'Nº R.I.F.', 'Proveedor', 'Tipo', 'Comp Ret', 'Fecha Ret',
     'N° Factura', 'N° Control', 'N° N/D', 'N° N/C', 'Trans.', 'Afectada',
-    'Total Compra', 'Exentas', 'Base 16%', '%', 'IVA 16%', 'Base 8%', '%', 'IVA 8%', 'IVA Ret.',
-    'ISLR Ret.', 'Concepto Contable'
+    'Total Compra', 'Exentas', 'Base 16%', '%', 'IVA 16%', 'Base 8%', '%', 'IVA 8%', 'IVA Ret.'
   ];
-  const indicesMonto = [13, 14, 15, 17, 18, 20, 21, 22];
+  const indicesMonto = [13, 14, 15, 17, 18, 20, 21];
 
   // Cabeceras de 2 niveles exclusivas de la exportación Excel (SENIAT).
   const excelHeaders = [
@@ -259,18 +321,17 @@ export const estructuraLibroCompras = ({ empresa, periodo, totales, compras, gas
       'N° Op', 'Fecha Documento', 'Nº R.I.F.', 'Proveedor o Razón Social', 'Tipo Prov.',
       'N° de Comprobante', 'Fecha Aplic. Ret.', 'N° Factura', 'N° Control', 'N° Nota Débito', 'N° Nota Crédito',
       'Tipo Transacción', 'Doc. Afectado', 'Total Compras', 'Compras Exentas',
-      'Base Imponible', '', 'Impuesto IVA', 'Base Imponible', '', 'Impuesto IVA', 'IVA Retenido',
-      'ISLR Retenido', 'Concepto Contable'
+      'Base Imponible', '', 'Impuesto IVA', 'Base Imponible', '', 'Impuesto IVA', 'IVA Retenido'
     ],
     [
       '', '', '', '', '', '', '', '', '', '', '', '', '', '', '',
-      '16%', '', '16%', '8%', '', '8%', '', '', ''
+      '16%', '', '16%', '8%', '', '8%', ''
     ]
   ];
 
-  // Fusiones de celdas (SheetJS): verticales en 0-14, 17, 20-23 (IVA Ret.,
-  // ISLR Ret. y Concepto Contable); las bases imponibles agrupan su
-  // columna de alícuota (15-16 y 18-19).
+  // Fusiones de celdas (SheetJS): verticales en 0-14, 17 y 20-21 (IVA
+  // Retenido); las bases imponibles agrupan su columna de alícuota
+  // (15-16 y 18-19).
   const excelMerges = [];
   for (let i = 0; i <= 14; i += 1) excelMerges.push({ s: { r: 0, c: i }, e: { r: 1, c: i } });
   excelMerges.push({ s: { r: 0, c: 15 }, e: { r: 0, c: 16 } });
@@ -278,10 +339,8 @@ export const estructuraLibroCompras = ({ empresa, periodo, totales, compras, gas
   excelMerges.push({ s: { r: 0, c: 18 }, e: { r: 0, c: 19 } });
   excelMerges.push({ s: { r: 0, c: 20 }, e: { r: 1, c: 20 } });
   excelMerges.push({ s: { r: 0, c: 21 }, e: { r: 1, c: 21 } });
-  excelMerges.push({ s: { r: 0, c: 22 }, e: { r: 1, c: 22 } });
-  excelMerges.push({ s: { r: 0, c: 23 }, e: { r: 1, c: 23 } });
 
-  let sumTotal = 0, sumExento = 0, sumB16 = 0, sumI16 = 0, sumB8 = 0, sumI8 = 0, sumRet = 0, sumRetIslr = 0;
+  let sumTotal = 0, sumExento = 0, sumB16 = 0, sumI16 = 0, sumB8 = 0, sumI8 = 0, sumRet = 0;
 
   // Filas de AMBOS orígenes (facturas + gastos): se fusionan en un único
   // libro y se ordenan cronológicamente antes de numerar (N° Op correlativo).
@@ -322,18 +381,12 @@ export const estructuraLibroCompras = ({ empresa, periodo, totales, compras, gas
       : null;
     // Monto retenido YA en Bolívares (Bs.) congelado por el backend.
     const montoRet = retencion ? Number(retencion.montoRetenidoBs ?? retencion.montoRetenido ?? 0) : 0;
-    // Retención de ISLR vigente de la factura (sólo Estado = Emitida).
-    const retIslr = typeof retencionIslrPorCompra?.get === 'function'
-      ? retencionIslrPorCompra.get(Number(c.id))
-      : null;
-    const montoRetIslr = retIslr ? Number(retIslr.montoRetenidoBs ?? 0) : 0;
 
     sumTotal += total;
     sumExento += exento;
     sumB16 += base16; sumI16 += iva16;
     sumB8 += base8; sumI8 += iva8;
     sumRet += montoRet;
-    sumRetIslr += montoRetIslr;
 
     filasRaw.push({
       fecha: c.fechaCompra,
@@ -348,28 +401,20 @@ export const estructuraLibroCompras = ({ empresa, periodo, totales, compras, gas
         fmtMoneda(total), fmtMoneda(exento),
         fmtMoneda(base16), '16%', fmtMoneda(iva16),
         fmtMoneda(base8), '8%', fmtMoneda(iva8),
-        fmtMoneda(montoRet),
-        fmtMoneda(montoRetIslr),
-        // Concepto contable del Debe según el tipo de documento (BE-TAX-402).
-        c.esGastoServicio ? 'Gastos' : 'Compras'
+        fmtMoneda(montoRet)
       ]
     });
   });
 
   gastos.forEach((g) => {
     // GASTO dentro del Libro de Compras: sus alícuotas aportan al crédito
-    // fiscal del período y su concepto operacional define la cuenta del Debe.
+    // fiscal del período (su cuenta contable se usa en el asiento, no en el
+    // libro de la ley del IVA).
     const d = desgloseGasto(g);
-    // Retención de ISLR vigente del gasto (sólo Estado = Emitida).
-    const retIslrGasto = typeof retencionIslrPorGasto?.get === 'function'
-      ? retencionIslrPorGasto.get(Number(g.id))
-      : null;
-    const montoRetIslrGasto = retIslrGasto ? Number(retIslrGasto.montoRetenidoBs ?? 0) : 0;
     sumTotal += d.total;
     sumExento += d.exento;
     sumB16 += d.base16; sumI16 += d.iva16;
     sumB8 += d.base8; sumI8 += d.iva8;
-    sumRetIslr += montoRetIslrGasto;
 
     filasRaw.push({
       fecha: g.fecha,
@@ -386,9 +431,7 @@ export const estructuraLibroCompras = ({ empresa, periodo, totales, compras, gas
         fmtMoneda(d.total), fmtMoneda(d.exento),
         fmtMoneda(d.base16), '16%', fmtMoneda(d.iva16),
         fmtMoneda(d.base8), '8%', fmtMoneda(d.iva8),
-        fmtMoneda(0),
-        fmtMoneda(montoRetIslrGasto),
-        g.categoria || 'GASTO'
+        fmtMoneda(0)
       ]
     });
   });
@@ -405,7 +448,7 @@ export const estructuraLibroCompras = ({ empresa, periodo, totales, compras, gas
     fmtMoneda(sumTotal), fmtMoneda(sumExento),
     fmtMoneda(sumB16), '', fmtMoneda(sumI16),
     fmtMoneda(sumB8), '', fmtMoneda(sumI8),
-    fmtMoneda(sumRet), fmtMoneda(sumRetIslr), ''
+    fmtMoneda(sumRet)
   ];
 
   // --- RESUMEN DE FORMA 30: CRÉDITOS FISCALES (se inyecta al final del libro) ---

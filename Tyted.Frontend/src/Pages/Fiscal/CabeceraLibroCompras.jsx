@@ -7,8 +7,8 @@ import { formatearFecha } from './libroComprasHelpers';
 // ---------------------------------------------------------------------------
 export default function CabeceraLibroCompras({
   empresaActiva, periodoActivo, fechaInicio, fechaFin,
-  mostrarConsultas, mostrarReporte, cargando, hayContexto,
-  onNuevoDocumento, onAlternarConsultas, onAlternarReporte, onRecargar
+  mostrarConsultas, mostrarReporte, mostrarRelacionIslr, cargando, hayContexto,
+  onNuevoDocumento, onAlternarConsultas, onAlternarReporte, onAlternarRelacionIslr, onRecargar
 }) {
   return (
     <div style={{
@@ -59,6 +59,18 @@ export default function CabeceraLibroCompras({
           title="Vista previa del libro combinado (facturas + gastos) con exportación a PDF y Excel"
         >
           {mostrarReporte ? '📄 Cerrar reportes' : '📊 Reportes'}
+        </button>
+        <button
+          onClick={onAlternarRelacionIslr}
+          disabled={!hayContexto}
+          style={{
+            background: mostrarRelacionIslr ? '#0ea5e9' : '#334155', color: '#fff', border: 'none', borderRadius: '8px',
+            padding: '10px 16px', cursor: hayContexto ? 'pointer' : 'not-allowed', fontWeight: 'bold',
+            opacity: hayContexto ? 1 : 0.5
+          }}
+          title="Relación de retenciones de ISLR del periodo (Ley del Impuesto Sobre la Renta, Decreto 1.808) — independiente del Libro de Compras (Ley del IVA)"
+        >
+          {mostrarRelacionIslr ? '📑 Cerrar relación ISLR' : '📑 Retenciones ISLR'}
         </button>
         {mostrarConsultas && (
           <button

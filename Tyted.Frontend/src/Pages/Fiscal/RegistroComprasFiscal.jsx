@@ -13,6 +13,7 @@ import FormularioCompraFiscal from './FormularioCompraFiscal';
 import FormularioGastoFiscal from './FormularioGastoFiscal';
 import TablaDocumentosCombinados from './TablaDocumentosCombinados';
 import ModalRetencionIslr from './ModalRetencionIslr';
+import ModalRelacionRetencionesIslr from './ModalRelacionRetencionesIslr';
 
 // ---------------------------------------------------------------------------
 // REGISTRO DE COMPRAS (LIBRO DE COMPRAS IVA + ISLR): orquestador liviano.
@@ -48,6 +49,12 @@ export default function RegistroComprasFiscal() {
   const [tipoAlta, setTipoAlta] = useState('FACTURA');
   const [mostrarConsultas, setMostrarConsultas] = useState(false);
   const [mostrarReporte, setMostrarReporte] = useState(false);
+  // --- RELACIÓN DE RETENCIÓN DE ISLR (reporte aparte: Ley del Impuesto Sobre
+  // la Renta, Decreto 1.808 — separado del Libro de Compras de la ley del
+  // IVA). Se carga bajo demanda al abrir el modal. ---
+  const [mostrarRelacionIslr, setMostrarRelacionIslr] = useState(false);
+  const [retencionesRelacionIslr, setRetencionesRelacionIslr] = useState([]);
+  const [cargandoRelacionIslr, setCargandoRelacionIslr] = useState(false);
 
   // --- EDICIÓN EN FILA Y ACCIONES SOBRE DOCUMENTOS ---
   const [editandoId, setEditandoId] = useState(null);
@@ -71,6 +78,7 @@ export default function RegistroComprasFiscal() {
     }
     setMostrarForm(false);
     setMostrarReporte(false);
+    setMostrarRelacionIslr(false);
     isl.setModalIslr(null);
     setEditandoId(null);
     setMostrarConsultas(true);
@@ -84,9 +92,39 @@ export default function RegistroComprasFiscal() {
     }
     setMostrarForm(false);
     setMostrarConsultas(false);
+    setMostrarRelacionIslr(false);
     isl.setModalIslr(null);
     setEditandoId(null);
     setMostrarReporte(true);
+  };
+
+  // Apertura/cierre de la RELACIÓN DE RETENCIÓN DE ISLR (reporte independiente
+  // del Libro de Compras, ley del IVA): al abrir se refrescan las retenciones
+  // del periodo/empresa activos.
+  const alternarRelacionIslr = async () => {
+    if (mostrarRelacionIslr) {
+      setMostrarRelacionIslr(false);
+      return;
+    }
+    // Exclusividad con los demás paneles y modales.
+    setMostrarForm(false);
+    setMostrarConsultas(false);
+    setMostrarReporte(false);
+    isl.setModalIslr(null);
+    setEditandoId(null);
+    setMostrarRelacionIslr(true);
+
+    if (!empresaId || !fechaInicio || !fechaFin) return;
+    setCargandoRelacionIslr(true);
+    try {
+      const data = await fiscalApi.getRetencionesIslr({ fechaInicio, fechaFin, empresaId });
+      setRetencionesRelacionIslr(Array.isArray(data) ? data : (data?.$values || []));
+    } catch (error) {
+      console.error('Error cargando la relación de retenciones de ISLR:', error);
+      alert(`❌ No se pudo cargar la relación de retenciones de ISLR:\n${mensajeErrorApi(error)}`);
+    } finally {
+      setCargandoRelacionIslr(false);
+    }
   };
 
   // Abre el formulario ÚNICO con el tipo elegido, limpia el estado del modo
@@ -95,6 +133,7 @@ export default function RegistroComprasFiscal() {
   const abrirFormUnico = async (tipo) => {
     setMostrarConsultas(false);
     setMostrarReporte(false);
+    setMostrarRelacionIslr(false);
     isl.setModalIslr(null);
     setEditandoId(null);
     setTipoAlta(tipo);
@@ -118,6 +157,7 @@ export default function RegistroComprasFiscal() {
     // reportes y el modal ISLR (la tabla de consultas permanece).
     setMostrarForm(false);
     setMostrarReporte(false);
+    setMostrarRelacionIslr(false);
     isl.setModalIslr(null);
     setEditandoId(c.id);
     setFormFiscal({ tipoTransaccion: c.tipoTransaccion || '01', numeroControl: c.numeroControl || '' });
@@ -222,16 +262,16 @@ export default function RegistroComprasFiscal() {
     if (ok) setMostrarForm(false);
   };
 
-  // Libro COMBINADO para la vista previa y la exportación a PDF/Excel.
+  // Libro COMBINADO para la vista previa y la exportación a PDF/Excel. Sólo
+  // datos de la LEY DEL IVA: las retenciones de ISLR NO entran en el libro
+  // (se reportan en su propia relación, modal «📑 Retenciones ISLR»).
   const reporteLibro = estructuraLibroCompras({
     empresa: empresaActiva,
     periodo: periodoActivo,
-    totales: { ...libro.totales, retenciones: libro.totalRetenido },
+    totales: libro.totales,
     compras: libro.compras,
     gastos: libro.gastos,
-    retencionPorCompra: libro.retencionPorCompra,
-    retencionIslrPorCompra: libro.retencionIslrPorCompra,
-    retencionIslrPorGasto: libro.retencionIslrPorGasto
+    retencionPorCompra: libro.retencionPorCompra
   });
 
   const hayContexto = Boolean(empresaId && fechaInicio && fechaFin);
@@ -246,11 +286,13 @@ export default function RegistroComprasFiscal() {
         fechaFin={fechaFin}
         mostrarConsultas={mostrarConsultas}
         mostrarReporte={mostrarReporte}
+        mostrarRelacionIslr={mostrarRelacionIslr}
         cargando={libro.cargando}
         hayContexto={hayContexto}
         onNuevoDocumento={() => abrirFormUnico('FACTURA')}
         onAlternarConsultas={alternarConsultas}
         onAlternarReporte={alternarReporte}
+        onAlternarRelacionIslr={alternarRelacionIslr}
         onRecargar={libro.cargarCompras}
       />
 
@@ -386,6 +428,19 @@ export default function RegistroComprasFiscal() {
         onEmitir={isl.emitirRetencionIslr}
         onCerrar={() => isl.setModalIslr(null)}
         emitiendo={isl.emitiendoIslr}
+      />
+
+      {/* --- MODAL DE RELACIÓN DE RETENCIÓN DE ISLR (Ley del Impuesto Sobre la
+          Renta): reporte del periodo separado del Libro de Compras (IVA) --- */}
+      <ModalRelacionRetencionesIslr
+        abierto={mostrarRelacionIslr}
+        retenciones={retencionesRelacionIslr}
+        cargando={cargandoRelacionIslr}
+        empresa={empresaActiva}
+        periodo={periodoActivo}
+        fechaInicio={fechaInicio}
+        fechaFin={fechaFin}
+        onCerrar={() => setMostrarRelacionIslr(false)}
       />
     </div>
   );

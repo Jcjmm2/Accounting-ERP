@@ -29,6 +29,11 @@ const TIPOS_TRANSACCION = [
   { valor: '03', etiqueta: '03 Anulación' }
 ];
 
+// Alícuotas del IVA para el resumen Z (cierre de máquina fiscal): la general
+// 16%, la reducida 8% y la general más adicional 31%. El cierre del día puede
+// tener varias a la vez: cada una se captura en su propia línea.
+const TASAS_IVA_RESUMEN = [8, 16, 31];
+
 // Desglose fiscal: exentas (líneas con IVA 0), base gravada e IVA débito.
 // INMUTABILIDAD FISCAL: se leen los montos congelados en Bolívares (*MonedaExt).
 const desgloseVenta = (venta) => {
@@ -41,6 +46,13 @@ const desgloseVenta = (venta) => {
     .filter((l) => Number(l.tasaIVA ?? 0) === 0)
     .reduce((s, l) => s + Number(l.subtotalLineaMonedaExt ?? 0), 0);
   return { base, exento, baseGravada: Math.max(base - exento, 0), iva, total };
+};
+
+// Tasas del desglose de un resumen Z (detalle persistido por alícuota del
+// cierre: 8%, 16%, 31%); los resúmenes antiguos sin detalle devuelven [].
+const tasasDelResumen = (resumen) => {
+  const d = resumen?.detalles?.$values || resumen?.detalles || [];
+  return [...new Set(d.map((x) => Number(x.tasaIVA)).filter((t) => t > 0))].sort((a, b) => a - b);
 };
 
 const thStyle = { padding: '10px 8px', textAlign: 'left', fontWeight: 'bold', whiteSpace: 'nowrap' };
@@ -117,10 +129,12 @@ export default function RegistroVentasFiscal() {
     facturaDesde: '',
     facturaHasta: '',
     tipoTransaccion: '01',
-    exento: '',
-    baseGravada: '',
-    iva: ''
+    exento: ''
   });
+  // Bases gravadas POR ALÍCUOTA del cierre Z: una línea por cada tasa del
+  // resumen (8%, 16% o 31%); el IVA se calcula por línea y el backend deriva
+  // los totales del documento desde este desglose.
+  const [lineasResumen, setLineasResumen] = useState([{ tasaIVA: 16, base: '' }]);
 
   const empresaId = Number(empresaActiva?.id ?? 0);
   const fechaInicio = periodoActivo?.fechaInicio;
@@ -276,13 +290,42 @@ export default function RegistroVentasFiscal() {
   }, { subtotal: 0, iva: 0 });
   totalesForm.total = totalesForm.subtotal + totalesForm.iva;
 
-  // Montos del formulario de resumen (total = exento + base gravada + IVA)
+  // Montos del formulario de resumen: exento (input único) + bases gravadas
+  // por alícuota (líneas dinámicas). El IVA por línea usa el mismo redondeo
+  // del backend (2 decimales); total = exento + Σ bases + Σ IVA.
+  const lineasResumenCalc = lineasResumen.map((l) => {
+    const base = Number(l.base) || 0;
+    return {
+      tasaIVA: Number(l.tasaIVA),
+      base,
+      iva: Math.round(base * (Number(l.tasaIVA) / 100) * 100) / 100
+    };
+  });
   const montosResumenForm = {
     exento: Number(formResumen.exento) || 0,
-    baseGravada: Number(formResumen.baseGravada) || 0,
-    iva: Number(formResumen.iva) || 0
+    baseGravada: lineasResumenCalc.reduce((s, l) => s + l.base, 0),
+    iva: lineasResumenCalc.reduce((s, l) => s + l.iva, 0)
   };
   montosResumenForm.total = montosResumenForm.exento + montosResumenForm.baseGravada + montosResumenForm.iva;
+
+  // Resumen por tasa para la fila de totales (desglose informativo).
+  const resumenPorTasa = TASAS_IVA_RESUMEN
+    .map((tasa) => {
+      const lineasTasa = lineasResumenCalc.filter((l) => l.tasaIVA === tasa);
+      return {
+        tasa,
+        base: lineasTasa.reduce((s, l) => s + l.base, 0),
+        iva: lineasTasa.reduce((s, l) => s + l.iva, 0)
+      };
+    })
+    .filter((x) => x.base > 0);
+
+  // Gestión de las líneas por alícuota del resumen Z (mínimo una).
+  const agregarLineaResumen = () => setLineasResumen((prev) => [...prev, { tasaIVA: 16, base: '' }]);
+  const modificarLineaResumen = (idx, campo, valor) =>
+    setLineasResumen((prev) => prev.map((l, i) => (i === idx ? { ...l, [campo]: valor } : l)));
+  const quitarLineaResumen = (idx) =>
+    setLineasResumen((prev) => (prev.length > 1 ? prev.filter((_, i) => i !== idx) : prev));
 
   const abrirFormVentaFiscal = async () => {
     setFormVenta({
@@ -322,11 +365,12 @@ export default function RegistroVentasFiscal() {
   // digitados con la tasa del día (el resumen SIEMPRE se almacena en Bs.).
   const cambiarMonedaCapturaResumen = (nuevaMoneda) => {
     if (nuevaMoneda === monedaCapturaResumen) return;
-    const hayMontos = ['exento', 'baseGravada', 'iva'].some((k) => Number(formResumen[k]) > 0);
+    const hayMontos = Number(formResumen.exento) > 0 || lineasResumen.some((l) => Number(l.base) > 0);
     if (hayMontos) {
       const ok = window.confirm(
         `Los montos del resumen están capturados en ${simbolo(monedaCapturaResumen)}.\n\n` +
-        `¿Convertirlos a ${simbolo(nuevaMoneda)} con la tasa del día (${fmt(tasaCambio)} Bs./USD)?`
+        `¿Convertirlos a ${simbolo(nuevaMoneda)} con la tasa del día (${fmt(tasaCambio)} Bs./USD)?\n` +
+        '(Las tasas de IVA no cambian: sólo se convierten los montos capturados.)'
       );
       if (!ok) return; // revertir: la selección controlada no cambia
       const conv = (v) => (v === '' || v == null) ? v : (
@@ -334,12 +378,9 @@ export default function RegistroVentasFiscal() {
           ? (Number(v) / tasaCambio).toFixed(2)
           : (Number(v) * tasaCambio).toFixed(2)
       );
-      setFormResumen(prev => ({
-        ...prev,
-        exento: conv(prev.exento),
-        baseGravada: conv(prev.baseGravada),
-        iva: conv(prev.iva)
-      }));
+      setFormResumen(prev => ({ ...prev, exento: conv(prev.exento) }));
+      // El IVA por línea se recalcula automáticamente desde la base convertida.
+      setLineasResumen(prev => prev.map(l => ({ ...l, base: conv(l.base) })));
     }
     setMonedaCapturaResumen(nuevaMoneda);
   };
@@ -353,10 +394,11 @@ export default function RegistroVentasFiscal() {
       facturaDesde: '',
       facturaHasta: '',
       tipoTransaccion: '01',
-      exento: '',
-      baseGravada: '',
-      iva: ''
+      exento: ''
     });
+    // Cada alta parte con una línea de alícuota (16%); el usuario agrega más
+    // si el cierre Z del día tuvo varias tasas (ej: 16% y 31%).
+    setLineasResumen([{ tasaIVA: 16, base: '' }]);
     // Prioridad a la moneda fiscal (Bs.) en cada alta de resumen Z.
     setMonedaCapturaResumen('VES');
     setMostrarForm(false);
@@ -481,7 +523,7 @@ export default function RegistroVentasFiscal() {
   // ALTA DE RESUMEN DE VENTAS DE LA MÁQUINA FISCAL (cierre Z)
   // -------------------------------------------------------------------------
   const guardarResumen = async () => {
-    const { fecha, numeroControlMaquina, numeroZ, facturaDesde, facturaHasta, exento, baseGravada, iva } = formResumen;
+    const { fecha, numeroControlMaquina, numeroZ, facturaDesde, facturaHasta, exento } = formResumen;
     if (!fecha) { alert('⚠️ Indique la fecha del resumen (cierre Z).'); return; }
     if (!numeroControlMaquina.trim()) { alert('⚠️ Indique el N° de control de la máquina fiscal.'); return; }
     if (!numeroZ.trim()) { alert('⚠️ Indique el N° Z.'); return; }
@@ -493,8 +535,9 @@ export default function RegistroVentasFiscal() {
     }
 
     // El resumen Z se almacena SIEMPRE en Bs. (moneda fiscal; modelo
-    // ResumenVentaFiscal). Si el usuario capturó en $ (opción), se convierte
-    // a Bs. con la tasa del día antes de validar y enviar.
+    // ResumenVentaFiscal). Si el usuario capturó en $ (opción), se convierten
+    // a Bs. el exento y cada base por alícuota; el backend recalcula el IVA
+    // por línea y deriva los totales (cuadre de la partida doble).
     const enDolares = monedaCapturaResumen === 'USD';
     if (enDolares && tasaCambio <= 1) {
       alert('⚠️ Convertir la captura en $ a Bs. requiere una tasa de cambio válida (mayor que 1) en la configuración global (empresa/periodo).');
@@ -502,18 +545,31 @@ export default function RegistroVentasFiscal() {
     }
     const aBs = (v) => Math.round((Number(v) || 0) * tasaCambio * 100) / 100;
     const montoExento = enDolares ? aBs(exento) : Number(exento) || 0;
-    const montoBase = enDolares ? aBs(baseGravada) : Number(baseGravada) || 0;
-    const montoIva = enDolares ? aBs(iva) : Number(iva) || 0;
+    // Detalle por alícuota (Bs. exactos): líneas con base > 0; el IVA de cada
+    // línea se redondea igual que en el servidor (2 decimales).
+    const detalleZ = lineasResumen
+      .map((l) => ({
+        tasaIVA: Number(l.tasaIVA),
+        baseBs: enDolares ? aBs(l.base) : Number(l.base) || 0
+      }))
+      .filter((l) => l.baseBs > 0);
+    const montoBase = detalleZ.reduce((s, l) => s + l.baseBs, 0);
+    const montoIva = detalleZ.reduce(
+      (s, l) => s + Math.round(l.baseBs * (l.tasaIVA / 100) * 100) / 100, 0);
     if (montoExento + montoBase + montoIva <= 0) {
-      alert('⚠️ Registre los montos del resumen (exento, base gravada e IVA).');
+      alert('⚠️ Registre las ventas exentas y/o al menos una línea de base gravada por alícuota (8%, 16% o 31%).');
       return;
     }
 
+    const detalleTexto = detalleZ
+      .map((l) => `Base ${l.tasaIVA}%: ${fmt(l.baseBs)}`)
+      .join(' · ');
     const confirmado = window.confirm(
       `Registrar el resumen de ventas Z ${numeroZ} (${facturaDesde} – ${facturaHasta}) por ${fmt(montoExento + montoBase + montoIva)} Bs.` +
       (enDolares
         ? ` (capturado en $ y convertido con la tasa ${fmt(tasaCambio)})`
-        : ' (moneda fiscal)') + '?\n\n' +
+        : ' (moneda fiscal)') +
+      (detalleTexto ? `\n\nAlícuotas: ${detalleTexto}` : '') + '\n\n' +
       'Documento declarativo del Libro de Ventas SENIAT: NO afecta caja ni inventario.' +
       (contabilizarResumenAuto ? '\nSe generará además UN comprobante contable por resumen (Debe Caja | Haber Ingresos + IVA).' : '')
     );
@@ -532,7 +588,10 @@ export default function RegistroVentasFiscal() {
         baseGravada: montoBase,
         iva: montoIva,
         total: montoExento + montoBase + montoIva,
-        tipoTransaccion: formResumen.tipoTransaccion
+        tipoTransaccion: formResumen.tipoTransaccion,
+        // Desglose por alícuota del cierre (Bs. exactos): el backend deriva
+        // los totales desde estas líneas (cuadre de la partida doble).
+        detalles: detalleZ
       });
 
       if (contabilizarResumenAuto && creado?.id) {
@@ -788,6 +847,7 @@ export default function RegistroVentasFiscal() {
                     <option value={0}>0%</option>
                     <option value={8}>8%</option>
                     <option value={16}>16%</option>
+                    <option value={31}>31%</option>
                   </select>
                 </div>
 
@@ -836,6 +896,7 @@ export default function RegistroVentasFiscal() {
                             <option value={0}>0%</option>
                             <option value={8}>8%</option>
                             <option value={16}>16%</option>
+                            <option value={31}>31%</option>
                           </select>
                         </td>
                         <td style={{ padding: '6px', textAlign: 'right' }}>{simbolo(monedaCaptura)} {(Number(l.precio) * Number(l.cantidad)).toFixed(2)}</td>
@@ -926,14 +987,68 @@ export default function RegistroVentasFiscal() {
                   <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Ventas Exentas {simbolo(monedaCapturaResumen)}</label>
                   <input type="number" min="0" step="0.01" value={formResumen.exento} onChange={(e) => setFormResumen({ ...formResumen, exento: e.target.value })} placeholder="0.00" style={inputChico} />
                 </div>
-                <div>
-                  <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Base Gravada {simbolo(monedaCapturaResumen)}</label>
-                  <input type="number" min="0" step="0.01" value={formResumen.baseGravada} onChange={(e) => setFormResumen({ ...formResumen, baseGravada: e.target.value })} placeholder="0.00" style={inputChico} />
+              </div>
+
+              {/* BASES GRAVADAS POR ALÍCUOTA: una línea por cada tasa del Z */}
+              <div style={{ background: '#0f172a', padding: '12px', borderRadius: '8px', border: '1px solid #334155', marginBottom: '14px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '6px' }}>
+                  <span style={{ fontSize: '0.8rem', color: '#93c5fd', fontWeight: 'bold' }}>
+                    Bases gravadas por alícuota ({simbolo(monedaCapturaResumen)})
+                  </span>
+                  <button
+                    type="button"
+                    onClick={agregarLineaResumen}
+                    style={{ background: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px', padding: '5px 12px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.8rem' }}
+                  >
+                    + Agregar línea
+                  </button>
                 </div>
-                <div>
-                  <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>IVA {simbolo(monedaCapturaResumen)}</label>
-                  <input type="number" min="0" step="0.01" value={formResumen.iva} onChange={(e) => setFormResumen({ ...formResumen, iva: e.target.value })} placeholder="0.00" style={inputChico} />
-                </div>
+                <p style={{ margin: '0 0 8px 0', color: '#64748b', fontSize: '0.72rem' }}>
+                  Si el cierre Z del día tiene varias tasas (ej: 16% y 31%), agregue una línea por cada alícuota; el IVA de cada línea se calcula automáticamente.
+                </p>
+                {lineasResumenCalc.map((l, idx) => (
+                  <div key={`lin-z-${idx}`} style={{ display: 'flex', gap: '10px', alignItems: 'flex-end', flexWrap: 'wrap', marginBottom: '6px' }}>
+                    <div style={{ width: '110px' }}>
+                      <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Tasa IVA</label>
+                      <select
+                        value={l.tasaIVA}
+                        onChange={(e) => modificarLineaResumen(idx, 'tasaIVA', Number(e.target.value))}
+                        style={{ ...inputChico, width: '100%' }}
+                      >
+                        {TASAS_IVA_RESUMEN.map((t) => <option key={t} value={t}>{t}%</option>)}
+                      </select>
+                    </div>
+                    <div style={{ flex: '1 1 160px' }}>
+                      <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Base gravada {simbolo(monedaCapturaResumen)}</label>
+                      <input
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={lineasResumen[idx].base}
+                        onChange={(e) => modificarLineaResumen(idx, 'base', e.target.value)}
+                        placeholder="0.00"
+                        style={{ ...inputChico, width: '100%' }}
+                      />
+                    </div>
+                    <div style={{ minWidth: '140px', textAlign: 'right', paddingBottom: '6px' }}>
+                      <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>IVA {l.tasaIVA}%: </span>
+                      <b style={{ color: '#fbbf24' }}>{simbolo(monedaCapturaResumen)} {l.iva.toFixed(2)}</b>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => quitarLineaResumen(idx)}
+                      disabled={lineasResumenCalc.length <= 1}
+                      title="Quitar línea"
+                      style={{
+                        background: '#7f1d1d', color: '#fff', border: 'none', borderRadius: '5px', padding: '5px 9px',
+                        cursor: lineasResumenCalc.length <= 1 ? 'not-allowed' : 'pointer',
+                        opacity: lineasResumenCalc.length <= 1 ? 0.4 : 1
+                      }}
+                    >
+                      🗑️
+                    </button>
+                  </div>
+                ))}
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
@@ -942,6 +1057,13 @@ export default function RegistroVentasFiscal() {
                   <b>Base:</b> {simbolo(monedaCapturaResumen)} {montosResumenForm.baseGravada.toFixed(2)} ·{' '}
                   <b>IVA:</b> {simbolo(monedaCapturaResumen)} {montosResumenForm.iva.toFixed(2)} ·{' '}
                   <b style={{ color: '#a78bfa', fontSize: '1.05rem' }}>{simbolo(monedaCapturaResumen)} {montosResumenForm.total.toFixed(2)}</b>
+                  {resumenPorTasa.length > 0 && (
+                    <span style={{ display: 'block', color: '#94a3b8', fontSize: '0.75rem' }}>
+                      {resumenPorTasa
+                        .map((x) => `Base ${x.tasa}%: ${simbolo(monedaCapturaResumen)} ${x.base.toFixed(2)} · IVA ${x.iva.toFixed(2)}`)
+                        .join('   |   ')}
+                    </span>
+                  )}
                   {monedaCapturaResumen === 'VES' ? (
                     <span style={{ color: '#94a3b8', fontSize: '0.78rem' }}> · se registra en Bs. (moneda fiscal)</span>
                   ) : (
@@ -1100,6 +1222,15 @@ export default function RegistroVentasFiscal() {
                           <td style={tdStyle}>
                             <b>Resumen Diario de Ventas</b>
                             <span style={{ display: 'block', color: '#94a3b8', fontSize: '0.75rem' }}>Máquina fiscal · SIN RIF</span>
+                            {tasasDelResumen(doc).length > 0 && (
+                              <span style={{ display: 'block', marginTop: '2px' }}>
+                                {tasasDelResumen(doc).map((t) => (
+                                  <span key={`tz-${doc.id}-${t}`} style={{ background: '#2e1a47', color: '#c4b5fd', padding: '1px 6px', borderRadius: '8px', fontSize: '0.68rem', marginRight: '4px' }}>
+                                    {t}%
+                                  </span>
+                                ))}
+                              </span>
+                            )}
                           </td>
                           <td style={{ ...tdStyle, fontFamily: 'monospace' }}>{doc.numeroControlMaquina}</td>
                           <td style={{ ...tdStyle, fontFamily: 'monospace', color: '#a78bfa', fontWeight: 'bold' }}>{doc.numeroZ}</td>

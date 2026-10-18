@@ -9,9 +9,11 @@ namespace Tyted.API.Models
     /// Resumen de ventas de la máquina fiscal (Libro de Ventas SENIAT): un
     /// documento declarativo por Z del día con el N° de control de la máquina,
     /// el N° Z y el rango de facturas del resumen (ej: 00000940-00000952).
-    /// NO tiene líneas de detalle: se registran los montos totales del resumen
-    /// (exento, base gravada, IVA y total). Cada resumen se contabiliza con UN
-    /// asiento de diario (Debe Caja | Haber Ingresos + IVA Débito Fiscal).
+    /// NO tiene líneas de producto: se registran los montos totales del resumen
+    /// (exento, base gravada, IVA y total) en Bs., y el desglose POR ALÍCUOTA
+    /// del cierre (8%, 16%, 31%) vive en Detalles (los totales se derivan de
+    /// esas líneas). Cada resumen se contabiliza con UN asiento de diario
+    /// (Debe Caja | Haber Ingresos + IVA Débito Fiscal).
     /// </summary>
     public class ResumenVentaFiscal
     {
@@ -69,5 +71,12 @@ namespace Tyted.API.Models
 
         [StringLength(100)]
         public string? Usuario { get; set; }
+
+        /// <summary>
+        /// Desglose por alícuota del cierre Z (una línea por cada tasa del
+        /// resumen: 8%, 16% o 31%, con su base en Bs. exactos). Opcional: los
+        /// resúmenes antiguos quedan sólo con los totales planos de arriba.
+        /// </summary>
+        public ICollection<ResumenVentaFiscalDetalle> Detalles { get; set; } = new List<ResumenVentaFiscalDetalle>();
     }
 }

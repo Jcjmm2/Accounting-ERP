@@ -42,6 +42,9 @@ namespace Tyted.API.Controllers
                 await _access.ValidarAccesoAsync(User, empresaId.Value);
 
             var query = _context.ResumenesVentasFiscales
+                // Desglose por alícuota del cierre Z (tasas 8/16/31) para la
+                // vista previa, el libro y el Forma 30.
+                .Include(r => r.Detalles)
                 .AsNoTracking()
                 .AsQueryable();
 
@@ -84,12 +87,42 @@ namespace Tyted.API.Controllers
                 return BadRequest(new { message = "La factura 'Desde' no puede ser mayor que la 'Hasta'." });
             }
 
-            // Cuadre de montos: Total = Exento + Base gravada + IVA
-            var totalCalculado = resumen.Exento + resumen.BaseGravada + resumen.Iva;
-            if (resumen.Total <= 0m)
-                resumen.Total = totalCalculado;
-            else if (Math.Abs(resumen.Total - totalCalculado) > 0.005m)
-                return BadRequest(new { message = "El total del resumen debe ser igual a Exento + Base gravada + IVA." });
+            // DETALLE POR ALÍCUOTA (cierres Z con varias tasas: 8%, 16%, 31%):
+            // el servidor calcula el IVA por línea y DERIVA los totales planos
+            // que usan el libro y el motor de asientos (fuente única de verdad
+            // y cuadre de la partida doble garantizado). Sin detalle se
+            // conserva el flujo de sólo totales planos (compatibilidad).
+            var lineasZ = resumen.Detalles?
+                .Where(l => l.BaseBs > 0m)
+                .ToList();
+            if (lineasZ != null && lineasZ.Count > 0)
+            {
+                decimal sumaBase = 0m, sumaIva = 0m;
+                foreach (var linea in lineasZ)
+                {
+                    if (linea.TasaIVA <= 0m || linea.TasaIVA > 100m)
+                        return BadRequest(new { message = $"Tasa de IVA inválida ({linea.TasaIVA}%) en el detalle del resumen." });
+                    linea.Id = 0;                    // fila nueva (evita ids del cliente)
+                    linea.ResumenVentaFiscalId = 0;  // la fija el contexto al guardar
+                    linea.IvaBs = Math.Round(linea.BaseBs * (linea.TasaIVA / 100m), 2, MidpointRounding.AwayFromZero);
+                    sumaBase += linea.BaseBs;
+                    sumaIva += linea.IvaBs;
+                }
+                resumen.Detalles = lineasZ;
+                resumen.BaseGravada = sumaBase;
+                resumen.Iva = sumaIva;
+                resumen.Total = resumen.Exento + sumaBase + sumaIva;
+            }
+            else
+            {
+                resumen.Detalles = new List<ResumenVentaFiscalDetalle>();
+                // Cuadre de montos: Total = Exento + Base gravada + IVA
+                var totalCalculado = resumen.Exento + resumen.BaseGravada + resumen.Iva;
+                if (resumen.Total <= 0m)
+                    resumen.Total = totalCalculado;
+                else if (Math.Abs(resumen.Total - totalCalculado) > 0.005m)
+                    return BadRequest(new { message = "El total del resumen debe ser igual a Exento + Base gravada + IVA." });
+            }
 
             // Un solo resumen por N° Z y empresa (el cierre Z es único por día)
             var duplicado = await _context.ResumenesVentasFiscales.AnyAsync(r =>
