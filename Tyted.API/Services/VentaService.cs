@@ -193,6 +193,8 @@ namespace Tyted.API.Services
         /// kardex (no afecta el POS ni la gestión de inventario). Los totales
         /// SIEMPRE se recalculan en servidor desde las líneas (integridad
         /// fiscal) y no se registran pagos (no participa en el arqueo de caja).
+        /// Moneda de captura: VES (Bs., prioridad fiscal — verdad congelada en
+        /// *MonedaExt) o USD (moneda base, derivada/conversiones con la tasa).
         /// </summary>
         public async Task<Venta> CrearVentaFiscalAsync(Venta venta)
         {
@@ -204,14 +206,30 @@ namespace Tyted.API.Services
             {
                 venta.Origen = "Fiscal";
                 venta.NumeroFactura = await _correlativoService.GenerarSiguienteNumeroVenta();
-                venta.TipoMoneda = "USD";
+                // Respeta la moneda de captura enviada por el formulario fiscal
+                // (VES = Bs. con prioridad fiscal | USD); sólo defaultea a USD
+                // para clientes legados que no envían el campo.
+                if (string.IsNullOrWhiteSpace(venta.TipoMoneda)) venta.TipoMoneda = "USD";
                 if (venta.ClienteId <= 0) venta.ClienteId = 1;
                 if (venta.FechaVenta == default) venta.FechaVenta = DateHelper.GetVenezuelaTime();
                 if (string.IsNullOrWhiteSpace(venta.Usuario)) venta.Usuario = "FISCAL";
                 venta.IsAnulada = false;
 
                 var tasa = venta.TasaDeCambio > 0 ? venta.TasaDeCambio : 1m;
-                decimal subtotal = 0m, ivaTotal = 0m;
+
+                // CAPTURA EN BOLÍVARES (fiscal en Bs.): el formulario fiscal
+                // envía los precios en PrecioUnitarioMonedaExt con TipoMoneda VES.
+                // Los Bs. son la VERDAD FISCAL exacta (se congelan tal cual en los
+                // campos *MonedaExt); los campos *MonedaBase (USD) se derivan con
+                // la tasa para el asiento contable (convención de moneda base del
+                // libro). Con TipoMoneda USD se mantiene el flujo clásico: los
+                // precios llegan en *MonedaBase y los Bs. se derivan con la tasa.
+                var enBolivares = venta.TipoMoneda == "VES" || venta.TipoMoneda == "BS";
+                if (enBolivares && tasa <= 1m)
+                    throw new Exception("La venta fiscal en Bolívares requiere una tasa de cambio Bs./USD válida (mayor que 1).");
+
+                decimal subtotal = 0m, ivaTotal = 0m;          // moneda base (USD)
+                decimal subtotalBs = 0m, ivaTotalBs = 0m;      // Bolívares (Bs.)
 
                 foreach (var detalle in venta.Detalles)
                 {
@@ -246,24 +264,68 @@ namespace Tyted.API.Services
                         detalle.NombreUnidad = unidad.NombreUnidad;
                     }
 
-                    var linea = Math.Round(detalle.PrecioUnitarioMonedaBase * detalle.Cantidad, 2);
-                    var ivaLinea = Math.Round(linea * (detalle.TasaIVA / 100m), 2);
-                    detalle.SubtotalLineaMonedaBase = linea;
-                    detalle.TotalLineaMonedaBase = linea + ivaLinea;
-                    detalle.SubtotalLineaMonedaExt = linea * tasa;
-                    detalle.IvaLineaMonedaExt = ivaLinea * tasa;
-                    detalle.TotalLineaMonedaExt = (linea + ivaLinea) * tasa;
+                    if (enBolivares)
+                    {
+                        // VERDAD FISCAL EN Bs.: el precio digitado en el
+                        // formulario viaja en PrecioUnitarioMonedaExt y se
+                        // congela tal cual (sin derivaciones intermedias).
+                        var precioBs = detalle.PrecioUnitarioMonedaExt;
+                        if (precioBs <= 0)
+                            throw new Exception("Precio unitario (Bs.) inválido en las líneas de la venta fiscal.");
 
-                    subtotal += linea;
-                    ivaTotal += ivaLinea;
+                        var lineaBs = Math.Round(precioBs * detalle.Cantidad, 2);
+                        var ivaLineaBs = Math.Round(lineaBs * (detalle.TasaIVA / 100m), 2);
+
+                        detalle.PrecioUnitarioMonedaExt = precioBs;
+                        detalle.SubtotalLineaMonedaExt = lineaBs;
+                        detalle.IvaLineaMonedaExt = ivaLineaBs;
+                        detalle.TotalLineaMonedaExt = lineaBs + ivaLineaBs;
+
+                        // Derivación USD (libro contable) con la tasa del día.
+                        var linea = Math.Round(lineaBs / tasa, 2);
+                        var ivaLinea = Math.Round(ivaLineaBs / tasa, 2);
+                        detalle.PrecioUnitarioMonedaBase = Math.Round(precioBs / tasa, 4);
+                        detalle.SubtotalLineaMonedaBase = linea;
+                        detalle.TotalLineaMonedaBase = linea + ivaLinea;
+
+                        subtotalBs += lineaBs;
+                        ivaTotalBs += ivaLineaBs;
+                        subtotal += linea;
+                        ivaTotal += ivaLinea;
+                    }
+                    else
+                    {
+                        // Captura en USD (moneda base): los Bs. se derivan con
+                        // la tasa (flujo clásico anterior a la captura en Bs.).
+                        var linea = Math.Round(detalle.PrecioUnitarioMonedaBase * detalle.Cantidad, 2);
+                        var ivaLinea = Math.Round(linea * (detalle.TasaIVA / 100m), 2);
+                        detalle.SubtotalLineaMonedaBase = linea;
+                        detalle.TotalLineaMonedaBase = linea + ivaLinea;
+                        detalle.SubtotalLineaMonedaExt = linea * tasa;
+                        detalle.IvaLineaMonedaExt = ivaLinea * tasa;
+                        detalle.TotalLineaMonedaExt = (linea + ivaLinea) * tasa;
+
+                        subtotal += linea;
+                        ivaTotal += ivaLinea;
+                    }
                 }
 
                 venta.SubtotalMonedaBase = subtotal;
                 venta.IvaMonedaBase = ivaTotal;
                 venta.TotalMonedaBase = subtotal + ivaTotal;
-                venta.SubtotalMonedaExt = subtotal * tasa;
-                venta.IvaMonedaExt = ivaTotal * tasa;
-                venta.TotalMonedaExt = (subtotal + ivaTotal) * tasa;
+                if (enBolivares)
+                {
+                    // Verdad fiscal: Bs. exactos los que digitó el usuario.
+                    venta.SubtotalMonedaExt = subtotalBs;
+                    venta.IvaMonedaExt = ivaTotalBs;
+                    venta.TotalMonedaExt = subtotalBs + ivaTotalBs;
+                }
+                else
+                {
+                    venta.SubtotalMonedaExt = subtotal * tasa;
+                    venta.IvaMonedaExt = ivaTotal * tasa;
+                    venta.TotalMonedaExt = (subtotal + ivaTotal) * tasa;
+                }
                 venta.TasaDeCambio = tasa;
                 venta.TasaDia = tasa;
                 venta.TotalUSD = venta.TotalMonedaBase;

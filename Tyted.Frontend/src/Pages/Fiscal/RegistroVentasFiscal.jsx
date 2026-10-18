@@ -86,6 +86,12 @@ export default function RegistroVentasFiscal() {
     tipoTransaccion: '01',
     numeroControl: ''
   });
+  // --- MONEDA DE CAPTURA (prioridad a la moneda fiscalizable: Bs.) ---
+  // 'VES' = Bolívares, moneda fiscal del Libro de Ventas (PRIORIDAD);
+  // 'USD' = dólares, OPCIÓN del usuario que se convierte a Bs. con la tasa
+  // del día para congelar la verdad fiscal (*MonedaExt) en el backend.
+  const [monedaCaptura, setMonedaCaptura] = useState('VES');
+  const [monedaCapturaResumen, setMonedaCapturaResumen] = useState('VES');
   const [lineas, setLineas] = useState([]);
   // Conceptos de ingreso (catálogo por empresa, tipo VENTA): sustituyen al
   // buscador de productos en el módulo fiscal (ventas sin inventario). Su
@@ -119,6 +125,13 @@ export default function RegistroVentasFiscal() {
   const empresaId = Number(empresaActiva?.id ?? 0);
   const fechaInicio = periodoActivo?.fechaInicio;
   const fechaFin = periodoActivo?.fechaFin;
+
+  // Tasa de cambio del día (Bs./USD) del contexto global: rige la conversión
+  // cuando el usuario captura en dólares (opción secundaria) y la derivación
+  // de la moneda base en el asiento contable.
+  const tasaCambio = Number(tasa) || 1;
+  // Símbolo de la moneda de captura: Bs. (fiscal, prioridad) o $ (USD).
+  const simbolo = (moneda) => (moneda === 'USD' ? '$' : 'Bs.');
 
   // --- CONSULTA Bajo DEMANDA Y PANEL DE REPORTES ---
   // El libro NO se lista al entrar a la página: el usuario lo carga con el
@@ -239,7 +252,7 @@ export default function RegistroVentasFiscal() {
     try {
       const r = await fiscalApi.contabilizarVenta(v.ventaId);
       if (r.generada) {
-        alert(`✅ Comprobante ${r.numeroComprobante} generado.\nDebe/Haber: ${fmt(r.totalDebe)}`);
+        alert(`✅ Comprobante ${r.numeroComprobante} generado.\nDebe/Haber: ${fmt(r.totalDebe)} Bs.`);
       } else {
         alert(`⚠️ ${r.mensaje || 'No se generó el comprobante.'}\n${r.advertencia || ''}${guiaCuentasBase(r.advertencia)}`);
       }
@@ -278,6 +291,9 @@ export default function RegistroVentasFiscal() {
       tipoTransaccion: '01',
       numeroControl: ''
     });
+    // Cada alta parte de la moneda fiscal (Bs.) por defecto: el $ sólo por
+    // decisión explícita del usuario.
+    setMonedaCaptura('VES');
     setLineas([]);
     setNuevaLinea({ conceptoId: '', descripcion: '', cantidad: 1, precio: '', tasaIVA: 16 });
     setMostrarResumen(false);
@@ -302,6 +318,32 @@ export default function RegistroVentasFiscal() {
     }
   };
 
+  // Cambio de la moneda de captura del resumen Z: convierte los montos ya
+  // digitados con la tasa del día (el resumen SIEMPRE se almacena en Bs.).
+  const cambiarMonedaCapturaResumen = (nuevaMoneda) => {
+    if (nuevaMoneda === monedaCapturaResumen) return;
+    const hayMontos = ['exento', 'baseGravada', 'iva'].some((k) => Number(formResumen[k]) > 0);
+    if (hayMontos) {
+      const ok = window.confirm(
+        `Los montos del resumen están capturados en ${simbolo(monedaCapturaResumen)}.\n\n` +
+        `¿Convertirlos a ${simbolo(nuevaMoneda)} con la tasa del día (${fmt(tasaCambio)} Bs./USD)?`
+      );
+      if (!ok) return; // revertir: la selección controlada no cambia
+      const conv = (v) => (v === '' || v == null) ? v : (
+        nuevaMoneda === 'USD'
+          ? (Number(v) / tasaCambio).toFixed(2)
+          : (Number(v) * tasaCambio).toFixed(2)
+      );
+      setFormResumen(prev => ({
+        ...prev,
+        exento: conv(prev.exento),
+        baseGravada: conv(prev.baseGravada),
+        iva: conv(prev.iva)
+      }));
+    }
+    setMonedaCapturaResumen(nuevaMoneda);
+  };
+
   // --- RESUMEN DE VENTAS DE LA MÁQUINA FISCAL (cierre Z) ---
   const abrirFormResumen = () => {
     setFormResumen({
@@ -315,8 +357,31 @@ export default function RegistroVentasFiscal() {
       baseGravada: '',
       iva: ''
     });
+    // Prioridad a la moneda fiscal (Bs.) en cada alta de resumen Z.
+    setMonedaCapturaResumen('VES');
     setMostrarForm(false);
     setMostrarResumen(true);
+  };
+
+  // Cambio de la moneda de captura en la factura única. Si ya hay líneas
+  // agregadas, se pide confirmación y se convierten los precios con la tasa
+  // del día (Bs. → USD ÷ tasa; USD → Bs. × tasa) sin alterar el monto real.
+  const cambiarMonedaCaptura = (nuevaMoneda) => {
+    if (nuevaMoneda === monedaCaptura) return;
+    if (lineas.length > 0) {
+      const ok = window.confirm(
+        `Las ${lineas.length} línea(s) están capturadas en ${simbolo(monedaCaptura)}.\n\n` +
+        `¿Convertirlas a ${simbolo(nuevaMoneda)} con la tasa del día (${fmt(tasaCambio)} Bs./USD)?`
+      );
+      if (!ok) return; // revertir: la selección controlada no cambia
+      setLineas(prev => prev.map(l => ({
+        ...l,
+        precio: nuevaMoneda === 'USD'
+          ? (Number(l.precio) / tasaCambio).toFixed(4)
+          : (Number(l.precio) * tasaCambio).toFixed(2)
+      })));
+    }
+    setMonedaCaptura(nuevaMoneda);
   };
 
   // Agrega una línea al formulario de factura única basada en un CONCEPTO de
@@ -340,12 +405,22 @@ export default function RegistroVentasFiscal() {
   const guardarVentaFiscal = async () => {
     if (lineas.length === 0) { alert('⚠️ Agregue al menos una línea a la venta fiscal.'); return; }
     if (!formVenta.clienteId) { alert('⚠️ Seleccione el cliente.'); return; }
-    if (lineas.some(l => Number(l.cantidad) <= 0 || Number(l.precio) < 0)) {
-      alert('⚠️ Revise cantidades y precios de las líneas.'); return;
+    if (lineas.some(l => Number(l.cantidad) <= 0 || Number(l.precio) <= 0)) {
+      alert('⚠️ Revise cantidades y precios de las líneas (el precio debe ser mayor a cero).'); return;
+    }
+    // La captura fiscal en Bs. exige tasa de cambio válida: el backend deriva
+    // la moneda base (USD) con ella para el asiento contable.
+    if (monedaCaptura === 'VES' && tasaCambio <= 1) {
+      alert('⚠️ La venta fiscal en Bs. requiere una tasa de cambio Bs./USD válida (mayor que 1) en la configuración global (empresa/periodo).');
+      return;
     }
 
     const confirmado = window.confirm(
       'Registrar la venta fiscal (documento declarativo).\n\n' +
+      `Moneda de captura: ${simbolo(monedaCaptura)}` +
+      (monedaCaptura === 'VES'
+        ? ' (moneda fiscal — prioridad, se registra en Bs.)'
+        : ` (opción en $; se registrará en Bs. con la tasa ${fmt(tasaCambio)})`) + '\n' +
       'NO afecta el Punto de Venta ni el inventario: sin caja, sin descuento de stock y sin kardex.' +
       (contabilizarAuto ? '\nSe generará además su comprobante contable.' : '')
     );
@@ -361,8 +436,12 @@ export default function RegistroVentasFiscal() {
         numeroControl: formVenta.numeroControl || null,
         esCredito: false,
         usuario: 'FISCAL',
-        tasaDeCambio: Number(tasa) || 1,
-        tasaDia: Number(tasa) || 1,
+        // Moneda de captura: VES (Bs., prioridad fiscal) o USD (opción). El
+        // backend congela la verdad en Bs. (*MonedaExt) cuando TipoMoneda es
+        // VES y sólo deriva el USD con la tasa para el asiento contable.
+        tipoMoneda: monedaCaptura,
+        tasaDeCambio: tasaCambio,
+        tasaDia: tasaCambio,
         detalles: lineas.map(l => ({
           // Líneas por CONCEPTO DE INGRESO (sin inventario): el backend valida
           // el concepto (tipo VENTA, misma empresa) y su CuentaContable genera
@@ -370,7 +449,10 @@ export default function RegistroVentasFiscal() {
           conceptoOperacionalId: Number(l.conceptoId),
           descripcionFiscal: l.descripcion || null,
           cantidad: Number(l.cantidad),
-          precioUnitarioMonedaBase: Number(l.precio),
+          // En modo VES el precio digitado viaja en Bs. exactos (MonedaExt);
+          // en modo USD viaja en la moneda base (MonedaBase) como hasta ahora.
+          precioUnitarioMonedaExt: monedaCaptura === 'VES' ? Number(l.precio) : 0,
+          precioUnitarioMonedaBase: monedaCaptura === 'VES' ? 0 : Number(l.precio),
           tasaIVA: Number(l.tasaIVA)
         }))
       });
@@ -384,7 +466,7 @@ export default function RegistroVentasFiscal() {
         }
       }
 
-      alert(`✅ Venta fiscal ${creada.numeroFactura || ''} registrada (sin efectos en caja ni inventario).`);
+      alert(`✅ Venta fiscal ${creada.numeroFactura || ''} registrada en Bs. (moneda fiscal; sin efectos en caja ni inventario).`);
       setMostrarForm(false);
       await cargarVentas();
     } catch (error) {
@@ -410,16 +492,28 @@ export default function RegistroVentasFiscal() {
       return;
     }
 
-    const montoExento = Number(exento) || 0;
-    const montoBase = Number(baseGravada) || 0;
-    const montoIva = Number(iva) || 0;
+    // El resumen Z se almacena SIEMPRE en Bs. (moneda fiscal; modelo
+    // ResumenVentaFiscal). Si el usuario capturó en $ (opción), se convierte
+    // a Bs. con la tasa del día antes de validar y enviar.
+    const enDolares = monedaCapturaResumen === 'USD';
+    if (enDolares && tasaCambio <= 1) {
+      alert('⚠️ Convertir la captura en $ a Bs. requiere una tasa de cambio válida (mayor que 1) en la configuración global (empresa/periodo).');
+      return;
+    }
+    const aBs = (v) => Math.round((Number(v) || 0) * tasaCambio * 100) / 100;
+    const montoExento = enDolares ? aBs(exento) : Number(exento) || 0;
+    const montoBase = enDolares ? aBs(baseGravada) : Number(baseGravada) || 0;
+    const montoIva = enDolares ? aBs(iva) : Number(iva) || 0;
     if (montoExento + montoBase + montoIva <= 0) {
       alert('⚠️ Registre los montos del resumen (exento, base gravada e IVA).');
       return;
     }
 
     const confirmado = window.confirm(
-      `Registrar el resumen de ventas Z ${numeroZ} (${facturaDesde} – ${facturaHasta}) por ${fmt(montoExento + montoBase + montoIva)}?\n\n` +
+      `Registrar el resumen de ventas Z ${numeroZ} (${facturaDesde} – ${facturaHasta}) por ${fmt(montoExento + montoBase + montoIva)} Bs.` +
+      (enDolares
+        ? ` (capturado en $ y convertido con la tasa ${fmt(tasaCambio)})`
+        : ' (moneda fiscal)') + '?\n\n' +
       'Documento declarativo del Libro de Ventas SENIAT: NO afecta caja ni inventario.' +
       (contabilizarResumenAuto ? '\nSe generará además UN comprobante contable por resumen (Debe Caja | Haber Ingresos + IVA).' : '')
     );
@@ -472,7 +566,7 @@ export default function RegistroVentasFiscal() {
     try {
       const resp = await fiscalApi.contabilizarResumenVenta(r.id);
       if (resp.generada) {
-        alert(`✅ Comprobante ${resp.numeroComprobante} generado.\nDebe/Haber: ${fmt(resp.totalDebe)}`);
+        alert(`✅ Comprobante ${resp.numeroComprobante} generado.\nDebe/Haber: ${fmt(resp.totalDebe)} Bs.`);
       } else {
         alert(`⚠️ ${resp.mensaje || 'No se generó el comprobante.'}\n${resp.advertencia || ''}${guiaCuentasBase(resp.advertencia)}`);
       }
@@ -520,7 +614,7 @@ export default function RegistroVentasFiscal() {
               padding: '10px 16px', cursor: hayContexto && !cargando ? 'pointer' : 'not-allowed',
               fontWeight: 'bold', opacity: hayContexto ? 1 : 0.5
             }}
-            title="Registrar una factura fiscal única (declarativa, sin caja ni inventario)"
+            title="Registrar una factura fiscal única en Bs. (moneda fiscal; con opción de captura en $) — declarativa, sin caja ni inventario"
           >
             ➕ Factura única
           </button>
@@ -588,6 +682,8 @@ export default function RegistroVentasFiscal() {
               <p style={{ margin: '0 0 14px 0', color: '#94a3b8', fontSize: '0.8rem' }}>
                 Documento declarativo por factura: NO afecta el Punto de Venta ni el inventario (sin caja, sin descuento de stock, sin kardex).
                 Las líneas se registran por <b>categorías de ingreso</b> (conceptos contables de la empresa), no por productos.
+                La captura es en <b>Bs. (moneda fiscal del Libro de Ventas, prioridad)</b>, con opción de digitación en $ que se
+                convierte a Bs. con la tasa del día.
               </p>
 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))', gap: '12px', marginBottom: '14px' }}>
@@ -613,6 +709,14 @@ export default function RegistroVentasFiscal() {
                 <div>
                   <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>N° Control</label>
                   <input type="text" value={formVenta.numeroControl} onChange={(e) => setFormVenta({ ...formVenta, numeroControl: e.target.value })} placeholder="00-000000" style={inputChico} />
+                </div>
+                <div>
+                  <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Moneda de captura</label>
+                  <select value={monedaCaptura} onChange={(e) => cambiarMonedaCaptura(e.target.value)} style={inputChico}>
+                    {/* Prioridad a la moneda fiscalizable: Bs. es la primera opción */}
+                    <option value="VES">Bs. (moneda fiscal)</option>
+                    <option value="USD">$ (USD, opcional)</option>
+                  </select>
                 </div>
               </div>
 
@@ -662,8 +766,8 @@ export default function RegistroVentasFiscal() {
                   />
                 </div>
 
-                <div style={{ width: '90px' }}>
-                  <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Precio $</label>
+                <div style={{ width: '105px' }}>
+                  <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Precio {simbolo(monedaCaptura)}</label>
                   <input
                     type="number"
                     min="0"
@@ -702,7 +806,7 @@ export default function RegistroVentasFiscal() {
                     <tr style={{ color: '#93c5fd', textAlign: 'left' }}>
                       <th style={{ padding: '6px' }}>Concepto / Descripción</th>
                       <th style={{ padding: '6px' }}>Cant.</th>
-                      <th style={{ padding: '6px' }}>Precio $</th>
+                      <th style={{ padding: '6px' }}>Precio {simbolo(monedaCaptura)}</th>
                       <th style={{ padding: '6px' }}>IVA %</th>
                       <th style={{ padding: '6px', textAlign: 'right' }}>Subtotal</th>
                       <th style={{ padding: '6px' }}></th>
@@ -734,7 +838,7 @@ export default function RegistroVentasFiscal() {
                             <option value={16}>16%</option>
                           </select>
                         </td>
-                        <td style={{ padding: '6px', textAlign: 'right' }}>${(Number(l.precio) * Number(l.cantidad)).toFixed(2)}</td>
+                        <td style={{ padding: '6px', textAlign: 'right' }}>{simbolo(monedaCaptura)} {(Number(l.precio) * Number(l.cantidad)).toFixed(2)}</td>
                         <td style={{ padding: '6px', textAlign: 'center' }}>
                           <button onClick={() => quitarLinea(idx)} title="Quitar línea" style={{ background: '#7f1d1d', color: '#fff', border: 'none', borderRadius: '5px', padding: '3px 8px', cursor: 'pointer' }}>🗑️</button>
                         </td>
@@ -747,8 +851,16 @@ export default function RegistroVentasFiscal() {
 
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
                 <div style={{ fontSize: '0.9rem' }}>
-                  <b>Base:</b> ${totalesForm.subtotal.toFixed(2)} · <b>IVA:</b> ${totalesForm.iva.toFixed(2)} ·{' '}
-                  <b style={{ color: '#34d399', fontSize: '1.05rem' }}>${totalesForm.total.toFixed(2)}</b>
+                  <b>Base:</b> {simbolo(monedaCaptura)} {totalesForm.subtotal.toFixed(2)} ·{' '}
+                  <b>IVA:</b> {simbolo(monedaCaptura)} {totalesForm.iva.toFixed(2)} ·{' '}
+                  <b style={{ color: '#34d399', fontSize: '1.05rem' }}>{simbolo(monedaCaptura)} {totalesForm.total.toFixed(2)}</b>
+                  {monedaCaptura === 'VES' ? (
+                    <span style={{ color: '#94a3b8', fontSize: '0.78rem' }}> · registrada en Bs. (moneda fiscal)</span>
+                  ) : (
+                    <span style={{ color: '#94a3b8', fontSize: '0.78rem' }}>
+                      {' '}≈ Bs. {(totalesForm.total * tasaCambio).toFixed(2)} (tasa {fmt(tasaCambio)})
+                    </span>
+                  )}
                 </div>
                 <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
                   <label style={{ fontSize: '0.8rem', color: '#cbd5e1', display: 'flex', gap: '6px', alignItems: 'center' }}>
@@ -771,6 +883,7 @@ export default function RegistroVentasFiscal() {
               <p style={{ margin: '0 0 14px 0', color: '#94a3b8', fontSize: '0.8rem' }}>
                 Documento declarativo del Libro de Ventas SENIAT: registra el N° de control de la máquina, el N° Z y el rango de
                 facturas emitidas del día. NO afecta caja ni inventario. Cada resumen genera <b>UN</b> comprobante contable (Debe Caja | Haber Ingresos + IVA).
+                Los montos se registran en <b>Bs. (moneda fiscal, prioridad)</b>; si captura en $, se convierten a Bs. con la tasa del día.
               </p>
 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px', marginBottom: '14px' }}>
@@ -800,26 +913,42 @@ export default function RegistroVentasFiscal() {
                     {TIPOS_TRANSACCION.map((t) => <option key={t.valor} value={t.valor}>{t.etiqueta}</option>)}
                   </select>
                 </div>
+                <div>
+                  <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Moneda de captura</label>
+                  <select value={monedaCapturaResumen} onChange={(e) => cambiarMonedaCapturaResumen(e.target.value)} style={inputChico}>
+                    {/* Prioridad a la moneda fiscalizable: Bs. es la primera opción */}
+                    <option value="VES">Bs. (moneda fiscal)</option>
+                    <option value="USD">$ (USD, opcional)</option>
+                  </select>
+                </div>
 
                 <div>
-                  <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Ventas Exentas $</label>
+                  <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Ventas Exentas {simbolo(monedaCapturaResumen)}</label>
                   <input type="number" min="0" step="0.01" value={formResumen.exento} onChange={(e) => setFormResumen({ ...formResumen, exento: e.target.value })} placeholder="0.00" style={inputChico} />
                 </div>
                 <div>
-                  <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Base Gravada $</label>
+                  <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Base Gravada {simbolo(monedaCapturaResumen)}</label>
                   <input type="number" min="0" step="0.01" value={formResumen.baseGravada} onChange={(e) => setFormResumen({ ...formResumen, baseGravada: e.target.value })} placeholder="0.00" style={inputChico} />
                 </div>
                 <div>
-                  <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>IVA $</label>
+                  <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>IVA {simbolo(monedaCapturaResumen)}</label>
                   <input type="number" min="0" step="0.01" value={formResumen.iva} onChange={(e) => setFormResumen({ ...formResumen, iva: e.target.value })} placeholder="0.00" style={inputChico} />
                 </div>
               </div>
 
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px' }}>
                 <div style={{ fontSize: '0.9rem' }}>
-                  <b>Exento:</b> ${montosResumenForm.exento.toFixed(2)} · <b>Base:</b> ${montosResumenForm.baseGravada.toFixed(2)} ·{' '}
-                  <b>IVA:</b> ${montosResumenForm.iva.toFixed(2)} ·{' '}
-                  <b style={{ color: '#a78bfa', fontSize: '1.05rem' }}>${montosResumenForm.total.toFixed(2)}</b>
+                  <b>Exento:</b> {simbolo(monedaCapturaResumen)} {montosResumenForm.exento.toFixed(2)} ·{' '}
+                  <b>Base:</b> {simbolo(monedaCapturaResumen)} {montosResumenForm.baseGravada.toFixed(2)} ·{' '}
+                  <b>IVA:</b> {simbolo(monedaCapturaResumen)} {montosResumenForm.iva.toFixed(2)} ·{' '}
+                  <b style={{ color: '#a78bfa', fontSize: '1.05rem' }}>{simbolo(monedaCapturaResumen)} {montosResumenForm.total.toFixed(2)}</b>
+                  {monedaCapturaResumen === 'VES' ? (
+                    <span style={{ color: '#94a3b8', fontSize: '0.78rem' }}> · se registra en Bs. (moneda fiscal)</span>
+                  ) : (
+                    <span style={{ color: '#94a3b8', fontSize: '0.78rem' }}>
+                      {' '}≈ Bs. {(montosResumenForm.total * tasaCambio).toFixed(2)} (tasa {fmt(tasaCambio)})
+                    </span>
+                  )}
                 </div>
                 <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
                   <label style={{ fontSize: '0.8rem', color: '#cbd5e1', display: 'flex', gap: '6px', alignItems: 'center' }}>
@@ -914,10 +1043,10 @@ export default function RegistroVentasFiscal() {
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '12px', marginBottom: '20px' }}>
             {[
               { etiqueta: 'Documentos', valor: totalesLibro.documentos, color: '#60a5fa' },
-              { etiqueta: 'Ventas Exentas', valor: totalesLibro.exento, color: '#94a3b8' },
-              { etiqueta: 'Base Gravada', valor: totalesLibro.baseGravada, color: '#34d399' },
-              { etiqueta: 'IVA Débito Fiscal', valor: totalesLibro.iva, color: '#fbbf24' },
-              { etiqueta: 'Total Ventas', valor: totalesLibro.total, color: '#fff' },
+              { etiqueta: 'Ventas Exentas (Bs.)', valor: totalesLibro.exento, color: '#94a3b8' },
+              { etiqueta: 'Base Gravada (Bs.)', valor: totalesLibro.baseGravada, color: '#34d399' },
+              { etiqueta: 'IVA Débito Fiscal (Bs.)', valor: totalesLibro.iva, color: '#fbbf24' },
+              { etiqueta: 'Total Ventas (Bs.)', valor: totalesLibro.total, color: '#fff' },
               { etiqueta: 'Anuladas', valor: totalesLibro.anuladas, color: '#f87171' }
             ].map((c) => (
               <div key={c.etiqueta} style={{ background: '#0f172a', border: '1px solid #334155', borderRadius: '10px', padding: '12px' }}>
@@ -947,10 +1076,10 @@ export default function RegistroVentasFiscal() {
                     <th style={thStyle}>N° Control</th>
                     <th style={thStyle}>N° Z</th>
                     <th style={thStyle}>Rango (Desde – Hasta)</th>
-                    <th style={{ ...thStyle, textAlign: 'right' }}>Exento</th>
-                    <th style={{ ...thStyle, textAlign: 'right' }}>Base Gravada</th>
-                    <th style={{ ...thStyle, textAlign: 'right' }}>IVA</th>
-                    <th style={{ ...thStyle, textAlign: 'right' }}>Total</th>
+                    <th style={{ ...thStyle, textAlign: 'right' }}>Exento (Bs.)</th>
+                    <th style={{ ...thStyle, textAlign: 'right' }}>Base Gravada (Bs.)</th>
+                    <th style={{ ...thStyle, textAlign: 'right' }}>IVA (Bs.)</th>
+                    <th style={{ ...thStyle, textAlign: 'right' }}>Total (Bs.)</th>
                     <th style={thStyle}>Comprobante</th>
                     <th style={{ ...thStyle, textAlign: 'center' }}>Acciones</th>
                   </tr>
