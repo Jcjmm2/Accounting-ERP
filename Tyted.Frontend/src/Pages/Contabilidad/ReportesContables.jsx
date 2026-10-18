@@ -3,6 +3,7 @@ import { jsPDF } from 'jspdf';
 import autoTable from 'jspdf-autotable';
 import * as XLSX from 'xlsx';
 import { contabilidadApi } from '../../Services/Contabilidad/ContabilidadApi';
+import LibroMayor from './LibroMayor';
 
 // Opciones adaptadas a los formatos formales solicitados
 const REPORT_OPTIONS = [
@@ -10,6 +11,7 @@ const REPORT_OPTIONS = [
   { id: 'estado-resultados', label: 'Estado de Resultado', icon: '📈' },
   { id: 'situacion-financiera', label: 'Situación Financiera', icon: '⚖️' },
   { id: 'resumen-diario', label: 'Resumen de Diario', icon: '📓' },
+  { id: 'libro-mayor', label: 'Libro Mayor', icon: '📖' },
 ];
 
 const moneyFormatter = new Intl.NumberFormat('es-VE', {
@@ -29,9 +31,11 @@ const field = (obj, ...keys) => {
 const formatMoney = (value) => moneyFormatter.format(Number(value ?? 0));
 
 // Regla de alineación compartida por la vista previa, el PDF y Excel: la
-// primera columna de texto (o Código y Nombre en los reportes de 4 columnas)
-// va a la izquierda y las columnas de montos a la derecha.
-const esColumnaTexto = (idx, totalColumnas) => (totalColumnas === 4 ? idx < 2 : idx === 0);
+// primera columna de texto (o Código y Nombre en los reportes de 4 columnas,
+// o Fecha/Comprobante/Concepto en el Libro Mayor de 6) va a la izquierda y las
+// columnas de montos a la derecha.
+const esColumnaTexto = (idx, totalColumnas) =>
+  totalColumnas === 6 ? idx < 3 : totalColumnas === 4 ? idx < 2 : idx === 0;
 
 // Convierte un monto formateado por formatMoney ("1.023,45", "-102,00") a
 // número. Devuelve null cuando el texto no representa un monto.
@@ -271,6 +275,11 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
   const [selectedReporte, setSelectedReporte] = useState(null);
   const [loading, setLoading] = useState(false);
 
+  // Estructura exportable del LIBRO MAYOR: la publica el componente
+  // LibroMayor (vía onEstructura) tras cada consulta de cuenta, para que los
+  // botones «Descargar PDF/Excel» de este generador exporten ese documento.
+  const [estructuraLibroMayor, setEstructuraLibroMayor] = useState(null);
+
   // Periodo por el cual se CONSULTARON los datos (el usuario lo solicita con el botón)
   const [periodoConsultadoId, setPeriodoConsultadoId] = useState(null);
 
@@ -300,6 +309,9 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
     setCuentas([]);
     setAsientoTemporal(null);
     setPeriodoConsultadoId(null);
+    // La estructura exportable del Libro Mayor pertenece a la empresa anterior:
+    // se invalida para no descargar un documento de otra compañía.
+    setEstructuraLibroMayor(null);
   }, [empresaActiva?.id]);
 
   // Aplanar la jerarquía Padre/Hijo para el selector
@@ -815,6 +827,12 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
           totales: ['TOTALES..', '', formatMoney(totales.debe), formatMoney(totales.haber)]
         };
       }
+      case 'libro-mayor':
+        // Estructura publicada por el componente LibroMayor tras su consulta
+        // de cuenta (incluye la fila «Saldo inicial» y el rango real del rango
+        // consultado). Null hasta que el usuario consulte una cuenta: los
+        // botones de descarga quedan inactivos.
+        return estructuraLibroMayor;
       default:
         return null;
     }
@@ -837,7 +855,9 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
       pdf.setFont('helvetica', 'bold');
       pdf.text(`${empresaActiva?.nombre?.toUpperCase() || 'EMPRESA PRINCIPAL'}`, 40, 40);
       pdf.text(`RIF ${empresaActiva?.rif || 'J-000000000'}`, 40, 52);
-      pdf.text(`${estructura.titulo} del ${formatearFecha(periodoInfo?.fechaInicio)} al ${formatearFecha(periodoInfo?.fechaFin)}`, 40, 64);
+      // El Libro Mayor trae su PROPIO rango (fechaDesde/fechaHasta): los demás
+      // reportes usan el rango del periodo realmente consultado.
+      pdf.text(`${estructura.titulo} del ${formatearFecha(estructura.fechaDesde || periodoInfo?.fechaInicio)} al ${formatearFecha(estructura.fechaHasta || periodoInfo?.fechaFin)}`, 40, 64);
       pdf.setFont('helvetica', 'normal');
       pdf.text('Expresado en Bolívares (Bs.) — moneda legal', 40, 76);
     };
@@ -922,7 +942,7 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
         const datosExcel = [
           [empresaActiva?.nombre?.toUpperCase() || 'EMPRESA PRINCIPAL, C.A'],
           [`RIF ${empresaActiva?.rif || 'J-000000000'}`],
-          [`${estructura.titulo} del ${formatearFecha(periodoInfo?.fechaInicio)} al ${formatearFecha(periodoInfo?.fechaFin)}`],
+          [`${estructura.titulo} del ${formatearFecha(estructura.fechaDesde || periodoInfo?.fechaInicio)} al ${formatearFecha(estructura.fechaHasta || periodoInfo?.fechaFin)}`],
           ['Expresado en Bolívares (Bs.) — moneda legal'],
           [], // Fila en blanco de separación
           estructura.columnas,
@@ -1080,6 +1100,50 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
       {/* 3. ZONA INFERIOR: Previsualización de la "Hoja de Papel" */}
       {loading ? (
         <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>⏳ Consolidando datos del periodo...</div>
+      ) : selectedReporte === 'libro-mayor' ? (
+        /* -------------------------------------------------------------
+           LIBRO MAYOR: panel propio con su selector de cuenta y rango (se
+           mudó aquí desde el módulo contable). Las descargas PDF/Excel usan
+           la MISMA botonera del generador y la estructura que publica el
+           componente (fila «Saldo inicial» + movimientos + totales).
+           ------------------------------------------------------------- */
+        <div style={{ background: '#0f172a', padding: '24px', borderRadius: '12px', border: '1px solid #334155' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', marginBottom: '20px', flexWrap: 'wrap' }}>
+            <span style={{ color: '#94a3b8', fontSize: '0.85rem' }}>
+              📖 Seleccione la cuenta y el rango de fechas; las descargas se habilitan después de «🔍 Consultar».
+            </span>
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <button
+                onClick={exportarExcel}
+                disabled={!estructuraLibroMayor}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '8px', background: '#16a34a', color: '#fff',
+                  border: 'none', borderRadius: '8px', padding: '10px 16px', fontWeight: 'bold',
+                  cursor: estructuraLibroMayor ? 'pointer' : 'not-allowed', opacity: estructuraLibroMayor ? 1 : 0.5
+                }}
+              >
+                📊 Descargar Excel
+              </button>
+              <button
+                onClick={exportarPdf}
+                disabled={!estructuraLibroMayor}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '8px', background: '#dc2626', color: '#fff',
+                  border: 'none', borderRadius: '8px', padding: '10px 16px', fontWeight: 'bold',
+                  cursor: estructuraLibroMayor ? 'pointer' : 'not-allowed', opacity: estructuraLibroMayor ? 1 : 0.5
+                }}
+              >
+                📄 Descargar PDF
+              </button>
+            </div>
+          </div>
+          <LibroMayor
+            key={`lm-${empresaActiva?.id ?? 'x'}`}
+            empresaActiva={empresaActiva}
+            periodoActivo={periodoActivo}
+            onEstructura={setEstructuraLibroMayor}
+          />
+        </div>
       ) : pendienteConsulta && selectedReporte ? (
         <div style={{ textAlign: 'center', padding: '40px', color: '#fcd34d', border: '2px dashed #f59e0b', borderRadius: '12px' }}>
           ⏳ El reporte corresponde al periodo consultado previamente. Pulse «🔍 Consultar» para generarlo con el periodo seleccionado.

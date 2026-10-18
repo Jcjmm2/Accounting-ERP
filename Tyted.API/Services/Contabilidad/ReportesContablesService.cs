@@ -396,8 +396,12 @@ public class ReportesContablesService
         // en orden cronológico (fecha de comprobante y luego Id). El traspaso de
         // apertura de balance y la APERTURA MANUAL del rango se MUESTRAN (son
         // auditables) pero no acumulan: su efecto ya está en el saldo inicial.
+        // El saldo inicial se EXPONE en cada fila (nueva propiedad SaldoInicial)
+        // para que la UI pinte la fila «Saldo inicial» antes de los movimientos.
+        var saldoInicialRango = saldoAcumulado;
         foreach (var movimiento in movimientos)
         {
+            movimiento.SaldoInicial = saldoInicialRango;
             if (!AsientoContableService.EsTraspasoApertura(movimiento.Concepto)
                 && !idsAperturasManuales.Contains(movimiento.AsientoId))
                 saldoAcumulado += factor * (movimiento.Debe - movimiento.Haber);
@@ -448,6 +452,14 @@ public class LibroMayorDto
     /// (Deudora: Debe − Haber; Acreedora: Haber − Debe).
     /// </summary>
     public decimal SaldoAcumulado { get; set; }
+
+    /// <summary>
+    /// Saldo de la cuenta AL INICIO del rango consultado: histórico anterior a
+    /// FechaInicio más la APERTURA MANUAL del propio rango (0 cuando no se
+    /// indica fecha de inicio). Se presenta como fila «Saldo inicial» antes de
+    /// los movimientos, con el mismo criterio del Balance de Comprobación.
+    /// </summary>
+    public decimal SaldoInicial { get; set; }
 }
 
 /// <summary>

@@ -206,11 +206,36 @@ public class AsientoAperturaTests
             caja.Id, new DateTime(2025, 1, 1), new DateTime(2025, 1, 31, 23, 59, 59));
 
         Assert.Equal(2, lineas.Count);
+        // Saldo inicial EXPUESTO en cada fila (histórico + apertura del rango):
+        // 103.20 — el mismo criterio del Balance de Comprobación.
+        Assert.All(lineas, l => Assert.Equal(103.20m, l.SaldoInicial));
         // La apertura se MUESTRA (auditable) con el saldo inicial ya aplicado…
         var apertura = lineas.Single(l => l.Concepto.StartsWith("Apertura"));
         Assert.Equal(103.20m, apertura.SaldoAcumulado);
         // …y el movimiento posterior acumula sobre ese inicial.
         var operacion = lineas.Single(l => l.Concepto.StartsWith("Operación"));
         Assert.Equal(143.20m, operacion.SaldoAcumulado);
+    }
+
+    [Fact]
+    public async Task LibroMayor_RangoSiguiente_SaldoInicialProvieneDelHistorico()
+    {
+        await using var context = CrearContexto();
+        var (enero, caja, capital) = await SembrarPeriodoAsync(context, new DateTime(2025, 1, 1), new DateTime(2025, 1, 31));
+        await CrearAsiento(context, enero, caja, capital,
+            new DateTime(2025, 1, 1), 103.20m, "Apertura", "Apertura de la empresa");
+
+        var (febrero, _, _) = await SembrarPeriodoAsync(context, new DateTime(2025, 2, 1), new DateTime(2025, 2, 28));
+        // Movimiento normal de febrero: 40.
+        await CrearAsiento(context, febrero, caja, capital,
+            new DateTime(2025, 2, 10), 40m, "Diario", "Operación de febrero");
+
+        var lineas = await new ReportesContablesService(context).GetLibroMayorAsync(
+            caja.Id, new DateTime(2025, 2, 1), new DateTime(2025, 2, 28, 23, 59, 59));
+
+        var movimiento = Assert.Single(lineas);
+        // Saldo inicial de febrero = apertura de enero arrastrada por histórico.
+        Assert.Equal(103.20m, movimiento.SaldoInicial);
+        Assert.Equal(143.20m, movimiento.SaldoAcumulado);
     }
 }

@@ -3,7 +3,6 @@ import NuevoAsiento from './NuevoAsiento';
 import PlanCuentas from './PlanCuentas';
 import PeriodosContables from './PeriodosContables';
 import ReportesContables from './ReportesContables';
-import LibroMayor from './LibroMayor';
 import { ConfigContext } from '../../Context/ConfigContext';
 
 export default function ModuloContable() {
@@ -118,9 +117,8 @@ export default function ModuloContable() {
         <button onClick={() => setSubVista('asientos')} style={estiloPestana(subVista === 'asientos')}>
           ✍️ Registrar Asiento
         </button>
-        <button onClick={() => setSubVista('libro')} style={estiloPestana(subVista === 'libro')}>
-          📖 Libro Mayor
-        </button>
+        {/* El Libro Mayor se mudó a «📊 Reportes NIIF» (opción 📖 Libro Mayor)
+            para compartir la botonera de descargas PDF/Excel del generador. */}
         <button onClick={() => setSubVista('plan')} style={estiloPestana(subVista === 'plan')}>
           📄 Plan de Cuentas
         </button>
@@ -136,9 +134,6 @@ export default function ModuloContable() {
       <div style={{ background: '#0f172a', borderRadius: '12px', border: '1px solid #1e293b', minHeight: '450px' }}>
         {subVista === 'asientos' && (
           <NuevoAsiento empresaActiva={empresaActiva} periodoActivo={periodoActivo} />
-        )}
-        {subVista === 'libro' && (
-          <LibroMayor empresaActiva={empresaActiva} periodoActivo={periodoActivo} />
         )}
         {subVista === 'plan' && <PlanCuentas />}
         {subVista === 'periodos' && <PeriodosContables />}
