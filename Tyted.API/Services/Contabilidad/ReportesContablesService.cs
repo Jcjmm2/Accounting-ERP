@@ -46,7 +46,11 @@ public class ReportesContablesService
     /// - Solo la empresa a la que pertenece el periodo seleccionado.
     /// - El corte de fechas usa el rango del periodo (FechaInicio .. FechaFin), por lo que
     ///   un periodo anual (padre) también consolidan los asientos de sus subperiodos.
-    /// - Saldo inicial = movimientos anteriores al inicio del periodo.
+    /// - Saldo inicial = movimientos anteriores al inicio del periodo MÁS la
+    ///   APERTURA MANUAL del periodo (TipoComprobante "Apertura" con concepto
+    ///   libre): el asiento de apertura fija los saldos iniciales y NO cuenta
+    ///   como movimiento del mes. Los traspasos automáticos "APERTURA DE
+    ///   BALANCE" siguen excluidos de ambas sumas (el saldo llega por histórico).
     /// - Saldo final se expresa con el signo natural de la cuenta (D:Debe-Haber, C:Haber-Debe).
     /// </summary>
     public async Task<List<BalanceComprobacionDto>> GetBalanceComprobacionAsync(int periodoId, int? empresaId = null)
@@ -83,6 +87,26 @@ public class ReportesContablesService
             .Where(d => d.AsientoContable!.EmpresaId == empresaDelPeriodo
                         && d.AsientoContable.FechaComprobante >= fechaInicio
                         && d.AsientoContable.FechaComprobante < fechaFinExclusiva
+                        && !d.AsientoContable.Concepto.StartsWith(AsientoContableService.PrefijoAperturaBalance)
+                        // La APERTURA MANUAL (tipo "Apertura", concepto libre) NO es
+                        // movimiento del mes: se presenta en «Saldo Inicial» (debajo).
+                        && !(d.AsientoContable.TipoComprobante == "Apertura"
+                             && !d.AsientoContable.Concepto.StartsWith(AsientoContableService.PrefijoAperturaBalance)))
+            .GroupBy(d => d.CuentaContableId)
+            .Select(g => new { CuentaId = g.Key, Debe = g.Sum(x => x.Debe), Haber = g.Sum(x => x.Haber) })
+            .ToListAsync();
+
+        // APERTURA MANUAL del periodo: es la que FIJA LOS SALDOS INICIALES de
+        // las cuentas (apertura del primer periodo o de un ejercicio importado)
+        // y por eso suma aquí y NO en el movimiento. Los traspasos automáticos
+        // "APERTURA DE BALANCE" siguen excluidos: su saldo llega por histórico
+        // y sumarlo aquí lo duplicaría.
+        var aperturasManuales = await _context.AsientosDetalles
+            .AsNoTracking()
+            .Where(d => d.AsientoContable!.EmpresaId == empresaDelPeriodo
+                        && d.AsientoContable.FechaComprobante >= fechaInicio
+                        && d.AsientoContable.FechaComprobante < fechaFinExclusiva
+                        && d.AsientoContable.TipoComprobante == "Apertura"
                         && !d.AsientoContable.Concepto.StartsWith(AsientoContableService.PrefijoAperturaBalance))
             .GroupBy(d => d.CuentaContableId)
             .Select(g => new { CuentaId = g.Key, Debe = g.Sum(x => x.Debe), Haber = g.Sum(x => x.Haber) })
@@ -95,6 +119,7 @@ public class ReportesContablesService
 
         var anterioresPorCuenta = movimientosAnteriores.ToDictionary(x => x.CuentaId, x => x);
         var periodoPorCuenta = movimientosPeriodo.ToDictionary(x => x.CuentaId, x => x);
+        var aperturaPorCuenta = aperturasManuales.ToDictionary(x => x.CuentaId, x => x);
 
         var resultado = new List<BalanceComprobacionDto>();
 
@@ -102,6 +127,7 @@ public class ReportesContablesService
         {
             anterioresPorCuenta.TryGetValue(cuenta.Id, out var anterior);
             periodoPorCuenta.TryGetValue(cuenta.Id, out var movimiento);
+            aperturaPorCuenta.TryGetValue(cuenta.Id, out var apertura);
 
             var debeAnterior = anterior?.Debe ?? 0m;
             var haberAnterior = anterior?.Haber ?? 0m;
@@ -109,7 +135,11 @@ public class ReportesContablesService
             var haberPeriodo = movimiento?.Haber ?? 0m;
 
             var esDeudora = string.Equals(cuenta.Naturaleza, "D", StringComparison.OrdinalIgnoreCase);
-            var saldoInicial = esDeudora ? debeAnterior - haberAnterior : haberAnterior - debeAnterior;
+            // Saldo inicial = histórico anterior al periodo + APERTURA MANUAL
+            // del periodo (expresado con el signo natural de la cuenta).
+            var saldoInicial = esDeudora
+                ? debeAnterior - haberAnterior + ((apertura?.Debe ?? 0m) - (apertura?.Haber ?? 0m))
+                : haberAnterior - debeAnterior + ((apertura?.Haber ?? 0m) - (apertura?.Debe ?? 0m));
             var saldoFinal = esDeudora
                 ? saldoInicial + debePeriodo - haberPeriodo
                 : saldoInicial + haberPeriodo - debePeriodo;
@@ -312,15 +342,31 @@ public class ReportesContablesService
 
         // Saldo inicial: movimientos de la cuenta anteriores al inicio del
         // rango consultado (0 cuando no se indica fecha de inicio). Se excluyen
-        // los traspasos de apertura de balance (no alteran el saldo real).
+        // los traspasos de apertura de balance (no alteran el saldo real) y se
+        // SUMA la APERTURA MANUAL del rango (TipoComprobante "Apertura" con
+        // concepto libre): el asiento de apertura fija el saldo inicial y no es
+        // movimiento del periodo (se muestra más abajo pero no acumula).
         var saldoAcumulado = 0m;
+        var idsAperturasManuales = new HashSet<int>();
         if (fechaInicio.HasValue)
         {
             var sumaAnteriores = await query
                 .Where(d => d.AsientoContable!.FechaComprobante < fechaInicio.Value
                             && !d.AsientoContable.Concepto.StartsWith(AsientoContableService.PrefijoAperturaBalance))
                 .SumAsync(d => (decimal?)(d.Debe - d.Haber)) ?? 0m;
-            saldoAcumulado = sumaAnteriores * factor;
+
+            var aperturasDelRango = await query
+                .Where(d => d.AsientoContable!.FechaComprobante >= fechaInicio.Value
+                            && (fechaFin == null || d.AsientoContable.FechaComprobante <= fechaFin.Value)
+                            && d.AsientoContable.TipoComprobante == "Apertura"
+                            && !d.AsientoContable.Concepto.StartsWith(AsientoContableService.PrefijoAperturaBalance))
+                .ToListAsync();
+
+            foreach (var apertura in aperturasDelRango)
+                idsAperturasManuales.Add(apertura.AsientoContableId);
+
+            var sumaAperturas = aperturasDelRango.Sum(d => d.Debe - d.Haber);
+            saldoAcumulado = (sumaAnteriores + sumaAperturas) * factor;
         }
 
         if (fechaInicio.HasValue)
@@ -348,11 +394,12 @@ public class ReportesContablesService
 
         // Saldo acumulado corrido: saldo inicial del rango más cada movimiento
         // en orden cronológico (fecha de comprobante y luego Id). El traspaso de
-        // apertura de balance se MUESTRA (es auditable) pero no acumula: el
-        // saldo que traslada ya está incluido en el saldo inicial/histórico.
+        // apertura de balance y la APERTURA MANUAL del rango se MUESTRAN (son
+        // auditables) pero no acumulan: su efecto ya está en el saldo inicial.
         foreach (var movimiento in movimientos)
         {
-            if (!AsientoContableService.EsTraspasoApertura(movimiento.Concepto))
+            if (!AsientoContableService.EsTraspasoApertura(movimiento.Concepto)
+                && !idsAperturasManuales.Contains(movimiento.AsientoId))
                 saldoAcumulado += factor * (movimiento.Debe - movimiento.Haber);
             movimiento.SaldoAcumulado = saldoAcumulado;
         }

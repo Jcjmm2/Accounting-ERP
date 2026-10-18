@@ -69,6 +69,11 @@ public class AsientoContableService
         if (asiento.FechaComprobante.Date < periodo.FechaInicio.Date || asiento.FechaComprobante.Date > periodo.FechaFin.Date)
             throw new InvalidOperationException("La fecha del asiento debe estar dentro del periodo contable.");
 
+        // APERTURA: sólo UN asiento manual de apertura por periodo (fija los
+        // saldos iniciales del Balance de Comprobación; dos los duplicarían).
+        if (EsAperturaManual(asiento.TipoComprobante, asiento.Concepto))
+            await ValidarUnicaAperturaManualAsync(asiento.EmpresaId, asiento.PeriodoContableId);
+
         // 2. Calcular y validar totales de partida doble
         var totalDebe = asiento.Detalles.Sum(d => d.Debe);
         var totalHaber = asiento.Detalles.Sum(d => d.Haber);
@@ -148,6 +153,11 @@ public class AsientoContableService
         if (asientoActualizado.FechaComprobante.Date < periodo.FechaInicio.Date || asientoActualizado.FechaComprobante.Date > periodo.FechaFin.Date)
             throw new InvalidOperationException("La fecha modificada del asiento debe estar dentro del periodo contable.");
 
+        // APERTURA: al convertir/conservar el tipo "Apertura" no puede existir
+        // OTRA apertura manual en el periodo (excluye el propio asiento).
+        if (EsAperturaManual(asientoActualizado.TipoComprobante, asientoActualizado.Concepto))
+            await ValidarUnicaAperturaManualAsync(asientoExistente.EmpresaId, asientoActualizado.PeriodoContableId, excluirAsientoId: id);
+
         var totalDebe = asientoActualizado.Detalles.Sum(d => d.Debe);
         var totalHaber = asientoActualizado.Detalles.Sum(d => d.Haber);
 
@@ -226,6 +236,41 @@ public class AsientoContableService
     /// </summary>
     public static bool EsTraspasoApertura(string? concepto) =>
         (concepto ?? string.Empty).StartsWith(PrefijoAperturaBalance, StringComparison.Ordinal);
+
+    /// <summary>
+    /// TRUE cuando el asiento es una APERTURA MANUAL de periodo (TipoComprobante
+    /// "Apertura" con concepto libre, distinto del traspaso automático
+    /// "APERTURA DE BALANCE"). Es el asiento que FIJA LOS SALDOS INICIALES del
+    /// periodo: los reportes lo presentan en «Saldo Inicial» y NO como
+    /// movimiento del mes. Sólo puede existir UNO por periodo (validado en
+    /// Crear/ActualizarAsientoAsync).
+    /// </summary>
+    public static bool EsAperturaManual(string? tipoComprobante, string? concepto) =>
+        string.Equals(tipoComprobante, "Apertura", StringComparison.OrdinalIgnoreCase)
+        && !EsTraspasoApertura(concepto);
+
+    /// <summary>
+    /// Valida que el periodo no tenga ya OTRA apertura manual (la apertura fija
+    /// los saldos iniciales: dos aperturas duplicarían el saldo de cada cuenta).
+    /// Los traspasos automáticos "APERTURA DE BALANCE" no cuentan (su saldo
+    /// llega por histórico y no afecta esta regla).
+    /// </summary>
+    private async Task ValidarUnicaAperturaManualAsync(int empresaId, int periodoContableId, int? excluirAsientoId = null)
+    {
+        var yaExiste = await _context.AsientosContables
+            .AsNoTracking()
+            .AnyAsync(a => a.EmpresaId == empresaId
+                && a.PeriodoContableId == periodoContableId
+                && a.TipoComprobante == "Apertura"
+                && !a.Concepto.StartsWith(PrefijoAperturaBalance)
+                && (excluirAsientoId == null || a.Id != excluirAsientoId.Value));
+
+        if (yaExiste)
+            throw new InvalidOperationException(
+                "El periodo ya tiene un asiento de APERTURA manual: sólo puede haber UNO por periodo " +
+                "(es el que fija los saldos iniciales del Balance de Comprobación). " +
+                "Si necesita corregirlo, edite el asiento de apertura existente.");
+    }
 
     /// <summary>
     /// Genera el asiento de cierre que traslada el resultado del periodo

@@ -101,6 +101,28 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
   // --- MANEJO DE LÍNEAS DEL ASIENTO ---
   const agregarLinea = () => setLineas([...lineas, { cuentaId: '', codigoManual: '', debe: '', haber: '' }]);
 
+  // Cambio del TIPO de comprobante con fecha coherente a la naturaleza del
+  // asiento:
+  // - APERTURA: se registra el PRIMER día del periodo (fija los SALDOS
+  //   INICIALES del Balance de Comprobación; NO es movimiento del mes).
+  // - CIERRE: se registra el ÚLTIMO día del periodo (traspaso de resultados:
+  //   sí es un movimiento del periodo).
+  // - Diario/Ajuste: mantiene la fecha sincronizada con el periodo (hoy si cae
+  //   dentro, si no el primer día).
+  const cambiarTipoComprobante = (valor) => {
+    setTipoComprobante(valor);
+    const inicio = periodoActivo?.fechaInicio ? periodoActivo.fechaInicio.split('T')[0] : '';
+    const fin = periodoActivo?.fechaFin ? periodoActivo.fechaFin.split('T')[0] : inicio;
+    if (valor === 'Apertura' && inicio) {
+      setFecha(inicio);
+    } else if (valor === 'Cierre' && fin) {
+      setFecha(fin);
+    } else if (inicio && fin) {
+      const hoy = new Date().toISOString().split('T')[0];
+      setFecha(hoy >= inicio && hoy <= fin ? hoy : inicio);
+    }
+  };
+
   const eliminarLinea = (index) => {
     if (lineas.length > 2) setLineas(lineas.filter((_, i) => i !== index));
   };
@@ -363,7 +385,7 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
               </div>
               <div>
                 <label style={labelStyle}>Tipo de Asiento</label>
-                <select value={tipoComprobante} onChange={e => setTipoComprobante(e.target.value)} style={inputStyle}>
+                <select value={tipoComprobante} onChange={e => cambiarTipoComprobante(e.target.value)} style={inputStyle}>
                   <option value="Diario">Diario (Registro Normal)</option>
                   <option value="Apertura">Apertura de Ejercicio</option>
                   <option value="Cierre">Cierre de Ejercicio</option>
@@ -390,6 +412,30 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
                 )}
               </div>
             </div>
+
+            {/* Aviso de la naturaleza del tipo de comprobante seleccionado */}
+            {tipoComprobante === 'Apertura' && (
+              <div style={{
+                background: '#052e16', border: '1px solid #16a34a', color: '#86efac',
+                padding: '10px 14px', borderRadius: '8px', marginBottom: '16px', fontSize: '0.85rem'
+              }}>
+                🔑 <b>Asiento de APERTURA:</b> fija los <b>SALDOS INICIALES</b> del periodo «{periodoActivo?.nombre || '—'}»
+                en el Balance de Comprobación — <b>NO</b> se cuenta como movimiento del mes (se registra en el primer
+                día del periodo, {fecha && periodoActivo?.fechaInicio ? periodoActivo.fechaInicio.split('T')[0] : fecha}).
+                Sólo puede haber <b>UN</b> asiento de apertura por periodo.
+              </div>
+            )}
+            {tipoComprobante === 'Cierre' && (
+              <div style={{
+                background: '#450a0a', border: '1px solid #dc2626', color: '#fecaca',
+                padding: '10px 14px', borderRadius: '8px', marginBottom: '16px', fontSize: '0.85rem'
+              }}>
+                🔒 <b>Asiento de CIERRE:</b> traspasa los resultados del periodo a patrimonio en su <b>ÚLTIMO día</b>
+                ({fecha && periodoActivo?.fechaFin ? periodoActivo.fechaFin.split('T')[0] : fecha}). A diferencia de la
+                apertura, el cierre <b>SÍ es un movimiento</b> del periodo. El sistema lo genera automáticamente al
+                cerrar el periodo (Contabilidad → Periodos); este asiento manual queda para cierres sin asistente.
+              </div>
+            )}
 
             <div style={{ background: '#0f172a', borderRadius: '10px', border: '1px solid #334155', overflow: 'hidden' }}>
               <table style={{ width: '100%', borderCollapse: 'collapse' }}>
