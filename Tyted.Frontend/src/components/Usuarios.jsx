@@ -5,6 +5,9 @@ const Usuarios = () => {
     const { API_URL } = useContext(ConfigContext);
     const [usuarios, setUsuarios] = useState([]);
     const [empresas, setEmpresas] = useState([]);
+    // Id de la EMPRESA MODELO (ajuste global EmpresaModeloId): se preselecciona
+    // en el formulario de nuevos usuarios como permitida y predeterminada.
+    const [empresaModeloId, setEmpresaModeloId] = useState(null);
     const [loading, setLoading] = useState(true);
     const [showModal, setShowModal] = useState(false);
 
@@ -32,6 +35,25 @@ const Usuarios = () => {
     useEffect(() => {
         cargarUsuarios();
         cargarEmpresas();
+    }, []);
+
+    // Carga el ajuste global EmpresaModeloId (empresa plantilla del sistema)
+    useEffect(() => {
+        const cargarEmpresaModelo = async () => {
+            try {
+                const res = await fetch(`${API_URL}/Empresa/ajustes`, { headers: getAuthHeaders() });
+                if (res.ok) {
+                    const lista = await res.json();
+                    const ajuste = (Array.isArray(lista) ? lista : []).find(a => a.clave === 'EmpresaModeloId');
+                    const id = Number(ajuste?.valor);
+                    if (Number.isFinite(id) && id > 0) setEmpresaModeloId(id);
+                }
+            } catch (error) {
+                console.error('Error cargando la empresa modelo:', error);
+            }
+        };
+        cargarEmpresaModelo();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const cargarEmpresas = async () => {
@@ -141,10 +163,25 @@ const Usuarios = () => {
         }
     };
 
+    // Empresa modelo resuelta para preselección: ajuste EmpresaModeloId →
+    // empresa con el RIF de la plantilla → primera de la lista.
+    const resolverEmpresaModelo = () => {
+        if (empresaModeloId && empresas.some(e => Number(e.id) === Number(empresaModeloId))) {
+            return Number(empresaModeloId);
+        }
+        const tyted = empresas.find(e => (e.rif || '').trim() === 'J-12345678-9');
+        if (tyted) return Number(tyted.id);
+        return empresas.length > 0 ? Number(empresas[0].id) : null;
+    };
+
     const resetForm = () => {
+        // PRESELECCIÓN DE LA EMPRESA MODELO: el usuario nuevo nace con la
+        // empresa plantilla marcada y como predeterminada (editable antes de guardar).
+        const modelo = resolverEmpresaModelo();
         setFormData({
             username: '', password: '', rol: 'Cajero', nombreCompleto: '', activo: true,
-            empresasPermitidas: [], empresaPredeterminadaId: ''
+            empresasPermitidas: modelo !== null ? [modelo] : [],
+            empresaPredeterminadaId: modelo !== null ? modelo : ''
         });
         setIsEditing(false);
         setCurrentId(null);
@@ -259,6 +296,9 @@ const Usuarios = () => {
                                                 onChange={() => handleCheckboxEmpresa(emp.id)}
                                             />
                                             {emp.razonSocial || emp.nombre}
+                                            {Number(emp.id) === Number(empresaModeloId) ? (
+                                                <small style={{ color: '#b45309', fontWeight: 'bold', fontSize: '0.7rem' }}>(modelo)</small>
+                                            ) : null}
                                         </label>
                                     ))}
                                 </div>

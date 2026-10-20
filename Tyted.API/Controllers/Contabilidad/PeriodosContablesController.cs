@@ -97,6 +97,29 @@ public class PeriodosContablesController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// REAPERTURA PARA CORRECCIÓN (recalcular cierre): reabre un periodo
+    /// CERRADO eliminando antes el asiento «APERTURA DE BALANCE» que su cierre
+    /// generó en el periodo siguiente (sólo si ese periodo y los posteriores
+    /// no tienen actividad propia). Tras corregir los asientos, el usuario
+    /// vuelve a ejecutar «Cerrar y Trasladar», que regenera el cierre y
+    /// reemplaza el nuevo saldo inicial sin duplicarlo.
+    /// </summary>
+    [HttpPost("periodos/{periodoId}/reabrir-para-correccion")]
+    public async Task<ActionResult<ReabrirParaCorreccionResponse>> ReabrirParaCorreccion(int periodoId, [FromBody] PeriodoCierreRequest? request)
+    {
+        try
+        {
+            var usuario = request?.Usuario ?? "Sistema";
+            var respuesta = await _service.ReabrirParaCorreccionAsync(periodoId, usuario);
+            return Ok(respuesta);
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
     [HttpGet("periodos/{periodoId}/tiene-movimientos")]
     public async Task<ActionResult<object>> TieneMovimientos(int periodoId)
     {

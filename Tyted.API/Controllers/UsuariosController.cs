@@ -72,12 +72,23 @@ namespace Tyted.API.Controllers
             if (await _context.Usuarios.AnyAsync(u => u.Username == dto.Username))
                 return BadRequest("El nombre de usuario ya existe.");
 
-            // MULTI-EMPRESA: validar asignaciones. Requiere al menos una empresa
-            // y que la predeterminada esté dentro de las permitidas.
+            // MULTI-EMPRESA: validar asignaciones. Si el cliente NO envía empresas
+            // (registro por API o primer usuario bootstrap), se asigna por defecto
+            // la EMPRESA MODELO (ajuste EmpresaModeloId → fallback: primera empresa).
             var empresas = (dto.EmpresasPermitidas ?? new List<int>()).Distinct().ToList();
             if (empresas.Count == 0)
+            {
+                var empresaModeloId = await ResolverEmpresaModeloIdAsync();
+                if (empresaModeloId.HasValue)
+                    empresas.Add(empresaModeloId.Value);
+            }
+            if (empresas.Count == 0)
                 return BadRequest("Debe asignar al menos una empresa al usuario.");
-            if (!dto.EmpresaPredeterminadaId.HasValue || !empresas.Contains(dto.EmpresaPredeterminadaId.Value))
+            // Sin predeterminada explícita se usa la primera asignada (la modelo
+            // cuando vino vacío); si viene inválida, se rechaza sin silenciar.
+            if (!dto.EmpresaPredeterminadaId.HasValue)
+                dto.EmpresaPredeterminadaId = empresas[0];
+            else if (!empresas.Contains(dto.EmpresaPredeterminadaId.Value))
                 return BadRequest("La empresa predeterminada debe estar entre las empresas asignadas.");
 
             // ANTI-ESCALACIÓN: un Administrador (no Sistema) no puede crear usuarios
@@ -193,6 +204,24 @@ namespace Tyted.API.Controllers
                 usuario = usuario.Username, 
                 rol = usuario.Rol 
             });
+        }
+
+        /// <summary>
+        /// Empresa modelo (plantilla) del sistema: la que indica el ajuste global
+        /// EmpresaModeloId; si no existe o apunta a una empresa borrada, la
+        /// primera de la BD. Null sólo si la BD no tiene empresas.
+        /// </summary>
+        private async Task<int?> ResolverEmpresaModeloIdAsync()
+        {
+            var ajuste = await _context.EmpresaConfigs
+                .AsNoTracking()
+                .FirstOrDefaultAsync(c => c.Clave == "EmpresaModeloId");
+
+            if (ajuste != null && int.TryParse(ajuste.Valor, out var id) && id > 0
+                && await _context.Empresa.AnyAsync(e => e.Id == id))
+                return id;
+
+            return await _context.Empresa.OrderBy(e => e.Id).Select(e => (int?)e.Id).FirstOrDefaultAsync();
         }
 
         private string GenerarJwtToken(Usuario usuario)

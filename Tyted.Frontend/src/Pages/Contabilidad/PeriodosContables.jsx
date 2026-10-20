@@ -47,6 +47,17 @@ export default function PeriodosContables() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [empresaActiva]);
 
+  // Preselección del AÑO por defecto: el siguiente al último ejercicio
+  // existente de la empresa (más correcto que el año calendario actual al
+  // cerrar ejercicios históricos). No pisa un año ya elegido manualmente
+  // (sólo lo ajusta si quedó "vencido", es decir, <= al último existente).
+  useEffect(() => {
+    if (periodosAnuales.length === 0) return;
+    const maxAnio = Math.max(...periodosAnuales.map(p => Number(p.anio) || 0));
+    if (maxAnio > 0 && Number(anioNuevo) <= maxAnio) setAnioNuevo(maxAnio + 1);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [periodosAnuales]);
+
   // --- PERIODO DE APERTURA DE LA EMPRESA ---
   // El periodo más antiguo (menor fecha de inicio) ES la apertura: no se
   // pueden crear ejercicios anteriores a él. El backend también lo valida
@@ -140,6 +151,48 @@ export default function PeriodosContables() {
     }
   };
 
+  // RECALCULAR CIERRE: reabre un periodo CERRADO para corrección. El backend
+  // elimina el asiento «APERTURA DE BALANCE» que el cierre generó en el
+  // periodo siguiente (sólo si ese periodo y los posteriores no tienen
+  // actividad propia) y reabre el periodo y sus subperiodos en cascada. Tras
+  // corregir, «Cerrar y Trasladar» regenera el cierre y el nuevo saldo inicial.
+  const recalcularCierre = async (periodo) => {
+    const nombrePeriodo = periodo?.nombre || `ID ${periodo?.id}`;
+    const confirmado = window.confirm(
+      `Se reabrirá el periodo «${nombrePeriodo}» para corrección (recalcular cierre).\n\n` +
+      '1) Se eliminará el asiento «APERTURA DE BALANCE» que su cierre generó en el periodo siguiente ' +
+      '(sólo si ese periodo y los posteriores no tienen actividad propia).\n' +
+      '2) El periodo y sus subperiodos quedarán ABIERTOS para corregir los asientos.\n' +
+      '3) Después pulse «🔒 Cerrar y Trasladar»: regenerará el Cierre de Resultados si hace falta y ' +
+      'reemplazará el saldo inicial del periodo siguiente (sin duplicarlo).\n\n¿Continuar?'
+    );
+    if (!confirmado) return;
+
+    setGenerandoCierreId(periodo.id);
+    try {
+      const r = await contabilidadApi.reabrirParaCorreccion(
+        periodo.id,
+        user?.username || user?.nombre || 'Sistema'
+      );
+      alert(
+        `✅ Periodo «${nombrePeriodo}» reabierto para corrección.\n\n` +
+        (r.trasladoEliminado
+          ? `Traslado eliminado del periodo «${r.periodoDestinoNombre}»: comprobante ${r.numeroComprobanteTraslado}\n`
+          : 'No había traslado de apertura que eliminar.\n') +
+        (r.subperiodosReabiertos > 0 ? `Subperiodos reabiertos: ${r.subperiodosReabiertos}\n` : '') +
+        '\nCorrija los asientos necesarios y luego pulse «🔒 Cerrar y Trasladar».'
+      );
+
+      await cargarPeriodos();
+      if (refrescarContextoContable) await refrescarContextoContable();
+    } catch (error) {
+      console.error('Error reabriendo el periodo para corrección:', error);
+      alert(`❌ No se pudo reabrir el periodo:\n${mensajeErrorApi(error)}`);
+    } finally {
+      setGenerandoCierreId(null);
+    }
+  };
+
   // Regenera los comprobantes AUTOMÁTICOS (ventas/compras/gastos) del periodo
   // en BOLÍVARES (moneda legal del libro contable): reemplaza los comprobantes
   // generados en otra moneda usando los montos congelados (*MonedaExt) de cada
@@ -206,6 +259,35 @@ export default function PeriodosContables() {
     return r;
   };
 
+  // Crea AUTOMÁTICAMENTE el ejercicio siguiente (año + 1 del periodo) cuando
+  // el backend rechaza el cierre porque aún no existe un periodo posterior que
+  // reciba el traslado de saldos (asiento «APERTURA DE BALANCE»). Devuelve
+  // true si el usuario confirmó y el ejercicio se creó; false si canceló.
+  const asegurarPeriodoSiguiente = async (periodo, nombrePeriodo) => {
+    const anioPeriodo = Number(periodo?.anio);
+    const anioSiguiente = Number.isFinite(anioPeriodo) && anioPeriodo > 0
+      ? anioPeriodo + 1
+      : periodosAnuales.length > 0
+        ? Math.max(...periodosAnuales.map(p => Number(p.anio) || 0)) + 1
+        : new Date().getFullYear() + 1;
+
+    const confirmado = window.confirm(
+      `⏳ «${nombrePeriodo}» no tiene un periodo posterior que reciba sus saldos.\n\n` +
+      `Para cerrar y trasladar debe existir el «Ejercicio Fiscal ${anioSiguiente}» ` +
+      '(recibirá el asiento «APERTURA DE BALANCE» con activo, pasivo y patrimonio).\n\n' +
+      `¿Crear el Ejercicio Fiscal ${anioSiguiente} automáticamente y continuar con «🔒 Cerrar y Trasladar»?`
+    );
+    if (!confirmado) return false;
+
+    await contabilidadApi.crearPeriodo({
+      empresaId: empresaActiva?.id,
+      anio: anioSiguiente,
+      tipoPeriodo: 'Anual'
+    });
+    if (refrescarContextoContable) await refrescarContextoContable();
+    return true;
+  };
+
   // FLUJO DE CIERRE RECOMENDADO: 📉 Cierre de Resultados → 🔒 Cerrar y Trasladar.
   // Si el usuario llega al paso 2 sin el Cierre de Resultados, el backend lo
   // rechaza y aquí se ofrece GENERARLO AUTOMÁTICAMENTE y reintentar el
@@ -248,8 +330,37 @@ export default function PeriodosContables() {
           // Paso 2: reintentar el cierre con traslado
           await ejecutarCierrePeriodo(periodo, nombrePeriodo);
         } catch (error2) {
+          const mensaje2 = mensajeErrorApi(error2);
+          // Tras generar el cierre seguía faltando el periodo destino → se
+          // ofrece crear el ejercicio siguiente y reintentar (flujo completo).
+          if (mensaje2.includes('No existe un periodo contable posterior')) {
+            try {
+              if (await asegurarPeriodoSiguiente(periodo, nombrePeriodo)) {
+                await ejecutarCierrePeriodo(periodo, nombrePeriodo);
+              }
+            } catch (error3) {
+              console.error('Error completando el flujo de cierre:', error3);
+              alert(`❌ No se pudo completar el flujo de cierre:\n${mensajeErrorApi(error3)}`);
+            }
+            return;
+          }
           console.error('Error completando el flujo de cierre:', error2);
-          alert(`❌ No se pudo completar el flujo de cierre:\n${mensajeErrorApi(error2)}`);
+          alert(`❌ No se pudo completar el flujo de cierre:\n${mensaje2}`);
+        }
+        return;
+      }
+
+      // SIN PERIODO POSTERIOR: se ofrece crear el ejercicio siguiente (año + 1)
+      // automáticamente y reintentar el cierre+trasladar en un solo paso, sin
+      // salir del contexto del periodo (así no hay que subir al formulario).
+      if (mensaje.includes('No existe un periodo contable posterior')) {
+        try {
+          if (await asegurarPeriodoSiguiente(periodo, nombrePeriodo)) {
+            await ejecutarCierrePeriodo(periodo, nombrePeriodo);
+          }
+        } catch (error2) {
+          console.error('Error creando el periodo siguiente y cerrando:', error2);
+          alert(`❌ No se pudo crear el periodo siguiente y cerrar:\n${mensajeErrorApi(error2)}`);
         }
         return;
       }
@@ -424,6 +535,23 @@ export default function PeriodosContables() {
                     >
                       {generandoCierreId === padre.id ? '⏳ Generando...' : '📉 Cierre de Resultados'}
                     </button>
+                    <button
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); recalcularCierre(padre); }}
+                      disabled={padre.estado !== 'Cerrado' || generandoCierreId !== null}
+                      title={padre.estado === 'Cerrado'
+                        ? 'Recalcular el cierre: reabrir este periodo para corrección (elimina el asiento «APERTURA DE BALANCE» del periodo siguiente si éste no tiene actividad propia). Tras corregir, vuelva a «Cerrar y Trasladar»'
+                        : 'Sólo los periodos CERRADOS se pueden recalcular'}
+                      style={{
+                        background: padre.estado === 'Cerrado' ? '#b45309' : '#334155',
+                        color: '#fff', border: 'none', borderRadius: '6px', padding: '6px 12px',
+                        fontSize: '0.75rem', fontWeight: 'bold',
+                        cursor: padre.estado === 'Cerrado' && generandoCierreId === null ? 'pointer' : 'not-allowed',
+                        opacity: padre.estado === 'Cerrado' && generandoCierreId === null ? 1 : 0.5
+                      }}
+                    >
+                      {generandoCierreId === padre.id ? '⏳ Recalculando...' : '🔄 Recalcular'}
+                    </button>
                     <span style={{ padding: '6px 14px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 'bold', background: padre.estado === 'Abierto' ? '#064e3b' : '#7f1d1d', color: padre.estado === 'Abierto' ? '#34d399' : '#fca5a5' }}>
                       {padre.estado}
                     </span>
@@ -495,6 +623,23 @@ export default function PeriodosContables() {
                               }}
                             >
                               {regenerandoBs ? '⏳ Bs…' : '💱 Bs.'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => recalcularCierre(sub)}
+                              disabled={sub.estado !== 'Cerrado' || generandoCierreId !== null}
+                              title={sub.estado === 'Cerrado'
+                                ? 'Recalcular el cierre: reabrir este periodo para corrección (elimina el asiento «APERTURA DE BALANCE» del periodo siguiente si éste no tiene actividad propia)'
+                                : 'Sólo los periodos CERRADOS se pueden recalcular'}
+                              style={{
+                                background: sub.estado === 'Cerrado' ? '#b45309' : '#334155',
+                                color: '#fff', border: 'none', borderRadius: '6px', padding: '4px 10px',
+                                fontSize: '0.7rem', fontWeight: 'bold',
+                                cursor: sub.estado === 'Cerrado' && generandoCierreId === null ? 'pointer' : 'not-allowed',
+                                opacity: sub.estado === 'Cerrado' && generandoCierreId === null ? 1 : 0.5
+                              }}
+                            >
+                              {generandoCierreId === sub.id ? '⏳' : '🔄'}
                             </button>
                             <button
                               type="button"

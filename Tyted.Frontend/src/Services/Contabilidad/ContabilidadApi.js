@@ -209,6 +209,16 @@ export const contabilidadApi = {
     return response.data;
   },
 
+  // RECALCULAR CIERRE: reabre un periodo CERRADO para corrección eliminando
+  // antes el asiento «APERTURA DE BALANCE» que su cierre generó en el periodo
+  // siguiente (validando que ese periodo y los posteriores no tengan actividad
+  // propia). Tras corregir, vuelva a ejecutar «Cerrar y Trasladar»: regenera
+  // el Cierre de Resultados si hace falta y reemplaza el nuevo saldo inicial.
+  reabrirParaCorreccion: async (periodoId, usuario = 'Sistema') => {
+    const response = await api.post(`/periodos/${periodoId}/reabrir-para-correccion`, { usuario });
+    return response.data;
+  },
+
   // Elimina un periodo VACÍO (sin asientos en él ni en sus subperiodos); los
   // ejercicios anuales vacíos se eliminan en cascada con sus meses. Permite
   // corregir en la aplicación periodos antiguos erróneos (p. ej. un mal

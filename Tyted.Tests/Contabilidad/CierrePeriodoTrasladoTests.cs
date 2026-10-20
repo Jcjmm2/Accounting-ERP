@@ -491,4 +491,229 @@ public class CierrePeriodoTrasladoTests
         Assert.Equal(0, await context.PeriodosContables.CountAsync(p => p.Anio == 2027));
         Assert.Equal("Octubre 2026", r.NuevoPeriodoAperturaNombre);
     }
+
+    // ---------------------------------------------------------------------------
+    // REAPERTURA PARA CORRECCIÓN (recalcular cierre)
+    // ---------------------------------------------------------------------------
+
+    [Fact]
+    public async Task ReabrirParaCorreccion_EliminaTraslado_YPermiteRecerrarConSaldoActualizado()
+    {
+        await using var context = CrearContexto();
+        var e = await SembrarBaseAsync(context);
+        await RegistrarAsync(context, e, new DateTime(2026, 10, 2), e.Caja, 500m, e.Capital, 500m);
+
+        var service = new PeriodoContableService(context, new AsientoContableService(context));
+        var r1 = await service.CerrarPeriodoAsync(e.Octubre.Id);
+        Assert.True(r1.TrasladoGenerado);
+
+        // Reabrir para corrección: elimina el APERTURA DE BALANCE de noviembre
+        var r = await service.ReabrirParaCorreccionAsync(e.Octubre.Id, "tester");
+        Assert.True(r.TrasladoEliminado);
+        Assert.False(await context.AsientosContables.AnyAsync(a =>
+            a.PeriodoContableId == e.Noviembre.Id
+            && a.Concepto.StartsWith(AsientoContableService.PrefijoAperturaBalance)));
+
+        var octubre = await context.PeriodosContables.SingleAsync(p => p.Id == e.Octubre.Id);
+        Assert.False(octubre.Cerrado);
+        Assert.Equal("Abierto", octubre.Estado);
+
+        // Corrección del usuario: nuevo movimiento y recierre
+        await RegistrarAsync(context, e, new DateTime(2026, 10, 5), e.Caja, 50m, e.Capital, 50m);
+        var r2 = await service.CerrarPeriodoAsync(e.Octubre.Id);
+        Assert.True(r2.TrasladoGenerado);
+
+        // El nuevo traslado refleja el saldo ACTUALIZADO (550), sin duplicados
+        var apertura = await context.AsientosContables
+            .Include(a => a.Detalles)
+            .SingleAsync(a => a.PeriodoContableId == e.Noviembre.Id
+                && a.Concepto.StartsWith(AsientoContableService.PrefijoAperturaBalance));
+        Assert.Equal(550m, apertura.Detalles.Single(d => d.CuentaContableId == e.Caja.Id).Debe);
+
+        // Auditoría de la reapertura para corrección
+        Assert.Equal(1, await context.AuditoriasContables.CountAsync(a => a.Accion == "Reapertura para corrección"));
+    }
+
+    [Fact]
+    public async Task ReabrirParaCorreccion_ConActividadPropiaEnDestino_SeRechaza()
+    {
+        await using var context = CrearContexto();
+        var e = await SembrarBaseAsync(context);
+        await RegistrarAsync(context, e, new DateTime(2026, 10, 2), e.Caja, 500m, e.Capital, 500m);
+
+        var service = new PeriodoContableService(context, new AsientoContableService(context));
+        await service.CerrarPeriodoAsync(e.Octubre.Id);
+
+        // Movimiento propio de usuario en noviembre (periodo destino)
+        context.AsientosContables.Add(new AsientoContable
+        {
+            EmpresaId = e.EmpresaId,
+            PeriodoContableId = e.Noviembre.Id,
+            NumeroComprobante = "TEST-NOV",
+            FechaComprobante = new DateTime(2026, 11, 5),
+            Concepto = "Venta propia registrada en noviembre",
+            TipoComprobante = "Diario",
+            Estado = "Aprobado",
+            UsuarioId = 1,
+            Detalles = new List<AsientoDetalle>
+            {
+                new() { CuentaContableId = e.Caja.Id, Debe = 10m, Haber = 0m },
+                new() { CuentaContableId = e.Ventas.Id, Debe = 0m, Haber = 10m }
+            }
+        });
+        await context.SaveChangesAsync();
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.ReabrirParaCorreccionAsync(e.Octubre.Id));
+        Assert.Contains("actividad propia", ex.Message);
+
+        // El periodo y el traslado quedan intactos
+        Assert.True((await context.PeriodosContables.SingleAsync(p => p.Id == e.Octubre.Id)).Cerrado);
+        Assert.True(await context.AsientosContables.AnyAsync(a =>
+            a.PeriodoContableId == e.Noviembre.Id
+            && a.Concepto.StartsWith(AsientoContableService.PrefijoAperturaBalance)));
+    }
+
+    [Fact]
+    public async Task ReabrirParaCorreccion_DestinoCerrado_SeRechaza()
+    {
+        await using var context = CrearContexto();
+        var e = await SembrarBaseAsync(context);
+        await RegistrarAsync(context, e, new DateTime(2026, 10, 2), e.Caja, 500m, e.Capital, 500m);
+
+        var service = new PeriodoContableService(context, new AsientoContableService(context));
+        await service.CerrarPeriodoAsync(e.Octubre.Id);
+        // Noviembre también cerrado (sin trasladar: no hay periodo posterior)
+        await service.CerrarPeriodoAsync(e.Noviembre.Id, "Sistema", false);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.ReabrirParaCorreccionAsync(e.Octubre.Id));
+        Assert.Contains("cerrado", ex.Message);
+    }
+
+    [Fact]
+    public async Task ReabrirParaCorreccion_PeriodoAbierto_SeRechaza()
+    {
+        await using var context = CrearContexto();
+        var e = await SembrarBaseAsync(context);
+
+        var service = new PeriodoContableService(context, new AsientoContableService(context));
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.ReabrirParaCorreccionAsync(e.Octubre.Id));
+        Assert.Contains("no está cerrado", ex.Message);
+    }
+
+    [Fact]
+    public async Task ReabrirParaCorreccion_SinPeriodoPosterior_SeReabreSinTraslado()
+    {
+        await using var context = CrearContexto();
+        var e = await SembrarBaseAsync(context, incluirNoviembre: false);
+        await RegistrarAsync(context, e, new DateTime(2026, 10, 2), e.Caja, 500m, e.Capital, 500m);
+
+        var service = new PeriodoContableService(context, new AsientoContableService(context));
+        // Cierre sin traslado: no existe periodo posterior
+        await service.CerrarPeriodoAsync(e.Octubre.Id, "Sistema", false);
+
+        var r = await service.ReabrirParaCorreccionAsync(e.Octubre.Id, "tester");
+        Assert.False(r.TrasladoEliminado);
+
+        var octubre = await context.PeriodosContables.SingleAsync(p => p.Id == e.Octubre.Id);
+        Assert.False(octubre.Cerrado);
+        Assert.Equal("Abierto", octubre.Estado);
+    }
+
+    [Fact]
+    public async Task ReabrirParaCorreccion_TrasladoQueNoReferenciaElPeriodo_SeRechaza()
+    {
+        await using var context = CrearContexto();
+        var e = await SembrarBaseAsync(context);
+        await RegistrarAsync(context, e, new DateTime(2026, 10, 2), e.Caja, 500m, e.Capital, 500m);
+
+        var service = new PeriodoContableService(context, new AsientoContableService(context));
+        await service.CerrarPeriodoAsync(e.Octubre.Id, "Sistema", false);
+
+        // Traslado «ajeno» en noviembre: referencia a OTRO periodo
+        context.AsientosContables.Add(new AsientoContable
+        {
+            EmpresaId = e.EmpresaId,
+            PeriodoContableId = e.Noviembre.Id,
+            NumeroComprobante = "TEST-AJENO",
+            FechaComprobante = new DateTime(2026, 11, 1),
+            Concepto = $"{AsientoContableService.PrefijoAperturaBalance} Julio 2026: traslado de saldos",
+            TipoComprobante = "Apertura",
+            Estado = "Aprobado",
+            UsuarioId = 1,
+            Detalles = new List<AsientoDetalle>
+            {
+                new() { CuentaContableId = e.Caja.Id, Debe = 1m, Haber = 0m },
+                new() { CuentaContableId = e.Capital.Id, Debe = 0m, Haber = 1m }
+            }
+        });
+        await context.SaveChangesAsync();
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.ReabrirParaCorreccionAsync(e.Octubre.Id));
+        Assert.Contains("no referencia", ex.Message);
+        // El traslado ajeno queda intacto
+        Assert.True(await context.AsientosContables.AnyAsync(a => a.NumeroComprobante == "TEST-AJENO"));
+    }
+
+    [Fact]
+    public async Task ReabrirParaCorreccion_EjercicioAnual_ReabreSubperiodosEnCascada()
+    {
+        await using var context = CrearContexto();
+        var e = await SembrarBaseAsync(context, incluirNoviembre: false); // apertura: Octubre 2026
+
+        var service = new PeriodoContableService(context, new AsientoContableService(context));
+        var anual = await service.CrearEjercicioFiscalCompletoAsync(1, 2027);
+        var enero2028 = await service.CrearPeriodoAsync(new PeriodoContable
+        {
+            EmpresaId = 1,
+            Anio = 2028,
+            Mes = 1,
+            TipoPeriodo = "Mensual",
+            Nombre = "Enero 2028",
+            FechaInicio = new DateTime(2028, 1, 1),
+            FechaFin = new DateTime(2028, 1, 31, 23, 59, 59),
+            Estado = "Abierto"
+        });
+
+        // Cerrar la apertura (Octubre 2026) sin traslado para poder cerrar 2027
+        await service.CerrarPeriodoAsync(e.Octubre.Id, "Sistema", false);
+
+        // Movimiento dentro del ejercicio anual 2027
+        context.AsientosContables.Add(new AsientoContable
+        {
+            EmpresaId = 1,
+            PeriodoContableId = anual.Id,
+            NumeroComprobante = string.Empty,
+            FechaComprobante = new DateTime(2027, 6, 15),
+            Concepto = "Movimiento de prueba 2027",
+            TipoComprobante = "Diario",
+            Estado = "Aprobado",
+            UsuarioId = 1,
+            Detalles = new List<AsientoDetalle>
+            {
+                new() { CuentaContableId = e.Caja.Id, Debe = 300m, Haber = 0m },
+                new() { CuentaContableId = e.Capital.Id, Debe = 0m, Haber = 300m }
+            }
+        });
+        await context.SaveChangesAsync();
+
+        // Cerrar el ejercicio: los 12 subperiodos se cierran en cascada y el
+        // traslado va a Enero 2028 (menor fecha posterior).
+        var r = await service.CerrarPeriodoAsync(anual.Id);
+        Assert.True(r.TrasladoGenerado);
+        Assert.Equal(12, await context.PeriodosContables.CountAsync(p => p.PeriodoPadreId == anual.Id && p.Cerrado));
+
+        // Recalcular: se elimina el traslado de Enero 2028 y se reabren los 12 meses
+        var rr = await service.ReabrirParaCorreccionAsync(anual.Id, "tester");
+        Assert.True(rr.TrasladoEliminado);
+        Assert.Equal(12, rr.SubperiodosReabiertos);
+        Assert.Equal(0, await context.PeriodosContables.CountAsync(p => p.PeriodoPadreId == anual.Id && p.Cerrado));
+        Assert.False((await context.PeriodosContables.SingleAsync(p => p.Id == anual.Id)).Cerrado);
+        Assert.False(await context.AsientosContables.AnyAsync(a =>
+            a.PeriodoContableId == enero2028.Id
+            && a.Concepto.StartsWith(AsientoContableService.PrefijoAperturaBalance)));
+    }
 }

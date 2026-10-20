@@ -553,6 +553,149 @@ public class PeriodoContableService
     }
 
     /// <summary>
+    /// REAPERTURA PARA CORRECCIÓN (recalcular cierre): reabre un periodo
+    /// CERRADO eliminando antes, y sólo si corresponde, el asiento «APERTURA
+    /// DE BALANCE» que su cierre generó en el periodo siguiente, de modo que
+    /// el usuario pueda corregir asientos y volver a ejecutar «Cerrar y
+    /// Trasladar» (que regenera el Cierre de Resultados si hace falta y
+    /// REEMPLAZA el nuevo saldo inicial del destino, sin duplicarlo).
+    /// Reglas de seguridad financiera:
+    /// 1) El periodo debe estar CERRADO (si no, no hay cierre que recalcular).
+    /// 2) El periodo siguiente que recibió el traslado (misma selección que
+    ///    CerrarPeriodoAsync) debe estar ABIERTO.
+    /// 3) Ese destino y los periodos posteriores sólo pueden contener asientos
+    ///    DEL SISTEMA («APERTURA DE BALANCE» o «CIERRE DE RESULTADOS»): si ya
+    ///    hay actividad propia, la cadena de saldos quedaría inconsistente.
+    /// 4) El traslado que se elimina debe referir ESTE periodo en su concepto
+    ///    (nunca se borra un traslado ajeno).
+    /// El periodo y sus subperiodos se reabren en cascada y todo queda
+    /// registrado en auditoría.
+    /// </summary>
+    public async Task<ReabrirParaCorreccionResponse> ReabrirParaCorreccionAsync(int periodoId, string usuario = "Sistema")
+    {
+        var periodo = await _context.PeriodosContables
+            .Include(p => p.SubPeriodos)
+            .FirstOrDefaultAsync(p => p.Id == periodoId)
+            ?? throw new InvalidOperationException("El periodo contable no existe.");
+
+        if (!periodo.Cerrado && !string.Equals(periodo.Estado, "Cerrado", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException(
+                $"El periodo «{periodo.Nombre}» no está cerrado: no hay cierre que recalcular. " +
+                "Corrija los asientos directamente y vuelva a ejecutar «Cerrar y Trasladar».");
+
+        var respuesta = new ReabrirParaCorreccionResponse
+        {
+            PeriodoId = periodo.Id,
+            Nombre = periodo.Nombre ?? string.Empty
+        };
+
+        // 1) Periodo siguiente que recibió el traslado (mismo criterio de
+        //    selección que CerrarPeriodoAsync: menor fecha, mensual en empate).
+        var candidatos = await _context.PeriodosContables
+            .AsNoTracking()
+            .Where(p => p.EmpresaId == periodo.EmpresaId
+                        && p.Id != periodo.Id
+                        && p.FechaInicio.Date > periodo.FechaFin.Date)
+            .ToListAsync();
+
+        var destino = candidatos
+            .OrderBy(p => p.FechaInicio)
+            .ThenBy(p => string.Equals(p.TipoPeriodo, "Mensual", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+            .ThenBy(p => p.Id)
+            .FirstOrDefault();
+
+        if (destino != null)
+        {
+            if (destino.Cerrado || string.Equals(destino.Estado, "Cerrado", StringComparison.OrdinalIgnoreCase))
+                throw new InvalidOperationException(
+                    $"El periodo destino «{destino.Nombre}» está cerrado: ábralo (y rehaga su propio cierre) " +
+                    $"antes de recalcular el cierre de «{periodo.Nombre}».");
+
+            // 2) El destino y los posteriores sólo pueden tener asientos del
+            //    sistema: cualquier movimiento propio invalida la cadena de
+            //    saldos acumulados que depende del cierre que se va a rehacer.
+            var idsPosteriores = candidatos.Select(p => p.Id).ToList();
+            var movimientosPropios = await _context.AsientosContables
+                .AsNoTracking()
+                .Where(a => a.EmpresaId == periodo.EmpresaId
+                    && idsPosteriores.Contains(a.PeriodoContableId)
+                    && !a.Concepto.StartsWith(AsientoContableService.PrefijoAperturaBalance)
+                    && !a.Concepto.StartsWith(AsientoContableService.PrefijoCierreResultados))
+                .CountAsync();
+
+            if (movimientosPropios > 0)
+                throw new InvalidOperationException(
+                    $"No se puede recalcular el cierre de «{periodo.Nombre}»: el periodo «{destino.Nombre}» " +
+                    $"(u otros periodos posteriores) ya tiene {movimientosPropios} asiento(s) con actividad propia. " +
+                    "Recalcular dejaría el saldo inicial del periodo siguiente inconsistente con esos movimientos. " +
+                    "Anule o elimine primero esos asientos (o rehaga el cierre del periodo siguiente) y vuelva a intentar.");
+
+            // 3) Traslado generado por el sistema en el destino: DEBE referir
+            //    este periodo en su concepto (nunca se elimina un traslado ajeno).
+            var traslado = await _context.AsientosContables
+                .Include(a => a.Detalles)
+                .FirstOrDefaultAsync(a => a.PeriodoContableId == destino.Id
+                    && a.EmpresaId == periodo.EmpresaId
+                    && a.TipoComprobante == "Apertura"
+                    && a.Concepto.StartsWith(AsientoContableService.PrefijoAperturaBalance));
+
+            if (traslado != null)
+            {
+                var nombreOrigen = periodo.Nombre ?? string.Empty;
+                if (!string.IsNullOrWhiteSpace(nombreOrigen) && !traslado.Concepto.Contains(nombreOrigen))
+                    throw new InvalidOperationException(
+                        $"El asiento «{traslado.NumeroComprobante}» de «{destino.Nombre}» es un traslado de apertura " +
+                        $"que no referencia al periodo «{nombreOrigen}»: no se puede eliminar. Verifique el origen del traslado.");
+
+                _context.AsientosDetalles.RemoveRange(traslado.Detalles);
+                _context.AsientosContables.Remove(traslado);
+                respuesta.TrasladoEliminado = true;
+                respuesta.NumeroComprobanteTraslado = traslado.NumeroComprobante;
+                respuesta.PeriodoDestinoNombre = destino.Nombre ?? string.Empty;
+            }
+        }
+
+        // 4) Reapertura en cascada: el periodo y sus subperiodos (simétrico al
+        //    cierre anual, que los cerró en cascada).
+        periodo.Cerrado = false;
+        periodo.Estado = "Abierto";
+        periodo.FechaCierre = null;
+        periodo.UsuarioCierre = null;
+
+        if (periodo.SubPeriodos?.Any() == true)
+        {
+            foreach (var sub in periodo.SubPeriodos)
+            {
+                if (sub.Cerrado || string.Equals(sub.Estado, "Cerrado", StringComparison.OrdinalIgnoreCase))
+                {
+                    sub.Cerrado = false;
+                    sub.Estado = "Abierto";
+                    sub.FechaCierre = null;
+                    sub.UsuarioCierre = null;
+                    respuesta.SubperiodosReabiertos++;
+                }
+            }
+        }
+
+        // 5) Auditoría de la reapertura para corrección.
+        _context.AuditoriasContables.Add(new AuditoriaContable
+        {
+            Fecha = DateTime.Now,
+            Usuario = usuario,
+            Accion = "Reapertura para corrección",
+            Detalle = respuesta.TrasladoEliminado
+                ? $"Se reabrió el periodo «{periodo.Nombre}» para corrección y se eliminó el traslado {respuesta.NumeroComprobanteTraslado} del periodo «{respuesta.PeriodoDestinoNombre}»."
+                : $"Se reabrió el periodo «{periodo.Nombre}» para corrección (sin traslado que eliminar)."
+        });
+        await _context.SaveChangesAsync();
+
+        respuesta.Mensaje = respuesta.TrasladoEliminado
+            ? $"Periodo «{periodo.Nombre}» reabierto; traslado {respuesta.NumeroComprobanteTraslado} eliminado de «{respuesta.PeriodoDestinoNombre}». Corrija los asientos y vuelva a cerrar y trasladar."
+            : $"Periodo «{periodo.Nombre}» reabierto para corrección. Corrija los asientos y vuelva a cerrar y trasladar.";
+        return respuesta;
+    }
+
+    /// <summary>
     /// Exige que las cuentas de ingresos y egresos de la empresa estén en cero
     /// al cierre del periodo (es decir, que el Cierre de Resultados ya se haya
     /// generado): sólo entonces ACTIVO = PASIVO + PATRIMONIO y el asiento de
@@ -691,4 +834,24 @@ public class EliminacionPeriodoResponse
     /// <summary>Nombre del nuevo periodo de apertura (vacío si no quedan periodos).</summary>
     public string NuevoPeriodoAperturaNombre { get; set; } = string.Empty;
     public DateTime? NuevoPeriodoAperturaFechaInicio { get; set; }
+}
+
+/// <summary>
+/// Respuesta de la reapertura para corrección (recalcular cierre): informa si
+/// se eliminó el asiento «APERTURA DE BALANCE» del periodo destino y cuántos
+/// subperiodos se reabrieron en cascada.
+/// </summary>
+public class ReabrirParaCorreccionResponse
+{
+    public int PeriodoId { get; set; }
+    public string Nombre { get; set; } = string.Empty;
+    /// <summary>TRUE cuando se eliminó el traslado de apertura del destino.</summary>
+    public bool TrasladoEliminado { get; set; }
+    /// <summary>Comprobante del asiento «APERTURA DE BALANCE» eliminado.</summary>
+    public string NumeroComprobanteTraslado { get; set; } = string.Empty;
+    /// <summary>Nombre del periodo que recibía el traslado.</summary>
+    public string PeriodoDestinoNombre { get; set; } = string.Empty;
+    /// <summary>Cantidad de subperiodos reabiertos en cascada.</summary>
+    public int SubperiodosReabiertos { get; set; }
+    public string Mensaje { get; set; } = string.Empty;
 }

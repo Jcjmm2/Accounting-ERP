@@ -37,6 +37,21 @@ namespace Tyted.API.Services
         public static void Initialize(TytedContext context, bool seedDevelopmentDefaults = false)
         {
             AplicarMigraciones(context);
+            SembrarDatosIniciales(context, seedDevelopmentDefaults);
+        }
+
+        /// <summary>
+        /// SEMILLA IDEMPOTENTE DE LA BASE DE DATOS (ejecutada tras aplicar las
+        /// migraciones). Crea el catálogo base, la EMPRESA MODELO «Inversiones
+        /// Tyted, C.A.» con su plan de cuentas, su ejercicio fiscal abierto del
+        /// año actual, los ajustes globales y (opcional) el admin inicial.
+        /// Todos los pasos son idempotentes: reiniciar el servicio no duplica
+        /// datos. Es lo que hace que una BD NUEVA en el servidor arranque lista
+        /// para operar (v1 en Hetzner/Coolify). Expuesto como método público
+        /// para poder probarlo sin ejecutar migraciones (tests con InMemory).
+        /// </summary>
+        public static void SembrarDatosIniciales(TytedContext context, bool seedDevelopmentDefaults = false)
+        {
 
             // 1. Tasas de IVA (Configuración Venezuela)
             if (!context.TasasIVA.Any())
@@ -125,10 +140,62 @@ namespace Tyted.API.Services
                 context.SaveChanges();
             }
 
-            // 5. Usuario Admin predefinido (solo para desarrollo)
+            // 4b. AJUSTES GLOBALES (idempotente). La clave EmpresaModeloId marca la
+            //     empresa plantilla del sistema («Inversiones Tyted, C.A.», RIF de
+            //     fábrica): se usa para asignarla por defecto a los usuarios nuevos
+            //     (registro por API o UI) y viaja al servidor con la BD nueva.
+            //     ModoImpresionFactura es el ajuste base de impresión de facturas
+            //     (la UI de ajustes sólo permite ACTUALIZAR filas existentes, hay
+            //     que sembrarlas).
+            var empresaModelo = context.Empresa.FirstOrDefault(e => e.RIF == "J-12345678-9")
+                ?? context.Empresa.OrderBy(e => e.Id).FirstOrDefault();
+            if (empresaModelo != null && !context.EmpresaConfigs.Any(c => c.Clave == "EmpresaModeloId"))
+            {
+                context.EmpresaConfigs.Add(new EmpresaConfig
+                {
+                    Clave = "EmpresaModeloId",
+                    Valor = empresaModelo.Id.ToString(),
+                    Descripcion = "Empresa modelo/plantilla: se asigna por defecto a los usuarios nuevos."
+                });
+            }
+            if (!context.EmpresaConfigs.Any(c => c.Clave == "ModoImpresionFactura"))
+            {
+                context.EmpresaConfigs.Add(new EmpresaConfig
+                {
+                    Clave = "ModoImpresionFactura",
+                    Valor = "AMBAS",
+                    Descripcion = "Modo de impresión de factura: AMBAS, SOLO_BASE (USD) o SOLO_EXT (Bs.)."
+                });
+            }
+            context.SaveChanges();
+
+            // 5. PERIODO FISCAL DE LA EMPRESA MODELO: ejercicio ABIERTO del año
+            //    actual (la v1 arranca en 2026; el usuario creará los históricos
+            //    que necesite desde la UI). Si la empresa modelo ya tiene periodos
+            //    (p. ej. BD de desarrollo) no se toca nada.
+            if (empresaModelo != null && !context.PeriodosContables.Any(p => p.EmpresaId == empresaModelo.Id))
+            {
+                var anioModelo = DateTime.Now.Year;
+                context.PeriodosContables.Add(new PeriodoContable
+                {
+                    EmpresaId = empresaModelo.Id,
+                    Anio = anioModelo,
+                    TipoPeriodo = "Anual",
+                    Nombre = $"Ejercicio Fiscal {anioModelo}",
+                    FechaInicio = new DateTime(anioModelo, 1, 1),
+                    FechaFin = new DateTime(anioModelo, 12, 31, 23, 59, 59),
+                    Estado = "Abierto",
+                    Cerrado = false
+                });
+                context.SaveChanges();
+            }
+
+            // 6. Usuario Admin inicial. En DESARROLLO: exige además el flag de
             // To avoid committing secrets, the admin seed password must be provided
             // via the environment variable `ADMIN_SEED_PASSWORD` when `seedDevelopmentDefaults` is true.
-            if (seedDevelopmentDefaults && !context.Usuarios.Any())
+            var adminSeedPermitido = seedDevelopmentDefaults
+                || !string.IsNullOrWhiteSpace(Environment.GetEnvironmentVariable("ADMIN_SEED_PASSWORD"));
+            if (adminSeedPermitido && !context.Usuarios.Any())
             {
                 var adminPassword = Environment.GetEnvironmentVariable("ADMIN_SEED_PASSWORD");
                 if (!string.IsNullOrWhiteSpace(adminPassword))
