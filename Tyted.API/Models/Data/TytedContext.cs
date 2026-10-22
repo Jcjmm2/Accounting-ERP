@@ -84,15 +84,23 @@ public DbSet<ResumenVentaFiscalDetalle> ResumenesVentasFiscalesDetalles { get; s
                 entity.HasIndex(ue => ue.EmpresaId);
             });
 
-            // 1. CONFIGURACIÓN GLOBAL DE DECIMALES (18, 4)
+            // 1. CONFIGURACIÓN GLOBAL DE TIPOS (decimales y fechas)
+            // PostgreSQL no tiene "datetime": el tipo nativo es TIMESTAMP. Con el
+            // switch Npgsql.EnableLegacyTimestampBehavior activado (ver Program.cs),
+            // esta convención reproduce el comportamiento histórico de SQL Server:
+            // fechas naive guardadas tal cual, sin conversión a UTC.
             foreach (var entityType in modelBuilder.Model.GetEntityTypes())
             {
-                var properties = entityType.GetProperties()
-                    .Where(p => p.ClrType == typeof(decimal) || p.ClrType == typeof(decimal?));
-
-                foreach (var property in properties)
+                foreach (var property in entityType.GetProperties())
                 {
-                    property.SetColumnType("decimal(18, 4)");
+                    if (property.ClrType == typeof(decimal) || property.ClrType == typeof(decimal?))
+                    {
+                        property.SetColumnType("decimal(18, 4)");
+                    }
+                    else if (property.ClrType == typeof(DateTime) || property.ClrType == typeof(DateTime?))
+                    {
+                        property.SetColumnType("timestamp without time zone");
+                    }
                 }
             }
 
@@ -191,12 +199,12 @@ public DbSet<ResumenVentaFiscalDetalle> ResumenesVentasFiscalesDetalles { get; s
             modelBuilder.Entity<RetencionIslrEmitida>()
                 .HasIndex(r => r.CompraId)
                 .IsUnique()
-                .HasFilter("[CompraId] IS NOT NULL AND [Estado] = 'Emitida'");
+                .HasFilter("\"CompraId\" IS NOT NULL AND \"Estado\" = 'Emitida'");
 
             modelBuilder.Entity<RetencionIslrEmitida>()
                 .HasIndex(r => r.GastoId)
                 .IsUnique()
-                .HasFilter("[GastoId] IS NOT NULL AND [Estado] = 'Emitida'");
+                .HasFilter("\"GastoId\" IS NOT NULL AND \"Estado\" = 'Emitida'");
 
             // 3. CONFIGURACIÓN DE RELACIONES Y SEEDING (Omitido para brevedad, mantener igual)
             // ... (Tus relaciones y DataSeed de Usuario, Empresa, etc.)

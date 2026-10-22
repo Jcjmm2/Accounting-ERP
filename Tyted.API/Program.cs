@@ -1,4 +1,5 @@
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
 using Tyted.API.Data; 
 using Tyted.API.Services;
 using System.Globalization;
@@ -9,6 +10,17 @@ using System.Text;
 using Scalar.AspNetCore;
 using QuestPDF.Infrastructure;
 
+// ===========================================================================
+// COMPATIBILIDAD DE FECHAS (PostgreSQL)
+// ===========================================================================
+// El código histórico usa DateTime.Now/Today (Kind=Unspecified/Local) y
+// SQL Server guardaba "datetime" naive. Para conservar EXACTAMENTE la misma
+// semántica en PostgreSQL (columnas timestamp without time zone, escritura y
+// lectura sin conversión horaria), se activa el comportamiento legacy de
+// Npgsql ANTES de crear el builder. Sin él, Npgsql 6+ escribiría/timestampz
+// y convertiría a UTC, desplazando 4 horas todas las fechas de Venezuela.
+AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
+
 var builder = WebApplication.CreateBuilder(args);
 
 // =========================================================================
@@ -17,7 +29,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Services.AddDbContext<TytedContext>(options =>
 {
     var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
-    options.UseSqlServer(connectionString);
+    options.UseNpgsql(connectionString);
 });
 
 // =========================================================================

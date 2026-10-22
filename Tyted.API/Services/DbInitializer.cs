@@ -1,6 +1,4 @@
-using System.Data;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Storage;
 using Tyted.API.Models;
 using Tyted.API.Data;
 using BCrypt.Net;
@@ -10,29 +8,15 @@ namespace Tyted.API.Services
     public static class DbInitializer
     {
         // -----------------------------------------------------------------------
-        // PLAN A — APLICACIÓN DE MIGRACIONES (reemplaza a EnsureCreated)
+        // APLICACIÓN DE MIGRACIONES (EF Core / PostgreSQL)
         //
-        // EnsureCreated() NO hace nada cuando la BD ya existe, por lo que las
-        // migraciones pendientes (p. ej. AddOrigenYGastosFiscales que agrega las
-        // columnas Origen a Ventas/Compras y la tabla Gastos) nunca se aplicaban
-        // y EF fallaba con "Invalid column name 'Origen'".
-        //
-        // Además, las BDs legacy fueron creadas por EnsureCreated SIN la tabla
-        // __EFMigrationsHistory; si Migrate() se llamara sin más, intentaría
-        // ejecutar todas las migraciones desde cero y colisionaría con las
-        // tablas existentes. Por eso se hace un BOOTSTRAP del historial: se
-        // marcan como aplicadas las migraciones cuyo esquema ya existe en la BD
-        // legacy y Migrate() aplica solo las realmente pendientes (y las futuras).
+        // Migrate() aplica en orden las migraciones pendientes y registra cada
+        // una en __EFMigrationsHistory. En una BD nueva crea el esquema completo;
+        // en una BD al día no hace nada. El bootstrap manual del historial legacy
+        // (BDs creadas con EnsureCreated en SQL Server) se eliminó junto con el
+        // cambio de proveedor: contra PostgreSQL se arranca siempre desde el
+        // esquema generado por las migraciones.
         // -----------------------------------------------------------------------
-
-        /// <summary>
-        /// Última migración reflejada en el esquema de la BD legacy (verificado
-        /// en esta BD: existe RetencionesIvaEmitidas y faltaba la columna Origen).
-        /// </summary>
-        private const string UltimaMigracionLegacy = "20261010153407_AddRetencionesIva";
-
-        /// <summary>Migración inmediatamente posterior al esquema legacy (Origen + Gastos).</summary>
-        private const string MigracionOrigenYGastos = "20261010163913_AddOrigenYGastosFiscales";
 
         public static void Initialize(TytedContext context, bool seedDevelopmentDefaults = false)
         {
@@ -224,125 +208,14 @@ namespace Tyted.API.Services
         }
 
         // -------------------------------------------------------------------------
-        // PLAN A: APLICACIÓN DE MIGRACIONES + BOOTSTRAP DEL HISTORIAL LEGACY
+        // APLICACIÓN DE MIGRACIONES
         // -------------------------------------------------------------------------
         private static void AplicarMigraciones(TytedContext context)
         {
-            // Si la BD aún no existe, Migrate() la crea con el esquema completo y
-            // su historial; no hay nada que sembrar.
-            if (!context.Database.CanConnect())
-            {
-                context.Database.Migrate();
-                return;
-            }
-
-            var migraciones = context.Database.GetMigrations().ToList();
-
-            if (!ExisteTabla(context, "__EFMigrationsHistory"))
-            {
-                // BD legacy creada con EnsureCreated(): tiene tablas pero ningún
-                // historial. Marcamos como aplicadas las migraciones reflejadas en
-                // el esquema actual; Migrate() aplicará solo las pendientes reales.
-                var hayTablas = Convert.ToInt32(EjecutarEscalar(context,
-                    "SELECT COUNT(*) FROM sys.tables WHERE is_ms_shipped = 0")) > 0;
-
-                if (hayTablas)
-                {
-                    var indice = migraciones.IndexOf(UltimaMigracionLegacy);
-                    if (indice < 0)
-                        throw new InvalidOperationException(
-                            $"No se encontró la migración base del bootstrap '{UltimaMigracionLegacy}'.");
-
-                    var aplicadas = migraciones.Take(indice + 1).ToList();
-
-                    // Si la BD legacy YA tiene el esquema de la migración siguiente
-                    // (aplicada manualmente), marcamos también esa.
-                    if (migraciones.Contains(MigracionOrigenYGastos)
-                        && ColumnaExiste(context, "Ventas", "Origen")
-                        && ColumnaExiste(context, "Compras", "Origen")
-                        && ExisteTabla(context, "Gastos"))
-                    {
-                        aplicadas.Add(MigracionOrigenYGastos);
-                    }
-
-                    CrearTablaHistorial(context);
-                    InsertarMigracionesAplicadas(context, aplicadas);
-                }
-            }
-
+            // Aplica las migraciones pendientes (crea la BD si no existe) y las
+            // registra en __EFMigrationsHistory. Idempotente: en una BD al día
+            // no ejecuta nada.
             context.Database.Migrate();
-        }
-
-        /// <summary>Ejecuta un SELECT escalar (devuelve null si no hay resultado).</summary>
-        private static object? EjecutarEscalar(TytedContext context, string sql)
-        {
-            var conexion = context.Database.GetDbConnection();
-            var abiertaAqui = conexion.State != ConnectionState.Open;
-            if (abiertaAqui) conexion.Open();
-            try
-            {
-                using var comando = conexion.CreateCommand();
-                var transaccion = context.Database.CurrentTransaction?.GetDbTransaction();
-                if (transaccion != null) comando.Transaction = transaccion;
-                comando.CommandText = sql;
-                return comando.ExecuteScalar();
-            }
-            finally
-            {
-                if (abiertaAqui) conexion.Close();
-            }
-        }
-
-        /// <summary>Ejecuta un lote de sentencias DDL/DML sin leer resultados.</summary>
-        private static void EjecutarSentencia(TytedContext context, string sql)
-        {
-            var conexion = context.Database.GetDbConnection();
-            var abiertaAqui = conexion.State != ConnectionState.Open;
-            if (abiertaAqui) conexion.Open();
-            try
-            {
-                using var comando = conexion.CreateCommand();
-                var transaccion = context.Database.CurrentTransaction?.GetDbTransaction();
-                if (transaccion != null) comando.Transaction = transaccion;
-                comando.CommandText = sql;
-                comando.ExecuteNonQuery();
-            }
-            finally
-            {
-                if (abiertaAqui) conexion.Close();
-            }
-        }
-
-        private static bool ExisteTabla(TytedContext context, string nombre)
-            => Convert.ToInt32(EjecutarEscalar(context,
-                $"SELECT CASE WHEN OBJECT_ID(N'[dbo].[{nombre}]', N'U') IS NULL THEN 0 ELSE 1 END")) == 1;
-
-        private static bool ColumnaExiste(TytedContext context, string tabla, string columna)
-            => Convert.ToInt32(EjecutarEscalar(context,
-                $"SELECT CASE WHEN COL_LENGTH(N'[dbo].[{tabla}]', N'{columna}') IS NULL THEN 0 ELSE 1 END")) == 1;
-
-        /// <summary>Crea __EFMigrationsHistory con la forma exacta de EF Core (SQL Server).</summary>
-        private static void CrearTablaHistorial(TytedContext context)
-        {
-            EjecutarSentencia(context, @"
-IF OBJECT_ID(N'[dbo].[__EFMigrationsHistory]', N'U') IS NULL
-BEGIN
-    CREATE TABLE [dbo].[__EFMigrationsHistory] (
-        [MigrationId] nvarchar(150) NOT NULL,
-        [ProductVersion] nvarchar(32) NOT NULL,
-        CONSTRAINT [PK___EFMigrationsHistory] PRIMARY KEY ([MigrationId])
-    );
-END");
-        }
-
-        private static void InsertarMigracionesAplicadas(TytedContext context, IEnumerable<string> migraciones)
-        {
-            foreach (var id in migraciones)
-            {
-                EjecutarSentencia(context, $@"
-IF NOT EXISTS (SELECT 1 FROM [dbo].[__EFMigrationsHistory] WHERE [MigrationId] = N'{id}')
-    INSERT INTO [dbo].[__EFMigrationsHistory] ([MigrationId], [ProductVersion]) VALUES (N'{id}', N'10.0.1');");
-            }
         }
 
         // -------------------------------------------------------------------------
