@@ -8,6 +8,7 @@ using Tyted.API.Data;
 using Tyted.API.Models;
 using Tyted.API.Services;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.RateLimiting;
 using System.Security.Cryptography;
 
 namespace Tyted.API.Controllers
@@ -182,20 +183,37 @@ namespace Tyted.API.Controllers
         // 5. LOGIN
         [HttpPost("login")]
         [AllowAnonymous]
+        [EnableRateLimiting("login")] // 10 intentos/min por IP (política "login" en Program.cs)
         public async Task<IActionResult> Login([FromBody] LoginDto login)
         {
+            // Anti fuerza bruta por CUENTA: tras varios fallos consecutivos la
+            // cuenta se bloquea temporalmente (complementa el rate limit por IP).
+            if (LoginBloqueo.EstaBloqueado(login.Username, out var restante))
+            {
+                return StatusCode(StatusCodes.Status429TooManyRequests,
+                    $"Cuenta bloqueada por demasiados intentos fallidos. Intente de nuevo en {(int)Math.Ceiling(restante.TotalMinutes)} minuto(s).");
+            }
+
             var usuario = await _context.Usuarios
                 .FirstOrDefaultAsync(u => u.Username == login.Username && u.Activo);
 
             if (usuario == null)
+            {
+                LoginBloqueo.RegistrarFallo(login.Username);
                 return Unauthorized("Credenciales incorrectas.");
+            }
 
             if (!usuario.Activo)
                 return Unauthorized("Usuario inactivo. Contacte al administrador.");
 
             if (!BCrypt.Net.BCrypt.Verify(login.Password, usuario.PasswordHash))
+            {
+                LoginBloqueo.RegistrarFallo(login.Username);
                 return Unauthorized("Credenciales incorrectas.");
+            }
 
+            // Éxito: reinicia el contador de fallos de la cuenta.
+            LoginBloqueo.Reiniciar(usuario.Username);
 
             var token = GenerarJwtToken(usuario);
 

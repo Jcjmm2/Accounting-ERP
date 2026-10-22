@@ -1,0 +1,14 @@
+# Artefactos de build locales (si entran al contexto rompen el restore en Linux)
+bin/
+obj/
+.vs/
+*.user
+
+# Config local de desarrollo (no debe viajar a la imagen)
+appsettings.Development.json
+appsettings.Local.json
+*.log
+
+# No hace falta al build
+Dockerfile
+.dockerignore

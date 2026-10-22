@@ -1,0 +1,16 @@
+# Dependencias y builds locales
+node_modules/
+dist/
+.vite/
+
+# Entornos locales con secretos (los .env de dev/prod sí van al repo)
+.env
+.env.local
+.env.*.local
+*.local
+
+# Docker/Deps innecesarios en el build
+Dockerfile
+.dockerignore
+README.md
+tmp-test-subtotales.js

@@ -37,9 +37,18 @@ namespace Tyted.API.Middleware
 
                 _logger.LogError(error, "Error no controlado en el servidor: {Message}", error.Message);
 
+                // En PRODUCCIÓN la respuesta es genérica: nunca se filtran detalles
+                // internos (mensajes de EF/Npgsql, rutas, archivos) al cliente. El
+                // mensaje real queda solo en el log del servidor.
+                var esDesarrollo = context.RequestServices
+                    .GetService<IWebHostEnvironment>()?.IsDevelopment() == true;
+                var mensaje = esDesarrollo
+                    ? error.Message
+                    : "Se produjo un error interno en el servidor. Intente de nuevo o contacte al administrador.";
+
                 var result = JsonSerializer.Serialize(new 
                 { 
-                    message = error.Message,
+                    message = mensaje,
                     status = response.StatusCode 
                 });
 

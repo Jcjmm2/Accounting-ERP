@@ -1,0 +1,85 @@
+# =========================================================================
+# Stack de producción Tyted — web (nginx) + api (.NET) + postgres (+ backup)
+# Diseño de seguridad:
+#   - Solo 'web' publica puertos (8080). 'api' y 'postgres' viven en la red
+#     interna del compose: no hay ningún puerto de BD/API expuesto afuera.
+#   - Los secretos NO están aquí: llegan por interpolación de variables
+#     (.env en local, variables de entorno en Coolify). Ver .env.example
+#   - healthchecks en los tres servicios clave; el arranque es en orden
+#     (postgres healthy → api healthy → web).
+# =========================================================================
+
+name: tyted
+
+services:
+  web:
+    build:
+      context: ./Tyted.Frontend
+    ports:
+      - "8080:8080"
+    depends_on:
+      api:
+        condition: service_healthy
+    restart: unless-stopped
+
+  api:
+    build:
+      context: ./Tyted.API
+    environment:
+      ASPNETCORE_ENVIRONMENT: Production
+      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=Tyted;Username=postgres;Password=${POSTGRES_PASSWORD:?Falta POSTGRES_PASSWORD (define .env o las variables en Coolify)}"
+      Jwt__Key: "${JWT_KEY:?Falta JWT_KEY (mínimo 32 caracteres)}"
+      AllowedOrigins__0: "${APP_ORIGIN:-http://localhost:8080}"
+      ADMIN_SEED_PASSWORD: "${ADMIN_SEED_PASSWORD:-}"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:18-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Falta POSTGRES_PASSWORD (define .env o las variables en Coolify)}"
+      POSTGRES_DB: Tyted
+    volumes:
+      # postgres:18+ usa layout con subdirectorio por versión mayor: el volumen
+      # se monta en /var/lib/postgresql (NO en .../data, que es legacy y la
+      # imagen lo rechaza con error). Los datos quedan en /var/lib/postgresql/18/.
+      - pgdata:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d Tyted"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    restart: unless-stopped
+
+  # Backup diario de la BD (pg_dump → /backups, retención BACKUP_KEEP_DAYS)
+  backup:
+    image: postgres:18-alpine
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGPORT: "5432"
+      PGUSER: postgres
+      PGPASSWORD: "${POSTGRES_PASSWORD:?Falta POSTGRES_PASSWORD (define .env o las variables en Coolify)}"
+      PGDATABASE: Tyted
+      BACKUP_KEEP_DAYS: "${BACKUP_KEEP_DAYS:-7}"
+    volumes:
+      - backups:/backups
+      - ./scripts/backup.sh:/backup.sh:ro
+    entrypoint: ["/bin/sh", "/backup.sh"]
+    restart: unless-stopped
+
+volumes:
+  pgdata:
+  backups:

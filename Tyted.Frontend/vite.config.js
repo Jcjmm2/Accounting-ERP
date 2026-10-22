@@ -3,10 +3,12 @@ import react from '@vitejs/plugin-react'
 import basicSsl from '@vitejs/plugin-basic-ssl'
 
 // https://vite.dev/config/
-export default defineConfig({
+// El certificado autofirmado (basicSsl) es SOLO para `vite dev`: en
+// `vite build` (producción) el TLS lo termina nginx/Coolify, no el bundle.
+export default defineConfig(({ command }) => ({
   plugins: [
     react(),
-    basicSsl()
+    ...(command === 'serve' ? [basicSsl()] : []),
   ],
   server: {
     host: true,
@@ -23,4 +25,4 @@ export default defineConfig({
       }
     }
   }
-})
+}))

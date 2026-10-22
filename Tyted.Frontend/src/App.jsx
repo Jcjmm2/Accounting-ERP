@@ -1,23 +1,23 @@
 import React, { useState, useContext, useEffect } from 'react';
-import Login from './Components/Login';
-import POS from './Components/POS';
-import TasaDeCambio from './Components/TasaDeCambio';
+import Login from './components/Login';
+import POS from './components/POS';
+import TasaDeCambio from './components/TasaDeCambio';
 import { ConfigContext } from './Context/ConfigContext';
 import './App.css';
 
 // Importación de componentes del sistema ERP
-import Dashboard from './Components/Dashboard';
-import Categorias from './Components/Categorias';
-import Productos from './Components/Productos';
-import Inventario from './Components/Inventario';
-import Compras from './Components/Compras';
-import Proveedores from './Components/Proveedores';
-import Reportes from './Components/Reportes';
-import CuentasPorCobrar from './Components/CuentasPorCobrar';
-import Usuarios from './Components/Usuarios';
-import ConfiguracionEmpresa from './Components/ConfiguracionEmpresa';
-import Clientes from './Components/Clientes';
-import Pedidos from './Components/Pedidos';
+import Dashboard from './components/Dashboard';
+import Categorias from './components/Categorias';
+import Productos from './components/Productos';
+import Inventario from './components/Inventario';
+import Compras from './components/Compras';
+import Proveedores from './components/Proveedores';
+import Reportes from './components/Reportes';
+import CuentasPorCobrar from './components/CuentasPorCobrar';
+import Usuarios from './components/Usuarios';
+import ConfiguracionEmpresa from './components/ConfiguracionEmpresa';
+import Clientes from './components/Clientes';
+import Pedidos from './components/Pedidos';
 import ModuloContable from './Pages/Contabilidad/ModuloContable';
 import RegistroVentasFiscal from './Pages/Fiscal/RegistroVentasFiscal';
 import RegistroComprasFiscal from './Pages/Fiscal/RegistroComprasFiscal';

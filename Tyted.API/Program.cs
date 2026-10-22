@@ -9,6 +9,9 @@ using Microsoft.IdentityModel.Tokens;
 using System.Text;
 using Scalar.AspNetCore;
 using QuestPDF.Infrastructure;
+using System.Threading.RateLimiting;
+using Microsoft.AspNetCore.RateLimiting;
+using Tyted.API.Middleware;
 
 // ===========================================================================
 // COMPATIBILIDAD DE FECHAS (PostgreSQL)
@@ -23,6 +26,10 @@ AppContext.SetSwitch("Npgsql.EnableLegacyTimestampBehavior", true);
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Tamaño máximo del cuerpo de petición: 2 MB (anti DoS por payloads gigantes;
+// nginx aplica exactamente el mismo límite en el borde: client_max_body_size).
+builder.WebHost.ConfigureKestrel(o => o.Limits.MaxRequestBodySize = 2 * 1024 * 1024);
+
 // =========================================================================
 // 1. REGISTRO DEL CONTEXTO DE LA BASE DE DATOS
 // =========================================================================
@@ -30,6 +37,48 @@ builder.Services.AddDbContext<TytedContext>(options =>
 {
     var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
     options.UseNpgsql(connectionString);
+});
+
+// =========================================================================
+// 1b. RATE LIMITING (anti-flood y fuerza bruta)
+// =========================================================================
+// Partición por cliente: nginx envía la IP real en X-Real-IP (la API solo es
+// alcanzable desde la red interna del compose, así que ese header es confiable);
+// sin proxy (dotnet run en desarrollo) se usa la IP de conexión. Cada cliente
+// recibe su propia cuota: un atacante no puede consumirla de otros usuarios.
+static string IpCliente(HttpContext ctx) =>
+    ctx.Request.Headers["X-Real-IP"].FirstOrDefault()
+    ?? ctx.Connection.RemoteIpAddress?.ToString()
+    ?? "desconocida";
+
+builder.Services.AddRateLimiter(options =>
+{
+    options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+    options.OnRejected = async (ctx, ct) =>
+    {
+        ctx.HttpContext.Response.ContentType = "application/json";
+        await ctx.HttpContext.Response.WriteAsync(
+            "{\"message\":\"Demasiadas solicitudes. Intente de nuevo en unos segundos.\",\"status\":429}", ct);
+    };
+
+    // Ventana global por cliente: 600 req/min (coherente con los 10 r/s de nginx)
+    options.GlobalLimiter = PartitionedRateLimiter.Create<HttpContext, string>(ctx =>
+        RateLimitPartition.GetFixedWindowLimiter(IpCliente(ctx), _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 600,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0
+        }));
+
+    // Política estricta del login (fuerza bruta): 10 intentos/min por cliente.
+    // Se aplica con [EnableRateLimiting("login")] en UsuariosController.Login.
+    options.AddPolicy("login", ctx =>
+        RateLimitPartition.GetFixedWindowLimiter(IpCliente(ctx), _ => new FixedWindowRateLimiterOptions
+        {
+            PermitLimit = 10,
+            Window = TimeSpan.FromMinutes(1),
+            QueueLimit = 0
+        }));
 });
 
 // =========================================================================
@@ -149,7 +198,12 @@ builder.Services.AddCors(options =>
 });
 
 
-var app = builder.Build(); 
+var app = builder.Build();
+
+// Manejador de errores GLOBAL (primero en la cadena: envuelve todo). En
+// producción responde JSON con mensaje GENÉRICO (sin filtrar detalles internos);
+// el detalle queda en el log vía ILogger.
+app.UseMiddleware<ErrorHandlerMiddleware>();
 
 // Inicialización de DB
 using (var scope = app.Services.CreateScope())
@@ -195,10 +249,19 @@ if (app.Environment.IsDevelopment())
 // 1. CORS debe ir antes que cualquier ruta o autorización
 app.UseCors("TytedPolicy");
 
+// 1b. Rate limiting: después de CORS (el preflight no consume cuota) y antes
+// de autenticación. Las políticas por endpoint ([EnableRateLimiting]) se
+// resuelven contra la ruta ya emparejada.
+app.UseRateLimiter();
+
 
 // 2. Autenticación y Autorización (Descoméntalos si vas a usar seguridad JWT)
 app.UseAuthentication();
 app.UseAuthorization();
+
+// Health check del orquestador (docker compose / Coolify): responde siempre
+// 200 si la API está viva. Se sirve también desde nginx (location = /health).
+app.MapGet("/health", () => Results.Ok(new { status = "ok" }));
 
 // 3. Mapeo de Controladores
 app.MapControllers();
