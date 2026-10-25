@@ -58,5 +58,7 @@
 1. **CSP estricta** en nginx — pendiente de validar flows con blob:/cámara/pdf (jspdf, html5-qrcode) para no romper la SPA.
 2. Turnstile en login.
 3. WAF self-hosted (ModSecurity + OWASP CRS) solo si llega a hacer falta — complejo de mantener.
-4. Monitoreo de uptime (p. ej. Uptime Kuma self-hosted) + alertas.
+4. ~~Monitoreo de uptime~~ ✅ **Hecho (25/10/2026)**: Uptime Kuma self-hosted en
+   `status.tyted.net` + alertas **Discord** + monitor Push de backups vía
+   `BACKUP_PUSH_URL` (ver `docs/DESPLEGUE.md` §12).
 5. `dotnet list package --vulnerable` / `npm audit` en cada release.

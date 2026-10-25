@@ -79,8 +79,11 @@ while true; do
 
     # Heartbeat a Uptime Kuma solo si TODO el ciclo salió bien
     if [ "${ok_ciclo}" = 1 ] && [ -n "${BACKUP_PUSH_URL:-}" ]; then
-        wget -q -O /dev/null "${BACKUP_PUSH_URL}" 2>/dev/null \
-            || echo "[backup] Aviso: no se pudo enviar el ping de estado (Uptime Kuma)" >&2
+        if wget -q -O /dev/null "${BACKUP_PUSH_URL}" 2>/dev/null; then
+            echo "[backup] Ping de estado enviado (Uptime Kuma)."
+        else
+            echo "[backup] Aviso: no se pudo enviar el ping de estado (Uptime Kuma)" >&2
+        fi
     fi
 
     sleep 86400

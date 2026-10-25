@@ -146,6 +146,31 @@ respondía primero → `28P01` del servidor equivocado → la semilla fallaba en
 
 ---
 
+## 12. Operación — Auto Deploy y monitoreo (Fase B, 25/10/2026)
+
+**Auto Deploy (push → producción, verificado end-to-end)**:
+- DNS: `coolify.tyted.net` → A `95.217.169.131` **Proxied**. Coolify → Settings →
+  Instance Domain `https://coolify.tyted.net` (el panel también sigue en `IP:8000`
+  restringido a tu IP, y por túnel SSH §10).
+- GitHub → Settings → Webhooks → `https://coolify.tyted.net/webhooks/source/github/events/manual`
+  (content type `application/json`, evento **push**, SSL verification ON).
+- Cadena: `git push main` → webhook → deploy en Coolify (~30 s) → contenedores
+  nuevos healthy. Comprobado con push de prueba `47c6461`.
+
+**Monitoreo — Uptime Kuma en `status.tyted.net`**:
+- DNS `status.tyted.net` → A Proxied; recurso Coolify `uptime-kuma`
+  (imagen `louislam/uptime-kuma:1`, volumen `/opt/coolify/volumes/kuma-data` → `/app/data`,
+  dominio `https://status.tyted.net`).
+- **Alertas por Discord** (webhook → canal `#general`; el SMTP de Office365 **no**
+  aceptó la app password desde Kuma → se eligió Discord, verificado con "Tyted Alert Testing").
+- Monitor **HTTP(s)**: `https://tyted.net/` cada 60 s → notificación *Tyted Alert*.
+- Monitor **Push** "Respaldos Tyted": *Heartbeat Interval* **90000 s (25 h)**.
+  El contenedor `backup` hace ping tras cada ciclo completo OK usando la variable
+  **`BACKUP_PUSH_URL`** (guardada en Coolify) → sin ping en 25 h ⇒ alerta de
+  "backup perdido". Éxito del ping visible en los logs del `backup`.
+
+---
+
 ### Nota sobre `.env.example`
 
 La regla `.env.*` del `.gitignore` lo ignora (el archivo quedó bloqueado por un
