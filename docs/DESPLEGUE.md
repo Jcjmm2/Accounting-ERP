@@ -162,12 +162,18 @@ respondía primero → `28P01` del servidor equivocado → la semilla fallaba en
   (imagen `louislam/uptime-kuma:1`, volumen `/opt/coolify/volumes/kuma-data` → `/app/data`,
   dominio `https://status.tyted.net`).
 - **Alertas por Discord** (webhook → canal `#general`; el SMTP de Office365 **no**
-  aceptó la app password desde Kuma → se eligió Discord, verificado con "Tyted Alert Testing").
-- Monitor **HTTP(s)**: `https://tyted.net/` cada 60 s → notificación *Tyted Alert*.
-- Monitor **Push** "Respaldos Tyted": *Heartbeat Interval* **90000 s (25 h)**.
+  aceptó la app password desde Kuma → se eligió Discord). Notificaciones creadas:
+  **Tyted Alert Cloud Web** (→ monitor web) y **Backup Tyted** (→ monitor de respaldos);
+  verificadas **end-to-end** con push `down`/`up` de prueba (mensajes recibidos en Discord).
+- Monitor **HTTP(s)**: `https://tyted.net/` cada **60 s** → *Tyted Alert Cloud Web*.
+- Monitor **Push** "Respaldos Tyted": *Heartbeat Interval* **90000 s (25 h)** → *Backup Tyted*.
   El contenedor `backup` hace ping tras cada ciclo completo OK usando la variable
   **`BACKUP_PUSH_URL`** (guardada en Coolify) → sin ping en 25 h ⇒ alerta de
   "backup perdido". Éxito del ping visible en los logs del `backup`.
+- **Diagnóstico de Kuma por SSH**: DB en `/app/data/kuma.db` del contenedor
+  (descubrir el contenedor por la **imagen** `uptime-kuma`, su nombre es un hash de
+  Coolify); módulo SQLite = **`@louislam/sqlite3`** (fork; `sqlite3` no existe);
+  tablas útiles: `monitor` (interval en segundos), `notification`, `monitor_notification`.
 
 ---
 
