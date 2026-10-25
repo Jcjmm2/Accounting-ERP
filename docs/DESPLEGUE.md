@@ -67,14 +67,23 @@ curl -sI https://tudominio.com/ | grep -iE 'strict-transport|x-frame|x-content'
 - Fuerza bruta: 12 logins con clave mala → debe aparecer **429**.
 - Coolify → logs de `api`: sin errores (la migración `InitialPostgres` + seed corren solos en la primera petición).
 
-## 7. Backups
+## 7. Backups (local + off-site en Cloudflare R2)
 
-- El contenedor **`backup`** hace `pg_dump` diario en `/backups` (volumen `backups`, retención `BACKUP_KEEP_DAYS`).
-- **Descarga periódica fuera del servidor** (Coolify → snapshots, `scp`, o script): un backup en el mismo servidor no protege contra pérdida del servidor.
-- Restore:
+- El contenedor **`backup`** (imagen `docker/backup`: postgres:18-alpine + **rclone**) hace `pg_dump` diario en `/backups` (volumen `backups`, retención `BACKUP_KEEP_DAYS`) **y lo sube a Cloudflare R2** → `r2:tyted-backups/postgres/` (retención remota `S3_KEEP_DAYS`, 30 días por defecto).
+- Credenciales S3 (variables del servicio en Coolify / `.env` local): `S3_ENDPOINT` = `https://<ACCOUNT_ID>.r2.cloudflarestorage.com`, `S3_REGION=auto`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY`. Si faltan, el backup **sigue funcionando solo en local** (el log lo avisa).
+- Verificación: dashboard Cloudflare → R2 → bucket `tyted-backups` debe contener el `.sql.gz` del día. O con rclone: `rclone lsf r2:tyted-backups/postgres/`.
+- Un dump en el mismo servidor no protege contra su pérdida → R2 es la copia que sobrevive. Cuota gratis 10 GB; la poda `S3_KEEP_DAYS` evita agotarla.
+- Restore **local** (volumen `backups`):
 
 ```bash
 gunzip -c Tyted_20261022T000000Z.sql.gz | docker exec -i tyted-postgres-1 psql -U postgres -d Tyted
+```
+
+- Restore **desde R2** (máquina nueva o pérdida total del servidor):
+
+```bash
+rclone copy r2:tyted-backups/postgres/Tyted_<fecha>.sql.gz .   # o descargarlo desde el dashboard R2
+gunzip -c Tyted_<fecha>.sql.gz | docker exec -i tyted-postgres-1 psql -U postgres -d Tyted
 ```
 
 ## 8. Operación diaria

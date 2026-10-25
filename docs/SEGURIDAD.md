@@ -27,7 +27,7 @@
 - **Solo `web` publica puertos** (`8080`). `api`, `postgres` y `backup` en red interna — comprobado con `docker ps` (ningún puerto host).
 - Contenedores como **usuario no root** (`USER $APP_UID` en la API, `USER nginx` en web).
 - Secretos solo por **variables de entorno** (Coolify / `.env` local en `.gitignore`).
-- Backup diario `pg_dump` con retención configurable.
+- Backup diario `pg_dump` con retención configurable **+ copia off-site diaria a Cloudflare R2** (rclone desde el propio contenedor `backup`; credenciales solo en variables de entorno; poda remota `S3_KEEP_DAYS`).
 
 ## B. Checklist Cloudflare Free (el día que apuntes el DNS)
 
