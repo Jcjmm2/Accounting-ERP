@@ -45,9 +45,10 @@ Coolify se encarga de Traefik (proxy TLS), certificados Let's Encrypt y desplieg
 |---|---|
 | `POSTGRES_PASSWORD` | contraseña aleatoria larga (guárdala en tu gestor de contraseñas) |
 | `JWT_KEY` | 48+ caracteres aleatorios |
-| `APP_ORIGIN` | `https://tudominio.com` |
+| `APP_ORIGIN` | `https://tyted.net` |
 | `ADMIN_SEED_PASSWORD` | password del admin que crea la semilla en el 1er arranque |
 | `BACKUP_KEEP_DAYS` | `7` |
+| `WEB_HOST_PORT` | `18080` — puerto host de `web` en el servidor (en local no se define y se usa `8080`; en el servidor evita el choque con el 8080 que ya ocupa `coolify-proxy`) |
 
 > `ConnectionStrings__DefaultConnection` **NO** se define: el compose la arma
 > a partir de `POSTGRES_PASSWORD`.

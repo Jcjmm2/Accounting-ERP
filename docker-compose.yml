@@ -16,7 +16,9 @@ services:
     build:
       context: ./Tyted.Frontend
     ports:
-      - "8080:8080"
+      # Local: 8080 por defecto. En el servidor Coolify define WEB_HOST_PORT=18080
+      # porque el puerto 8080 del host ya lo ocupa coolify-proxy (choque al hacer up).
+      - "${WEB_HOST_PORT:-8080}:8080"
     depends_on:
       api:
         condition: service_healthy
