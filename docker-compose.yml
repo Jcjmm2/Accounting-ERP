@@ -29,7 +29,11 @@ services:
       context: ./Tyted.API
     environment:
       ASPNETCORE_ENVIRONMENT: Production
-      ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=Tyted;Username=postgres;Password=${POSTGRES_PASSWORD:?Falta POSTGRES_PASSWORD (define .env o las variables en Coolify)}"
+      # Host 'tyted-db' = alias de red EXCLUSIVO del postgres del stack.
+      # NO usar 'postgres': en la red compartida con Coolify, 'postgres' también
+      # resuelve a coolify-db (su servicio interno) y la API recibía 28P01 del
+      # servidor equivocado (incidente 25/10/2026).
+      ConnectionStrings__DefaultConnection: "Host=tyted-db;Port=5432;Database=Tyted;Username=postgres;Password=${POSTGRES_PASSWORD:?Falta POSTGRES_PASSWORD (define .env o las variables en Coolify)}"
       Jwt__Key: "${JWT_KEY:?Falta JWT_KEY (mínimo 32 caracteres)}"
       AllowedOrigins__0: "${APP_ORIGIN:-http://localhost:8080}"
       ADMIN_SEED_PASSWORD: "${ADMIN_SEED_PASSWORD:-}"
@@ -62,6 +66,13 @@ services:
       retries: 5
       start_period: 10s
     restart: unless-stopped
+    # Alias de red exclusivo 'tyted-db' (red default del stack). Ver la nota
+    # en el servicio api: en la red compartida con Coolify, el nombre 'postgres'
+    # es ambiguo (también lo resuelve coolify-db) y la API recibía 28P01.
+    networks:
+      default:
+        aliases:
+          - tyted-db
 
   # Backup diario de la BD (pg_dump → /backups → subida a Cloudflare R2)
   backup:
@@ -71,7 +82,8 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      PGHOST: postgres
+      # Alias exclusivo del postgres del stack (ver nota en el servicio api)
+      PGHOST: tyted-db
       PGPORT: "5432"
       PGUSER: postgres
       PGPASSWORD: "${POSTGRES_PASSWORD:?Falta POSTGRES_PASSWORD (define .env o las variables en Coolify)}"

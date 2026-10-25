@@ -117,6 +117,31 @@ git tag v1.0.0 && git push origin v1.0.0
 
 ---
 
+## 11. Incidente 25/10/2026 (tarde) — login 500 (28P01) por colisión de DNS interno
+
+**Síntoma**: login en producción → `{"message":"Se produjo un error interno en el servidor...","status":500}`.
+Recordar: un password incorrecto devuelve **401**; el **500** = excepción (causa real solo en los logs del `api`).
+
+**Causa raíz**: en la red `coolify` (compartida entre el stack de Coolify y las apps), el
+hostname `postgres` resolvía a **dos** contenedores: el postgres del app **y `coolify-db`**
+(el servicio interno de Coolify también se llama `postgres`). Npgsql se conectaba al que
+respondía primero → `28P01` del servidor equivocado → la semilla fallaba en cada arranque.
+
+**Solución aplicada**:
+1. Runtime: `docker network disconnect coolify <api>` y `<backup>` (no necesitan esa red;
+   el proxy solo habla con `web`) + reinicio del `api`.
+2. Permanente (en este compose): alias de red exclusivo **`tyted-db`** en el servicio
+   `postgres` (red default) + `Host=tyted-db` / `PGHOST=tyted-db` en api y backup.
+
+**Lecciones**:
+- `/health` es estático: NO prueba la BD. Sirve solo como "proceso vivo".
+- Coolify comparte su red con las apps: **evita nombres genéricos** (`postgres`, `db`,
+  `redis`) como host de conexión; usa un alias exclusivo del stack.
+- El acceso por SSH (`id_ed25519_tyted`) permite diagnóstico directo:
+  `docker logs <api> --tail 50`, `docker exec <pg> psql -U postgres -d Tyted`.
+
+---
+
 ### Nota sobre `.env.example`
 
 La regla `.env.*` del `.gitignore` lo ignora (el archivo quedó bloqueado por un
