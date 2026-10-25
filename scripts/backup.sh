@@ -43,13 +43,18 @@ fi
 
 while true; do
     archivo="/backups/${PGDATABASE}_$(date -u +%Y%m%dT%H%M%SZ).sql.gz"
+    temporal="/backups/.${PGDATABASE}_parcial.sql"
     ok_ciclo=1
 
-    if pg_dump --no-owner | gzip > "${archivo}"; then
+    # Dump a temporal y compresión SOLO si pg_dump tuvo éxito: con un pipe
+    # directo (pg_dump | gzip) gzip devolvería 0 aunque pg_dump fallara y se
+    # subiría un .sql.gz vacío a R2 (pasó el 25/10 con la BD inaccesible).
+    if pg_dump --no-owner -f "${temporal}" && gzip -f "${temporal}" && [ -s "${temporal}.gz" ]; then
+        mv "${temporal}.gz" "${archivo}"
         echo "[backup] OK: ${archivo} ($(du -h "${archivo}" | cut -f1))"
     else
-        echo "[backup] ERROR: no se pudo generar ${archivo}" >&2
-        rm -f "${archivo}"
+        echo "[backup] ERROR: pg_dump falló para ${PGDATABASE} (¿BD inaccesible?); no se sube nada." >&2
+        rm -f "${temporal}" "${temporal}.gz"
         ok_ciclo=0
     fi
 

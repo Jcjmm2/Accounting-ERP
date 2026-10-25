@@ -130,8 +130,12 @@ respondía primero → `28P01` del servidor equivocado → la semilla fallaba en
 **Solución aplicada**:
 1. Runtime: `docker network disconnect coolify <api>` y `<backup>` (no necesitan esa red;
    el proxy solo habla con `web`) + reinicio del `api`.
-2. Permanente (en este compose): alias de red exclusivo **`tyted-db`** en el servicio
-   `postgres` (red default) + `Host=tyted-db` / `PGHOST=tyted-db` en api y backup.
+2. Permanente: el SERVICIO se renombró `postgres` → **`tyted-db`** (Coolify ignora los
+   aliases de red del compose pero SÍ registra el nombre de servicio en todas las redes
+   a las que conecta cada contenedor) + `Host=tyted-db` / `PGHOST=tyted-db`.
+   El volumen `pgdata` no cambia: los datos se conservan.
+3. Bonus: `backup.sh` ya no usa `pg_dump | gzip` (gzip enmascaraba fallos de pg_dump y
+   subía dumps vacíos); ahora volcado a temporal + verificación de tamaño.
 
 **Lecciones**:
 - `/health` es estático: NO prueba la BD. Sirve solo como "proceso vivo".
