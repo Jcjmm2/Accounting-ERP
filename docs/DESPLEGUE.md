@@ -93,6 +93,21 @@ git tag v1.0.0 && git push origin v1.0.0
 
 ---
 
+## 10. Acceso de emergencia (incidente 25/10/2026 — lecciones)
+
+**Diseño actual de acceso** (post-incidente):
+- SSH `22/tcp` **abierto desde cualquier IP pero SOLO con claves** (`PasswordAuthentication no`; claves: `id_ed25519_tyted` en la PC de desarrollo y `id_ed25519` local, ambas en `/root/.ssh/authorized_keys`). → La rotación de IP **nunca** vuelve a bloquear el SSH.
+- Firewall del host en `/etc/iptables/rules.v4` (persistencia: `netfilter-persistent save`). El panel Coolify (`:8000`) y la terminal (`6001/6002`) quedan **restringidos a la IP pública actual**.
+- **Si tu IP rota** y no puedes abrir Coolify: abre un túnel SSH → `ssh -i <clave> -L 8000:localhost:8000 root@<IP>` y entra a `http://localhost:8000`.
+- Contraseña root: **solo para la consola web de Hetzner** (guardar en el gestor; nunca en el repo). Se regenera desde el servidor en Hetzner → pestaña **Rescue** → **Reset Root Password**.
+
+**Reglas de la consola web (VNC) de Hetzner** (verificado empíricamente):
+- **Nunca pegar bloques largos**: el pegado corrompe los caracteres `>`, `&` y `_` (y los returns).
+- Un comando = una línea = un Enter. Para guiones bajos usar **TAB** (autocompletado); para espacios dentro de `sed`, comillas simples (funcionan) o el `.` como comodín **solo en el patrón** (jamás en el reemplazo: ese fue el bug que paró sshd).
+- Sí sobreviven al pegado: letras/mayúsculas, espacios, `.`, `/`, `-`, comillas simples.
+
+---
+
 ### Nota sobre `.env.example`
 
 La regla `.env.*` del `.gitignore` lo ignora (el archivo quedó bloqueado por un
