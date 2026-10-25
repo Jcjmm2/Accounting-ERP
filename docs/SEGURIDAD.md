@@ -41,10 +41,11 @@
 5. **Security → Bots → Bot Fight Mode** → ON.
 6. **Security → WAF** → activar las reglas gratuitas disponibles en tu plan.
 7. *(Opcional, cupo gratis)* Rate limiting rules en CF como segunda capa.
-8. **Tras activar el proxy**: completar `Tyted.Frontend/cf-realip.conf` con la
-   lista oficial de rangos (<https://www.cloudflare.com/ips/>) y hacer
-   redeploy — así el rate limit de nginx/API usa la IP del **visitante** y no
-   la del borde de Cloudflare.
+8. ~~Completar `cf-realip.conf`~~ ✅ **Hecho y superado (25/10/2026)**: rangos
+   oficiales cargados; además el proxy de Coolify (Traefik) descartaba el XFF de
+   Cloudflare, así que la IP real se toma ahora de **`CF-Connecting-IP`**
+   (`real_ip_header` en `nginx.conf`) — incidente y verificación en
+   `DESPLEGUE.md` §13 (smoke: `401×10 → 429×2`).
 9. *(Futuro v1.x)* **Turnstile** (CAPTCHA invisible gratis) en el login si el
    rate limiting no bastara.
 

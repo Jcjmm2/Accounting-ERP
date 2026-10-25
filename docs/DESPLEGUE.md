@@ -53,17 +53,17 @@ Coolify se encarga de Traefik (proxy TLS), certificados Let's Encrypt y desplieg
 > `ConnectionStrings__DefaultConnection` **NO** se define: el compose la arma
 > a partir de `POSTGRES_PASSWORD`.
 
-4. **Puertos expuestos**: solo el servicio **web → contenedor 8080**, dominio `tudominio.com`, TLS *Let's Encrypt*. **No exponer `api` ni `postgres`** (la red interna del compose ya lo garantiza).
+4. **Puertos expuestos**: solo el servicio **web → contenedor 8080**, dominio `tyted.net`, TLS *Let's Encrypt*. **No exponer `api` ni `postgres`** (la red interna del compose ya lo garantiza).
 5. **Deploy**.
 
 ## 6. Verificación post-deploy (smoke test E2E)
 
 ```bash
-curl -s https://tudominio.com/health          # {"status":"ok"}
-curl -sI https://tudominio.com/ | grep -iE 'strict-transport|x-frame|x-content'
+curl -s https://tyted.net/health          # {"status":"ok"}
+curl -sI https://tyted.net/ | grep -iE 'strict-transport|x-frame|x-content'
 ```
 
-- Abrir `https://tudominio.com/` → login con `ADMIN_SEED_PASSWORD` → token.
+- Abrir `https://tyted.net/` → login con `ADMIN_SEED_PASSWORD` → token.
 - Fuerza bruta: 12 logins con clave mala → debe aparecer **429**.
 - Coolify → logs de `api`: sin errores (la migración `InitialPostgres` + seed corren solos en la primera petición).
 
@@ -168,6 +168,26 @@ respondía primero → `28P01` del servidor equivocado → la semilla fallaba en
   El contenedor `backup` hace ping tras cada ciclo completo OK usando la variable
   **`BACKUP_PUSH_URL`** (guardada en Coolify) → sin ping en 25 h ⇒ alerta de
   "backup perdido". Éxito del ping visible en los logs del `backup`.
+
+---
+
+## 13. Incidente (Fase A) — rate limit de login sin 429 tras el proxy de Coolify
+
+**Síntoma**: smoke de fuerza bruta en producción → 12×401 y **ningún 429**
+(en local sí respondía 429; `SEGURIDAD.md` lo documentaba).
+
+**Causa raíz**: el `coolify-proxy` (Traefik) descarta la IP del cliente del
+`X-Forwarded-For` de Cloudflare → nginx veía como `$remote_addr` la **IP del borde
+CF (rotativa)** → el limitador de la API particionaba por borde y nunca acumulaba
+10 intentos en la misma partición.
+
+**Solución** (`Tyted.Frontend/nginx.conf`): `real_ip_header CF-Connecting-IP`
+(header que Cloudflare envía en todo request y Traefik no modifica; el peer directo
+es Traefik en red privada → confiable) + campo `cf_ip=` añadido al `log_format`
+para auditoría. Rangos de `cf-realip.conf` se conservan.
+
+**Verificación (25/10/2026)**: logs `…401… cf_ip=190.97.237.152` (IP real estable)
+→ fuerza bruta `401×10 → 429×2` ✓.
 
 ---
 
