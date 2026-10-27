@@ -104,6 +104,22 @@ services:
     entrypoint: ["/bin/sh", "/backup.sh"]
     restart: unless-stopped
 
+  # pgAdmin de gestión — SOLO arranca con: docker compose --profile tools up -d pgadmin
+  pgadmin:
+    image: dpage/pgadmin4:9
+    profiles: ["tools"]
+    environment:
+      PGADMIN_DEFAULT_EMAIL: "admin@tyted.net"
+      PGADMIN_DEFAULT_PASSWORD: "${PGADMIN_PASSWORD:?Falta PGADMIN_PASSWORD (en Coolify)}"
+      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
+    ports:
+      # Solo localhost del servidor: se accede por túnel SSH, nunca expuesto a internet
+      - "127.0.0.1:8888:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    restart: unless-stopped
+
 volumes:
   pgdata:
   backups:
+  pgadmin_data:
