@@ -96,7 +96,7 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
   const totalDebe = lineas.reduce((sum, l) => sum + (parseFloat(l.debe) || 0), 0);
   const totalHaber = lineas.reduce((sum, l) => sum + (parseFloat(l.haber) || 0), 0);
   const diferencia = Math.abs(totalDebe - totalHaber);
-  const cuadrado = diferencia === 0 && totalDebe > 0;
+  const cuadrado = diferencia <= 0.01 && totalDebe > 0;
 
   // --- MANEJO DE LÍNEAS DEL ASIENTO ---
   const agregarLinea = () => setLineas([...lineas, { cuentaId: '', codigoManual: '', debe: '', haber: '' }]);
