@@ -375,8 +375,10 @@ public class CierrePeriodoTrasladoTests
             PeriodoContableId = e.Noviembre.Id,
             NumeroComprobante = "TEST-PREVIA",
             FechaComprobante = new DateTime(2026, 11, 1),
-            Concepto = $"{AsientoContableService.PrefijoAperturaBalance} de una corrida anterior",
+            Concepto = $"{AsientoContableService.PrefijoAperturaBalance} {e.Octubre.Nombre}: de una corrida anterior",
             TipoComprobante = "Apertura",
+            PeriodoOrigenId = e.Octubre.Id,
+            OrigenGeneracion = OrigenGeneracionAsiento.TrasladoApertura,
             Estado = "Aprobado",
             UsuarioId = 1,
             Detalles = new List<AsientoDetalle>
@@ -715,5 +717,107 @@ public class CierrePeriodoTrasladoTests
         Assert.False(await context.AsientosContables.AnyAsync(a =>
             a.PeriodoContableId == enero2028.Id
             && a.Concepto.StartsWith(AsientoContableService.PrefijoAperturaBalance)));
+    }
+
+    [Fact]
+    public async Task ReabrirDiciembre_ConTrasladoDelEjercicio_IndicaOrigenYNoElimina()
+    {
+        await using var context = CrearContexto();
+        var escenario = await CrearTrasladoAnualAsync(context);
+        var diciembre = await context.PeriodosContables.SingleAsync(p =>
+            p.PeriodoPadreId == escenario.Anual.Id && p.Mes == 12);
+        var service = new PeriodoContableService(context, new AsientoContableService(context));
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.ReabrirParaCorreccionAsync(diciembre.Id));
+
+        Assert.Contains("Ejercicio Fiscal 2027", ex.Message);
+        Assert.Contains("Use Recalcular", ex.Message);
+        Assert.True(await context.AsientosContables.AnyAsync(a => a.Id == escenario.Traslado.Id));
+        Assert.True((await context.PeriodosContables.SingleAsync(p => p.Id == diciembre.Id)).Cerrado);
+    }
+
+    [Fact]
+    public async Task RevertirTrasladoApertura_ComprobanteLegado_ReabreSuOrigenReal()
+    {
+        await using var context = CrearContexto();
+        var escenario = await CrearTrasladoAnualAsync(context);
+
+        // Simula el registro existente antes de la migración: sólo concepto.
+        escenario.Traslado.PeriodoOrigenId = null;
+        escenario.Traslado.OrigenGeneracion = OrigenGeneracionAsiento.Manual;
+        await context.SaveChangesAsync();
+
+        var service = new PeriodoContableService(context, new AsientoContableService(context));
+        var resultado = await service.RevertirTrasladoAperturaAsync(escenario.Traslado.Id, "tester");
+
+        Assert.True(resultado.TrasladoEliminado);
+        Assert.Equal(escenario.Anual.Id, resultado.PeriodoId);
+        Assert.Equal(12, resultado.SubperiodosReabiertos);
+        Assert.False((await context.PeriodosContables.SingleAsync(p => p.Id == escenario.Anual.Id)).Cerrado);
+        Assert.Equal(0, await context.PeriodosContables.CountAsync(p =>
+            p.PeriodoPadreId == escenario.Anual.Id && p.Cerrado));
+        Assert.False(await context.AsientosContables.AnyAsync(a => a.Id == escenario.Traslado.Id));
+    }
+
+    [Fact]
+    public async Task ActualizarAsiento_AperturaAutomatica_SeRechaza()
+    {
+        await using var context = CrearContexto();
+        var escenario = await CrearTrasladoAnualAsync(context);
+        var service = new AsientoContableService(context);
+
+        var ex = await Assert.ThrowsAsync<InvalidOperationException>(() =>
+            service.ActualizarAsientoAsync(escenario.Traslado.Id, escenario.Traslado));
+
+        Assert.Contains("no se modifican manualmente", ex.Message);
+        Assert.True(await context.AsientosContables.AnyAsync(a => a.Id == escenario.Traslado.Id));
+    }
+
+    private static async Task<(PeriodoContable Anual, PeriodoContable EneroSiguiente, AsientoContable Traslado)>
+        CrearTrasladoAnualAsync(TytedContext context)
+    {
+        var e = await SembrarBaseAsync(context, incluirNoviembre: false);
+        var service = new PeriodoContableService(context, new AsientoContableService(context));
+        var anual = await service.CrearEjercicioFiscalCompletoAsync(1, 2027);
+        var enero2028 = await service.CrearPeriodoAsync(new PeriodoContable
+        {
+            EmpresaId = 1,
+            Anio = 2028,
+            Mes = 1,
+            TipoPeriodo = "Mensual",
+            Nombre = "Enero 2028",
+            FechaInicio = new DateTime(2028, 1, 1),
+            FechaFin = new DateTime(2028, 1, 31, 23, 59, 59),
+            Estado = "Abierto"
+        });
+
+        await service.CerrarPeriodoAsync(e.Octubre.Id, "Sistema", false);
+        context.AsientosContables.Add(new AsientoContable
+        {
+            EmpresaId = e.EmpresaId,
+            PeriodoContableId = anual.Id,
+            NumeroComprobante = "MOV-ANUAL",
+            FechaComprobante = new DateTime(2027, 6, 15),
+            Concepto = "Movimiento de prueba 2027",
+            TipoComprobante = "Diario",
+            Estado = "Aprobado",
+            UsuarioId = 1,
+            Detalles = new List<AsientoDetalle>
+            {
+                new() { CuentaContableId = e.Caja.Id, Debe = 300m, Haber = 0m },
+                new() { CuentaContableId = e.Capital.Id, Debe = 0m, Haber = 300m }
+            }
+        });
+        await context.SaveChangesAsync();
+
+        await service.CerrarPeriodoAsync(anual.Id);
+        var traslado = await context.AsientosContables
+            .Include(a => a.Detalles)
+            .SingleAsync(a => a.PeriodoContableId == enero2028.Id
+                && a.TipoComprobante == "Apertura");
+        Assert.Equal(anual.Id, traslado.PeriodoOrigenId);
+        Assert.Equal(OrigenGeneracionAsiento.TrasladoApertura, traslado.OrigenGeneracion);
+        return (anual, enero2028, traslado);
     }
 }

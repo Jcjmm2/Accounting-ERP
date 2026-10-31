@@ -2,8 +2,25 @@ import { useState, useEffect, useContext } from 'react';
 import { ConfigContext } from '../../Context/ConfigContext';
 import { contabilidadApi, mensajeErrorApi } from '../../Services/Contabilidad/ContabilidadApi';
 
+const esTrasladoApertura = (asiento) =>
+  asiento?.tipoComprobante === 'Apertura'
+  && (asiento?.origenGeneracion === 'TrasladoApertura'
+    || String(asiento?.concepto || '').startsWith('APERTURA DE BALANCE'));
+
+const esAsientoAutomatico = (asiento) =>
+  (asiento?.origenGeneracion && asiento.origenGeneracion !== 'Manual')
+  || esTrasladoApertura(asiento)
+  || (asiento?.tipoComprobante === 'Cierre'
+    && String(asiento?.concepto || '').startsWith('CIERRE DE RESULTADOS'));
+
 export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodoActivo: periodoActivoProp }) {
-  const { empresaActiva: empresaActivaContext, periodoActivo: periodoActivoContext, user } = useContext(ConfigContext);
+  const {
+    empresaActiva: empresaActivaContext,
+    periodoActivo: periodoActivoContext,
+    user,
+    seleccionarPeriodo,
+    refrescarContextoContable
+  } = useContext(ConfigContext);
   const empresaActiva = empresaActivaProp ?? empresaActivaContext;
   const periodoActivo = periodoActivoProp ?? periodoActivoContext;
 
@@ -11,6 +28,8 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
   const [vista, setVista] = useState('formulario'); // 'formulario' | 'listado'
   const [modo, setModo] = useState('crear'); // 'crear' | 'editar'
   const [asientoIdEditando, setAsientoIdEditando] = useState(null);
+  const [periodoEditando, setPeriodoEditando] = useState(null);
+  const periodoFormulario = modo === 'editar' && periodoEditando ? periodoEditando : periodoActivo;
 
   // --- ESTADOS DE DATOS (FORMULARIO) ---
   const [fecha, setFecha] = useState(new Date().toISOString().split('T')[0]);
@@ -81,7 +100,11 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
     if (!periodoActivo?.id) return;
     try {
       setCargando(true);
-      const data = await contabilidadApi.getAsientos(periodoActivo.id, empresaActiva?.id);
+      const data = await contabilidadApi.getAsientos(
+        periodoActivo.id,
+        empresaActiva?.id,
+        periodoActivo.tipoPeriodo === 'Anual'
+      );
       setAsientosRegistrados(Array.isArray(data) ? data : (data?.$values || []));
     } catch (error) {
       console.error("Error al cargar asientos:", error);
@@ -111,8 +134,8 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
   //   dentro, si no el primer día).
   const cambiarTipoComprobante = (valor) => {
     setTipoComprobante(valor);
-    const inicio = periodoActivo?.fechaInicio ? periodoActivo.fechaInicio.split('T')[0] : '';
-    const fin = periodoActivo?.fechaFin ? periodoActivo.fechaFin.split('T')[0] : inicio;
+    const inicio = periodoFormulario?.fechaInicio ? periodoFormulario.fechaInicio.split('T')[0] : '';
+    const fin = periodoFormulario?.fechaFin ? periodoFormulario.fechaFin.split('T')[0] : inicio;
     if (valor === 'Apertura' && inicio) {
       setFecha(inicio);
     } else if (valor === 'Cierre' && fin) {
@@ -235,6 +258,7 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
     setLineas([{ cuentaId: '', codigoManual: '', debe: '', haber: '' }, { cuentaId: '', codigoManual: '', debe: '', haber: '' }]);
     setModo('crear');
     setAsientoIdEditando(null);
+    setPeriodoEditando(null);
     setErrorConcepto(false);
   };
 
@@ -255,10 +279,10 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
     if (lineasInvalidas) return alert('⚠️ Una o más líneas tienen montos pero no tienen una cuenta contable válida asociada.');
 
     const empId = Number(empresaActiva?.id ?? 1);
-    const perId = Number(periodoActivo?.id ?? 1);
+    const perId = Number(periodoFormulario?.id ?? 1);
     const usuarioId = Number(user?.id ?? 1);
 
-    if (!empresaActiva?.id || !periodoActivo?.id) {
+    if (!empresaActiva?.id || !periodoFormulario?.id) {
       return alert('⚠️ No hay un contexto contable activo. Seleccione la empresa y el periodo antes de guardar.');
     }
 
@@ -307,6 +331,16 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
   };
 
   const prepararEdicion = (asiento) => {
+    if (esAsientoAutomatico(asiento)) {
+      return alert('🔒 Los comprobantes automáticos no se editan directamente. Use la acción de regeneración o reversión correspondiente.');
+    }
+
+    setPeriodoEditando(asiento.periodoContable || {
+      id: asiento.periodoContableId,
+      nombre: periodoActivo?.nombre,
+      fechaInicio: periodoActivo?.fechaInicio,
+      fechaFin: periodoActivo?.fechaFin
+    });
     setFecha(asiento.fechaComprobante ? asiento.fechaComprobante.split('T')[0] : '');
     setConcepto(asiento.concepto || '');
     setTipoComprobante(asiento.tipoComprobante || 'Diario');
@@ -330,6 +364,37 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
     setAsientoIdEditando(asiento.id);
     setModo('editar');
     setVista('formulario');
+  };
+
+  const revertirTraslado = async (asiento) => {
+    const origenConocido = asiento.periodoOrigen?.nombre || 'el periodo que generó el cierre';
+    const confirmado = window.confirm(
+      `Se revertirá el traslado automático ${asiento.numeroComprobante || `ID-${asiento.id}`}.\n\n` +
+      `Periodo destino: ${asiento.periodoContable?.nombre || periodoActivo?.nombre || '—'}\n` +
+      `Periodo de origen: ${origenConocido}\n\n` +
+      'Se eliminarán este comprobante y sus detalles, y se reabrirá el periodo de origen ' +
+      '(con sus subperiodos si es anual) para que pueda corregir los asientos. ' +
+      'Los asientos manuales no se eliminarán.\n\n¿Continuar?'
+    );
+    if (!confirmado) return;
+
+    try {
+      setCargando(true);
+      const resultado = await contabilidadApi.revertirTrasladoApertura(
+        asiento.id,
+        user?.username || user?.nombre || 'Sistema'
+      );
+      alert(`✅ ${resultado.mensaje}`);
+
+      // Llevar al usuario al periodo que quedó abierto para continuar la corrección.
+      if (seleccionarPeriodo) seleccionarPeriodo(resultado.periodoId);
+      if (refrescarContextoContable) await refrescarContextoContable();
+    } catch (error) {
+      console.error('Error revirtiendo el traslado de apertura:', error);
+      alert(`❌ No se pudo revertir el traslado:\n${mensajeErrorApi(error)}`);
+    } finally {
+      setCargando(false);
+    }
   };
 
   return (
@@ -359,7 +424,7 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
               </h2>
               <div style={{ fontSize: '0.85rem', color: '#94a3b8', textAlign: 'right' }}>
                 <div>🏢 {empresaActiva?.nombre || 'Empresa por defecto'}</div>
-                <div>📅 {periodoActivo?.nombre || 'Periodo por defecto'}</div>
+                <div>📅 {periodoFormulario?.nombre || 'Periodo por defecto'}</div>
               </div>
             </div>
           </div>
@@ -419,9 +484,9 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
                 background: '#052e16', border: '1px solid #16a34a', color: '#86efac',
                 padding: '10px 14px', borderRadius: '8px', marginBottom: '16px', fontSize: '0.85rem'
               }}>
-                🔑 <b>Asiento de APERTURA:</b> fija los <b>SALDOS INICIALES</b> del periodo «{periodoActivo?.nombre || '—'}»
+                🔑 <b>Asiento de APERTURA:</b> fija los <b>SALDOS INICIALES</b> del periodo «{periodoFormulario?.nombre || '—'}»
                 en el Balance de Comprobación — <b>NO</b> se cuenta como movimiento del mes (se registra en el primer
-                día del periodo, {fecha && periodoActivo?.fechaInicio ? periodoActivo.fechaInicio.split('T')[0] : fecha}).
+                día del periodo, {fecha && periodoFormulario?.fechaInicio ? periodoFormulario.fechaInicio.split('T')[0] : fecha}).
                 Sólo puede haber <b>UN</b> asiento de apertura por periodo.
               </div>
             )}
@@ -431,7 +496,7 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
                 padding: '10px 14px', borderRadius: '8px', marginBottom: '16px', fontSize: '0.85rem'
               }}>
                 🔒 <b>Asiento de CIERRE:</b> traspasa los resultados del periodo a patrimonio en su <b>ÚLTIMO día</b>
-                ({fecha && periodoActivo?.fechaFin ? periodoActivo.fechaFin.split('T')[0] : fecha}). A diferencia de la
+                ({fecha && periodoFormulario?.fechaFin ? periodoFormulario.fechaFin.split('T')[0] : fecha}). A diferencia de la
                 apertura, el cierre <b>SÍ es un movimiento</b> del periodo. El sistema lo genera automáticamente al
                 cerrar el periodo (Contabilidad → Periodos); este asiento manual queda para cierres sin asistente.
               </div>
@@ -543,7 +608,10 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
       {vista === 'listado' && (
         <div style={{ background: '#0f172a', borderRadius: '12px', border: '1px solid #334155', overflow: 'hidden' }}>
           <div style={{ padding: '16px', background: '#1e293b', borderBottom: '1px solid #334155', display: 'flex', justifyContent: 'space-between' }}>
-            <h3 style={{ margin: 0, color: '#60a5fa' }}>📋 Comprobantes del Periodo: {periodoActivo?.nombre}</h3>
+            <h3 style={{ margin: 0, color: '#60a5fa' }}>
+              📋 Comprobantes: {periodoActivo?.nombre}
+              {periodoActivo?.tipoPeriodo === 'Anual' ? ' (incluye subperiodos)' : ''}
+            </h3>
             <span style={{color: '#94a3b8', fontSize: '0.85rem'}}>Total: {asientosRegistrados.length} asientos</span>
           </div>
           
@@ -557,6 +625,7 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
                 <thead>
                   <tr style={{ background: '#111827', color: '#93c5fd', textAlign: 'left', position: 'sticky', top: 0 }}>
                     <th style={{ padding: '12px' }}>Fecha</th>
+                    <th style={{ padding: '12px' }}>Periodo</th>
                     <th style={{ padding: '12px' }}>N° Comprobante</th>
                     <th style={{ padding: '12px' }}>Tipo</th>
                     <th style={{ padding: '12px' }}>Concepto</th>
@@ -570,6 +639,9 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
                         onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}
                     >
                       <td style={{ padding: '12px' }}>{new Date(asiento.fechaComprobante).toLocaleDateString()}</td>
+                      <td style={{ padding: '12px', color: '#93c5fd', fontSize: '0.85rem' }}>
+                        {asiento.periodoContable?.nombre || periodoActivo?.nombre || `Periodo ${asiento.periodoContableId}`}
+                      </td>
                       <td style={{ padding: '12px', fontFamily: 'monospace', color: '#fbbf24', fontWeight: 'bold' }}>
                         {asiento.numeroComprobante || `ID-${asiento.id}`}
                       </td>
@@ -578,17 +650,32 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
                           background: asiento.tipoComprobante === 'Apertura' ? '#064e3b' : asiento.tipoComprobante === 'Cierre' ? '#7f1d1d' : '#1e3a8a', 
                           padding: '4px 8px', borderRadius: '6px', fontSize: '0.75rem', color: '#fff', fontWeight: 'bold' 
                         }}>
-                          {asiento.tipoComprobante || 'Diario'}
+                          {esTrasladoApertura(asiento) ? 'Apertura automática' : (asiento.tipoComprobante || 'Diario')}
                         </span>
                       </td>
                       <td style={{ padding: '12px', color: '#e2e8f0' }}>{asiento.concepto}</td>
                       <td style={{ padding: '12px', textAlign: 'center' }}>
-                        <button 
-                          onClick={() => prepararEdicion(asiento)}
-                          style={{ background: '#f59e0b', color: '#000', border: 'none', borderRadius: '6px', padding: '6px 14px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem' }}
-                        >
-                          ✏️️ Editar
-                        </button>
+                        {esTrasladoApertura(asiento) ? (
+                          <button
+                            onClick={() => revertirTraslado(asiento)}
+                            disabled={cargando}
+                            title="Elimina únicamente este traslado automático y reabre el periodo que lo generó"
+                            style={{ background: '#b45309', color: '#fff', border: 'none', borderRadius: '6px', padding: '6px 14px', cursor: cargando ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '0.8rem' }}
+                          >
+                            ↩️ Revertir y reabrir origen
+                          </button>
+                        ) : esAsientoAutomatico(asiento) ? (
+                          <span title="Comprobante derivado: debe regenerarse desde su proceso de origen" style={{ color: '#94a3b8', fontSize: '0.8rem' }}>
+                            🔒 Automático
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => prepararEdicion(asiento)}
+                            style={{ background: '#f59e0b', color: '#000', border: 'none', borderRadius: '6px', padding: '6px 14px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem' }}
+                          >
+                            ✏️️ Editar
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}

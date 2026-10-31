@@ -250,6 +250,7 @@ public class MotorAsientosAutomaticos
             FechaComprobante = venta.FechaVenta,
             Concepto = concepto.Length > 500 ? concepto[..500] : concepto,
             TipoComprobante = "Diario",
+            OrigenGeneracion = OrigenGeneracionAsiento.MotorFiscal,
             Estado = "Aprobado",
             UsuarioId = usuarioId,
             Detalles = lineas
@@ -363,6 +364,7 @@ public class MotorAsientosAutomaticos
             FechaComprobante = resumen.Fecha,
             Concepto = concepto.Length > 500 ? concepto[..500] : concepto,
             TipoComprobante = "Diario",
+            OrigenGeneracion = OrigenGeneracionAsiento.MotorFiscal,
             Estado = "Aprobado",
             UsuarioId = usuarioId,
             Detalles = lineas
@@ -487,6 +489,7 @@ public class MotorAsientosAutomaticos
             FechaComprobante = compra.FechaCompra,
             Concepto = concepto.Length > 500 ? concepto[..500] : concepto,
             TipoComprobante = "Diario",
+            OrigenGeneracion = OrigenGeneracionAsiento.MotorFiscal,
             Estado = "Aprobado",
             UsuarioId = usuarioId,
             Detalles = lineas
@@ -597,6 +600,7 @@ public class MotorAsientosAutomaticos
             FechaComprobante = gasto.Fecha,
             Concepto = concepto.Length > 500 ? concepto[..500] : concepto,
             TipoComprobante = "Diario",
+            OrigenGeneracion = OrigenGeneracionAsiento.MotorFiscal,
             Estado = "Aprobado",
             UsuarioId = usuarioId,
             Detalles = iva > 0m
@@ -689,6 +693,7 @@ public class MotorAsientosAutomaticos
             FechaComprobante = retencion.FechaRetencion,
             Concepto = conceptoTexto.Length > 500 ? conceptoTexto[..500] : conceptoTexto,
             TipoComprobante = "Diario",
+            OrigenGeneracion = OrigenGeneracionAsiento.MotorFiscal,
             Estado = "Aprobado",
             UsuarioId = usuarioId,
             Detalles = lineas
@@ -771,6 +776,7 @@ public class MotorAsientosAutomaticos
             FechaComprobante = fechaReverso,
             Concepto = conceptoTexto.Length > 500 ? conceptoTexto[..500] : conceptoTexto,
             TipoComprobante = "Diario",
+            OrigenGeneracion = OrigenGeneracionAsiento.MotorFiscal,
             Estado = "Aprobado",
             UsuarioId = usuarioId,
             Detalles = lineas
@@ -925,6 +931,7 @@ public class MotorAsientosAutomaticos
             FechaComprobante = retencion.FechaRetencion,
             Concepto = concepto.Length > 500 ? concepto[..500] : concepto,
             TipoComprobante = "Diario",
+            OrigenGeneracion = OrigenGeneracionAsiento.MotorFiscal,
             Estado = "Aprobado",
             UsuarioId = usuarioId,
             Detalles = new List<AsientoDetalle>
@@ -1087,6 +1094,7 @@ public class MotorAsientosAutomaticos
             FechaComprobante = fechaPago,
             Concepto = concepto.Length > 500 ? concepto[..500] : concepto,
             TipoComprobante = "Diario",
+            OrigenGeneracion = OrigenGeneracionAsiento.MotorFiscal,
             Estado = "Aprobado",
             UsuarioId = usuarioId,
             Detalles = lineas

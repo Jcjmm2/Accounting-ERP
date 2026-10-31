@@ -134,8 +134,8 @@ export const contabilidadApi = {
   // ---------------------------------------------------------------------------
   
   // Ahora permite recibir el periodoId y/o el empresaId para filtrar
-  getAsientos: async (periodoId, empresaId) => {
-    const params = {};
+  getAsientos: async (periodoId, empresaId, incluirSubperiodos = false) => {
+    const params = { incluirSubperiodos };
     if (periodoId) params.periodoContableId = periodoId;
     if (empresaId) params.empresaId = empresaId;
     const response = await api.get('/asientos', { params });
@@ -150,6 +150,13 @@ export const contabilidadApi = {
   // NUEVO: Función para actualizar un asiento (comprobante) existente
   actualizarAsiento: async (id, asiento) => {
     const response = await api.put(`/asientos/${id}`, asiento);
+    return response.data;
+  },
+
+  // Revierte exclusivamente una APERTURA DE BALANCE automática: elimina el
+  // traslado y reabre su periodo de origen en la misma transacción.
+  revertirTrasladoApertura: async (id, usuario = 'Sistema') => {
+    const response = await api.post(`/asientos/${id}/revertir-traslado-apertura`, { usuario });
     return response.data;
   },
 

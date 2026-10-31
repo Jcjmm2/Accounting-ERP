@@ -16,29 +16,35 @@ public class AsientosController : ControllerBase
     private readonly EmpresaAccessService _access;
     private readonly TytedContext _context;
     private readonly MotorAsientosAutomaticos _motor;
+    private readonly PeriodoContableService _periodos;
 
     public AsientosController(
         AsientoContableService service,
         EmpresaAccessService access,
         TytedContext context,
-        MotorAsientosAutomaticos motor)
+        MotorAsientosAutomaticos motor,
+        PeriodoContableService periodos)
     {
         _service = service;
         _access = access;
         _context = context;
         _motor = motor;
+        _periodos = periodos;
     }
 
     // MEJORA 1: Se añade el parámetro opcional para filtrar por el periodo activo
     [HttpGet("asientos")]
-    public async Task<ActionResult<List<AsientoContable>>> GetAsientos([FromQuery] int? periodoContableId, [FromQuery] int? empresaId)
+    public async Task<ActionResult<List<AsientoContable>>> GetAsientos(
+        [FromQuery] int? periodoContableId,
+        [FromQuery] int? empresaId,
+        [FromQuery] bool incluirSubperiodos = false)
     {
         // AISLAMIENTO POR EMPRESA
         if (empresaId.HasValue)
             await _access.ValidarAccesoAsync(User, empresaId.Value);
 
         // Filtros opcionales: el frontend puede traer los asientos de un periodo y/o de la empresa activa
-        var asientos = await _service.GetAsientosAsync(periodoContableId, empresaId);
+        var asientos = await _service.GetAsientosAsync(periodoContableId, empresaId, incluirSubperiodos);
         return Ok(asientos);
     }
 
@@ -51,6 +57,18 @@ public class AsientosController : ControllerBase
         {
             return BadRequest(new { message = "El cuerpo de la petición no es un asiento válido. Verifica que 'id' no sea null y que los campos obligatorios estén presentes." });
         }
+
+        // El alta pública siempre es manual. Los procesos automáticos llaman al
+        // servicio internamente y establecen su propio origen trazable.
+        if (AsientoContableService.EsTraspasoApertura(asiento.Concepto)
+            || asiento.Concepto?.StartsWith(AsientoContableService.PrefijoCierreResultados, StringComparison.Ordinal) == true)
+        {
+            return BadRequest(new { message = "Los prefijos de concepto reservados al sistema no pueden utilizarse en un asiento manual." });
+        }
+
+        asiento.OrigenGeneracion = OrigenGeneracionAsiento.Manual;
+        asiento.PeriodoOrigenId = null;
+        asiento.PeriodoOrigen = null;
 
         await _access.ValidarAccesoAsync(User, asiento.EmpresaId);
 
@@ -97,6 +115,39 @@ public class AsientosController : ControllerBase
         catch (Exception ex)
         {
             return BadRequest(new { message = $"Error al actualizar el asiento: {ex.Message}" });
+        }
+    }
+
+    /// <summary>
+    /// Revierte una APERTURA DE BALANCE automática: elimina el traslado y
+    /// reabre el periodo que lo originó dentro de una única transacción.
+    /// </summary>
+    [HttpPost("asientos/{id}/revertir-traslado-apertura")]
+    public async Task<ActionResult<ReabrirParaCorreccionResponse>> RevertirTrasladoApertura(
+        int id,
+        [FromBody] ReversionTrasladoRequest? request)
+    {
+        var empresaId = await _context.AsientosContables
+            .AsNoTracking()
+            .Where(a => a.Id == id)
+            .Select(a => (int?)a.EmpresaId)
+            .FirstOrDefaultAsync();
+
+        if (!empresaId.HasValue)
+            return NotFound(new { message = $"No se encontró el asiento con ID {id}." });
+
+        await _access.ValidarAccesoAsync(User, empresaId.Value);
+
+        try
+        {
+            var resultado = await _periodos.RevertirTrasladoAperturaAsync(
+                id,
+                request?.Usuario ?? "Sistema");
+            return Ok(resultado);
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = ex.Message });
         }
     }
 
@@ -315,7 +366,12 @@ public class RegenerarFiscalResponse
     public List<string> Mensajes { get; set; } = new();
 }
 
-/// <summary>Solicitud de generación del asiento de cierre de resultados.</summary>
+/// <summary>Solicitud de reversión de una apertura trasladada automáticamente.</summary>
+public class ReversionTrasladoRequest
+{
+    public string Usuario { get; set; } = "Sistema";
+}
+
 /// <summary>Solicitud de generación del asiento de cierre de resultados.</summary>
 public class CierreResultadosRequest
 {

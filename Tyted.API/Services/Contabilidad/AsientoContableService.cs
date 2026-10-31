@@ -18,16 +18,31 @@ public class AsientoContableService
         _context = context;
     }
 
-    public async Task<List<AsientoContable>> GetAsientosAsync(int? periodoContableId = null, int? empresaId = null)
+    public async Task<List<AsientoContable>> GetAsientosAsync(
+        int? periodoContableId = null,
+        int? empresaId = null,
+        bool incluirSubperiodos = false)
     {
         var query = _context.AsientosContables
             .Include(a => a.Detalles)
             .ThenInclude(d => d.CuentaContable)
+            .Include(a => a.PeriodoContable)
+            .Include(a => a.PeriodoOrigen)
             .AsQueryable();
 
         if (periodoContableId.HasValue)
         {
-            query = query.Where(a => a.PeriodoContableId == periodoContableId.Value);
+            if (incluirSubperiodos)
+            {
+                // Un ejercicio anual consolida sus comprobantes y los de sus
+                // subperiodos; un periodo mensual conserva el filtro exacto.
+                query = query.Where(a => a.PeriodoContableId == periodoContableId.Value
+                    || a.PeriodoContable!.PeriodoPadreId == periodoContableId.Value);
+            }
+            else
+            {
+                query = query.Where(a => a.PeriodoContableId == periodoContableId.Value);
+            }
         }
 
         if (empresaId.HasValue)
@@ -37,6 +52,7 @@ public class AsientoContableService
 
         return await query
             .OrderByDescending(a => a.FechaComprobante)
+            .ThenByDescending(a => a.Id)
             .ToListAsync();
     }
 
@@ -53,6 +69,32 @@ public class AsientoContableService
 
         if (string.IsNullOrWhiteSpace(asiento.Concepto))
             throw new InvalidOperationException("El concepto (glosa) del asiento es obligatorio.");
+
+        // Compatibilidad con comprobantes históricos y llamadas internas que
+        // todavía sólo usan los prefijos. Los controllers nunca aceptan estos
+        // prefijos como una vía para crear comprobantes automáticos falsos.
+        asiento.OrigenGeneracion ??= OrigenGeneracionAsiento.Manual;
+        if (asiento.OrigenGeneracion == OrigenGeneracionAsiento.Manual
+            && EsTraspasoApertura(asiento.Concepto))
+        {
+            asiento.OrigenGeneracion = OrigenGeneracionAsiento.TrasladoApertura;
+        }
+        else if (asiento.OrigenGeneracion == OrigenGeneracionAsiento.Manual
+            && asiento.Concepto.StartsWith(PrefijoCierreResultados, StringComparison.Ordinal))
+        {
+            asiento.OrigenGeneracion = OrigenGeneracionAsiento.CierreResultados;
+            asiento.PeriodoOrigenId ??= asiento.PeriodoContableId;
+        }
+
+        var origenesValidos = new[]
+        {
+            OrigenGeneracionAsiento.Manual,
+            OrigenGeneracionAsiento.MotorFiscal,
+            OrigenGeneracionAsiento.CierreResultados,
+            OrigenGeneracionAsiento.TrasladoApertura
+        };
+        if (!origenesValidos.Contains(asiento.OrigenGeneracion))
+            throw new InvalidOperationException("El origen de generación del asiento no es válido.");
 
         // 1. Validar existencia y estado del periodo de forma aislada
         var periodo = await _context.PeriodosContables
@@ -135,6 +177,21 @@ public class AsientoContableService
             .FirstOrDefaultAsync(a => a.Id == id);
 
         if (asientoExistente == null) return null;
+
+        if (EsAutomatico(asientoExistente))
+            throw new InvalidOperationException(
+                "Los comprobantes generados por el sistema no se modifican manualmente. " +
+                "Regenere el proceso de origen o revierta el traslado desde sus acciones disponibles.");
+
+        if (asientoActualizado.PeriodoContableId != asientoExistente.PeriodoContableId)
+            throw new InvalidOperationException("No se puede cambiar el periodo contable de un asiento existente.");
+
+        if (string.IsNullOrWhiteSpace(asientoActualizado.Concepto))
+            throw new InvalidOperationException("El concepto (glosa) del asiento modificado es obligatorio.");
+
+        if (EsTraspasoApertura(asientoActualizado.Concepto)
+            || asientoActualizado.Concepto.StartsWith(PrefijoCierreResultados, StringComparison.Ordinal))
+            throw new InvalidOperationException("Los prefijos de concepto reservados al sistema no pueden utilizarse en un asiento manual.");
 
         if (asientoActualizado.Detalles == null || !asientoActualizado.Detalles.Any())
             throw new InvalidOperationException("El asiento modificado debe incluir al menos un detalle.");
@@ -238,6 +295,17 @@ public class AsientoContableService
         (concepto ?? string.Empty).StartsWith(PrefijoAperturaBalance, StringComparison.Ordinal);
 
     /// <summary>
+    /// Reconoce tanto los comprobantes con trazabilidad nueva como los legados
+    /// que todavía sólo tienen el prefijo reservado en su concepto.
+    /// </summary>
+    public static bool EsAutomatico(AsientoContable asiento) =>
+        (!string.IsNullOrWhiteSpace(asiento.OrigenGeneracion)
+            && asiento.OrigenGeneracion != OrigenGeneracionAsiento.Manual)
+        || EsTraspasoApertura(asiento.Concepto)
+        || (asiento.TipoComprobante == "Cierre"
+            && asiento.Concepto.StartsWith(PrefijoCierreResultados, StringComparison.Ordinal));
+
+    /// <summary>
     /// TRUE cuando el asiento es una APERTURA MANUAL de periodo (TipoComprobante
     /// "Apertura" con concepto libre, distinto del traspaso automático
     /// "APERTURA DE BALANCE"). Es el asiento que FIJA LOS SALDOS INICIALES del
@@ -298,6 +366,10 @@ public class AsientoContableService
         string? usuario = null,
         bool regenerar = false)
     {
+        await using var transaccion = _context.Database.IsRelational()
+            ? await _context.Database.BeginTransactionAsync()
+            : null;
+
         var periodo = await _context.PeriodosContables
             .AsNoTracking()
             .FirstOrDefaultAsync(p => p.Id == periodoId)
@@ -425,6 +497,8 @@ public class AsientoContableService
         {
             EmpresaId = empresaId,
             PeriodoContableId = periodoId,
+            PeriodoOrigenId = periodoId,
+            OrigenGeneracion = OrigenGeneracionAsiento.CierreResultados,
             NumeroComprobante = string.Empty,
             FechaComprobante = periodo.FechaFin.Date,
             Concepto = concepto.Length > 500 ? concepto[..500] : concepto,
@@ -434,7 +508,7 @@ public class AsientoContableService
             Detalles = detalles
         });
 
-        return new CierreResultadosResponse
+        var respuesta = new CierreResultadosResponse
         {
             AsientoId = asiento.Id,
             NumeroComprobante = asiento.NumeroComprobante,
@@ -450,6 +524,9 @@ public class AsientoContableService
             CuentaResultadosCreada = creada,
             CantidadDetalles = detalles.Count
         };
+
+        if (transaccion != null) await transaccion.CommitAsync();
+        return respuesta;
     }
 
     /// <summary>

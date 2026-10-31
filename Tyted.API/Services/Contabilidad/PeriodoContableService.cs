@@ -364,6 +364,10 @@ public class PeriodoContableService
         bool trasladarSaldos = true,
         int usuarioId = 1)
     {
+        await using var transaccion = _context.Database.IsRelational()
+            ? await _context.Database.BeginTransactionAsync()
+            : null;
+
         var periodo = await _context.PeriodosContables
             .Include(p => p.SubPeriodos)
             .FirstOrDefaultAsync(p => p.Id == periodoId)
@@ -431,19 +435,41 @@ public class PeriodoContableService
                         $"El traslado no cuadra (Debe {totalDebe:0.00} vs Haber {totalHaber:0.00}): " +
                         "verifique que el Cierre de Resultados del periodo esté generado y que los saldos de las cuentas reales sean consistentes.");
 
-                // Reemplaza un traspaso previo del sistema en el destino.
-                var previo = await _context.AsientosContables
+                // Sólo se reemplaza un traspaso del MISMO origen. Nunca se
+                // elimina una apertura ajena ni se escoge arbitrariamente la
+                // primera cuando el destino tiene más de un traslado.
+                var trasladosDestino = await _context.AsientosContables
                     .Include(a => a.Detalles)
-                    .FirstOrDefaultAsync(a => a.PeriodoContableId == destino.Id
+                    .Include(a => a.PeriodoOrigen)
+                    .Where(a => a.PeriodoContableId == destino.Id
                         && a.EmpresaId == periodo.EmpresaId
                         && a.TipoComprobante == "Apertura"
-                        && a.Concepto.StartsWith(AsientoContableService.PrefijoAperturaBalance));
+                        && (a.OrigenGeneracion == OrigenGeneracionAsiento.TrasladoApertura
+                            || a.Concepto.StartsWith(AsientoContableService.PrefijoAperturaBalance)))
+                    .ToListAsync();
 
+                var previos = trasladosDestino
+                    .Where(a => EsTrasladoDelPeriodo(a, periodo))
+                    .ToList();
+                if (previos.Count > 1)
+                    throw new InvalidOperationException(
+                        $"El periodo «{destino.Nombre}» tiene traslados duplicados originados en «{periodo.Nombre}». " +
+                        "Revise la conciliación antes de volver a cerrar.");
+
+                var ajeno = trasladosDestino.FirstOrDefault(a => !EsTrasladoDelPeriodo(a, periodo));
+                if (ajeno != null)
+                    throw new InvalidOperationException(
+                        $"El periodo «{destino.Nombre}» ya contiene el traslado {ajeno.NumeroComprobante} con otro origen. " +
+                        "Revierta primero ese traslado desde el comprobante para no sustituir una apertura ajena.");
+
+                var previo = previos.SingleOrDefault();
                 if (previo != null)
                 {
                     _context.AsientosDetalles.RemoveRange(previo.Detalles);
                     _context.AsientosContables.Remove(previo);
-                    await _context.SaveChangesAsync();
+                    // Se guarda junto con la nueva apertura y el cierre dentro
+                    // de la misma transacción; no se deja el destino sin saldo
+                    // inicial si falla una operación posterior.
                 }
 
                 var concepto = $"{AsientoContableService.PrefijoAperturaBalance} {periodo.Nombre}: " +
@@ -457,6 +483,8 @@ public class PeriodoContableService
                 {
                     EmpresaId = periodo.EmpresaId,
                     PeriodoContableId = destino.Id,
+                    PeriodoOrigenId = periodo.Id,
+                    OrigenGeneracion = OrigenGeneracionAsiento.TrasladoApertura,
                     NumeroComprobante = string.Empty,
                     FechaComprobante = destino.FechaInicio.Date,
                     Concepto = concepto,
@@ -515,6 +543,8 @@ public class PeriodoContableService
             respuesta.Mensaje = respuesta.TrasladoGenerado
                 ? $"Periodo cerrado y saldos trasladados al periodo «{respuesta.PeriodoDestinoNombre}»."
                 : "Periodo cerrado.";
+
+        if (transaccion != null) await transaccion.CommitAsync();
         return respuesta;
     }
 
@@ -535,13 +565,27 @@ public class PeriodoContableService
             .Select(p => p.Id)
             .ToListAsync();
 
-        var hayTraspasoPosterior = idsPosteriores.Count > 0 && await _context.AsientosContables.AnyAsync(a =>
+        var hayVinculado = idsPosteriores.Count > 0 && await _context.AsientosContables.AnyAsync(a =>
             idsPosteriores.Contains(a.PeriodoContableId)
-            && a.Concepto.StartsWith(AsientoContableService.PrefijoAperturaBalance));
+            && a.PeriodoOrigenId == periodo.Id
+            && a.OrigenGeneracion == OrigenGeneracionAsiento.TrasladoApertura);
 
-        if (hayTraspasoPosterior)
+        var hayLegado = false;
+        if (!hayVinculado && idsPosteriores.Count > 0)
+        {
+            var legados = await _context.AsientosContables
+                .AsNoTracking()
+                .Where(a => idsPosteriores.Contains(a.PeriodoContableId)
+                    && a.PeriodoOrigenId == null
+                    && a.Concepto.StartsWith(AsientoContableService.PrefijoAperturaBalance))
+                .ToListAsync();
+            hayLegado = legados.Any(a => EsTrasladoDelPeriodo(a, periodo));
+        }
+
+        if (hayVinculado || hayLegado)
             throw new InvalidOperationException(
-                "No se puede reabrir el periodo: el sistema ya generó asientos de apertura de balance en periodos posteriores a partir de su cierre. Corrija o reemplace esos traslados antes de reabrir.");
+                "No se puede reabrir el periodo porque su cierre generó una apertura de balance posterior. " +
+                "Use Recalcular o revierta ese traslado desde el comprobante para ejecutar ambas acciones de forma segura.");
 
         periodo.Cerrado = false;
         periodo.Estado = "Abierto";
@@ -550,6 +594,79 @@ public class PeriodoContableService
 
         await _context.SaveChangesAsync();
         return periodo;
+    }
+
+    /// <summary>
+    /// Revierte el traslado identificado por su comprobante y reabre el cierre
+    /// que realmente lo generó. Es la acción usada desde el listado de asientos.
+    /// </summary>
+    public async Task<ReabrirParaCorreccionResponse> RevertirTrasladoAperturaAsync(
+        int asientoId,
+        string usuario = "Sistema")
+    {
+        var traslado = await _context.AsientosContables
+            .AsNoTracking()
+            .FirstOrDefaultAsync(a => a.Id == asientoId)
+            ?? throw new InvalidOperationException("El asiento de apertura indicado no existe.");
+
+        if (traslado.TipoComprobante != "Apertura"
+            || (traslado.OrigenGeneracion != OrigenGeneracionAsiento.TrasladoApertura
+                && !AsientoContableService.EsTraspasoApertura(traslado.Concepto)))
+        {
+            throw new InvalidOperationException(
+                "Sólo se puede revertir una APERTURA DE BALANCE generada por un cierre. " +
+                "Los asientos manuales y operativos no se eliminan mediante esta acción.");
+        }
+
+        var origen = await ResolverPeriodoOrigenTrasladoAsync(traslado)
+            ?? throw new InvalidOperationException(
+                $"No se pudo conciliar el periodo de origen del comprobante {traslado.NumeroComprobante}. " +
+                "El asiento no fue eliminado. Revise su concepto y la auditoría del cierre antes de continuar.");
+
+        return await ReabrirParaCorreccionAsync(origen.Id, usuario, asientoId);
+    }
+
+    /// <summary>
+    /// Resuelve el origen nuevo por FK y el legado por el encabezado exacto del
+    /// concepto o, como respaldo, por la auditoría que contiene el comprobante.
+    /// Nunca devuelve un origen ambiguo.
+    /// </summary>
+    private async Task<PeriodoContable> ResolverPeriodoOrigenTrasladoAsync(AsientoContable traslado)
+    {
+        if (traslado.PeriodoOrigenId.HasValue)
+        {
+            return await _context.PeriodosContables
+                .AsNoTracking()
+                .FirstOrDefaultAsync(p => p.Id == traslado.PeriodoOrigenId.Value
+                    && p.EmpresaId == traslado.EmpresaId);
+        }
+
+        var candidatos = await _context.PeriodosContables
+            .AsNoTracking()
+            .Where(p => p.EmpresaId == traslado.EmpresaId
+                && p.Id != traslado.PeriodoContableId
+                && p.FechaFin.Date < traslado.FechaComprobante.Date)
+            .ToListAsync();
+
+        var porConcepto = candidatos
+            .Where(p => traslado.Concepto.StartsWith(
+                $"{AsientoContableService.PrefijoAperturaBalance} {p.Nombre}:",
+                StringComparison.Ordinal))
+            .ToList();
+        if (porConcepto.Count == 1) return porConcepto[0];
+
+        var auditorias = await _context.AuditoriasContables
+            .AsNoTracking()
+            .Where(a => a.Accion == "Cierre de periodo"
+                && a.Detalle.Contains(traslado.NumeroComprobante))
+            .ToListAsync();
+
+        var porAuditoria = candidatos
+            .Where(p => auditorias.Any(a => a.Detalle.Contains($"Se cerró el periodo «{p.Nombre}»")))
+            .GroupBy(p => p.Id)
+            .Select(g => g.First())
+            .ToList();
+        return porAuditoria.Count == 1 ? porAuditoria[0] : null;
     }
 
     /// <summary>
@@ -571,8 +688,15 @@ public class PeriodoContableService
     /// El periodo y sus subperiodos se reabren en cascada y todo queda
     /// registrado en auditoría.
     /// </summary>
-    public async Task<ReabrirParaCorreccionResponse> ReabrirParaCorreccionAsync(int periodoId, string usuario = "Sistema")
+    public async Task<ReabrirParaCorreccionResponse> ReabrirParaCorreccionAsync(
+        int periodoId,
+        string usuario = "Sistema",
+        int? asientoTrasladoId = null)
     {
+        await using var transaccion = _context.Database.IsRelational()
+            ? await _context.Database.BeginTransactionAsync()
+            : null;
+
         var periodo = await _context.PeriodosContables
             .Include(p => p.SubPeriodos)
             .FirstOrDefaultAsync(p => p.Id == periodoId)
@@ -586,8 +710,47 @@ public class PeriodoContableService
         var respuesta = new ReabrirParaCorreccionResponse
         {
             PeriodoId = periodo.Id,
+            EmpresaId = periodo.EmpresaId,
             Nombre = periodo.Nombre ?? string.Empty
         };
+
+        AsientoContable traslado = null;
+        if (asientoTrasladoId.HasValue)
+        {
+            traslado = await _context.AsientosContables
+                .Include(a => a.Detalles)
+                .Include(a => a.PeriodoOrigen)
+                .FirstOrDefaultAsync(a => a.Id == asientoTrasladoId.Value
+                    && a.EmpresaId == periodo.EmpresaId)
+                ?? throw new InvalidOperationException("El traslado de apertura indicado no existe.");
+
+            var origenReal = await ResolverPeriodoOrigenTrasladoAsync(traslado);
+            if (origenReal == null || origenReal.Id != periodo.Id
+                || !EsTrasladoDelPeriodo(traslado, periodo))
+            {
+                var nombreReal = origenReal?.Nombre ?? "un origen no conciliado";
+                throw new InvalidOperationException(
+                    $"El comprobante {traslado.NumeroComprobante} pertenece a «{nombreReal}», " +
+                    $"no al cierre de «{periodo.Nombre}». No se eliminó ningún asiento.");
+            }
+        }
+        else
+        {
+            // La relación persistida manda sobre cualquier cambio posterior en
+            // el calendario: el destino real no se vuelve a adivinar.
+            var vinculados = await _context.AsientosContables
+                .Include(a => a.Detalles)
+                .Include(a => a.PeriodoOrigen)
+                .Where(a => a.EmpresaId == periodo.EmpresaId
+                    && a.PeriodoOrigenId == periodo.Id
+                    && a.OrigenGeneracion == OrigenGeneracionAsiento.TrasladoApertura)
+                .ToListAsync();
+            if (vinculados.Count > 1)
+                throw new InvalidOperationException(
+                    $"El periodo «{periodo.Nombre}» tiene varios traslados vinculados. " +
+                    "Revierta el comprobante concreto que desea corregir.");
+            traslado = vinculados.SingleOrDefault();
+        }
 
         // 1) Periodo siguiente que recibió el traslado (mismo criterio de
         //    selección que CerrarPeriodoAsync: menor fecha, mensual en empate).
@@ -598,11 +761,15 @@ public class PeriodoContableService
                         && p.FechaInicio.Date > periodo.FechaFin.Date)
             .ToListAsync();
 
-        var destino = candidatos
-            .OrderBy(p => p.FechaInicio)
-            .ThenBy(p => string.Equals(p.TipoPeriodo, "Mensual", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
-            .ThenBy(p => p.Id)
-            .FirstOrDefault();
+        var destino = traslado != null
+            ? await _context.PeriodosContables
+                .AsNoTracking()
+                .FirstOrDefaultAsync(p => p.Id == traslado.PeriodoContableId)
+            : candidatos
+                .OrderBy(p => p.FechaInicio)
+                .ThenBy(p => string.Equals(p.TipoPeriodo, "Mensual", StringComparison.OrdinalIgnoreCase) ? 0 : 1)
+                .ThenBy(p => p.Id)
+                .FirstOrDefault();
 
         if (destino != null)
         {
@@ -615,6 +782,7 @@ public class PeriodoContableService
             //    sistema: cualquier movimiento propio invalida la cadena de
             //    saldos acumulados que depende del cierre que se va a rehacer.
             var idsPosteriores = candidatos.Select(p => p.Id).ToList();
+            if (!idsPosteriores.Contains(destino.Id)) idsPosteriores.Add(destino.Id);
             var movimientosPropios = await _context.AsientosContables
                 .AsNoTracking()
                 .Where(a => a.EmpresaId == periodo.EmpresaId
@@ -630,27 +798,51 @@ public class PeriodoContableService
                     "Recalcular dejaría el saldo inicial del periodo siguiente inconsistente con esos movimientos. " +
                     "Anule o elimine primero esos asientos (o rehaga el cierre del periodo siguiente) y vuelva a intentar.");
 
-            // 3) Traslado generado por el sistema en el destino: DEBE referir
-            //    este periodo en su concepto (nunca se elimina un traslado ajeno).
-            var traslado = await _context.AsientosContables
-                .Include(a => a.Detalles)
-                .FirstOrDefaultAsync(a => a.PeriodoContableId == destino.Id
-                    && a.EmpresaId == periodo.EmpresaId
-                    && a.TipoComprobante == "Apertura"
-                    && a.Concepto.StartsWith(AsientoContableService.PrefijoAperturaBalance));
+            // 3) Resolver el traslado exacto. Si se llegó desde un periodo que
+            //    no es su origen, se informa cuál debe recalcularse en vez de
+            //    emitir un bloqueo genérico o borrar una apertura ajena.
+            if (traslado == null)
+            {
+                var trasladosDestino = await _context.AsientosContables
+                    .Include(a => a.Detalles)
+                    .Include(a => a.PeriodoOrigen)
+                    .Where(a => a.PeriodoContableId == destino.Id
+                        && a.EmpresaId == periodo.EmpresaId
+                        && a.TipoComprobante == "Apertura"
+                        && (a.OrigenGeneracion == OrigenGeneracionAsiento.TrasladoApertura
+                            || a.Concepto.StartsWith(AsientoContableService.PrefijoAperturaBalance)))
+                    .ToListAsync();
+
+                var propios = trasladosDestino.Where(a => EsTrasladoDelPeriodo(a, periodo)).ToList();
+                if (propios.Count > 1)
+                    throw new InvalidOperationException(
+                        $"Existen varios traslados de «{periodo.Nombre}» hacia «{destino.Nombre}». " +
+                        "Concilie los duplicados antes de reabrir el periodo.");
+
+                traslado = propios.SingleOrDefault();
+                if (traslado == null && trasladosDestino.Count > 0)
+                {
+                    var otro = trasladosDestino[0];
+                    var origenReal = await ResolverPeriodoOrigenTrasladoAsync(otro);
+                    if (origenReal != null)
+                        throw new InvalidOperationException(
+                            $"El comprobante {otro.NumeroComprobante} de «{destino.Nombre}» fue generado por " +
+                            $"«{origenReal.Nombre}», no por «{periodo.Nombre}». Use Recalcular en «{origenReal.Nombre}» " +
+                            "o revierta el traslado directamente desde ese comprobante.");
+
+                    throw new InvalidOperationException(
+                        $"El asiento «{otro.NumeroComprobante}» de «{destino.Nombre}» es un traslado de apertura " +
+                        $"que no referencia al periodo «{periodo.Nombre}»: no se puede eliminar. Verifique el origen del traslado.");
+                }
+            }
 
             if (traslado != null)
             {
-                var nombreOrigen = periodo.Nombre ?? string.Empty;
-                if (!string.IsNullOrWhiteSpace(nombreOrigen) && !traslado.Concepto.Contains(nombreOrigen))
-                    throw new InvalidOperationException(
-                        $"El asiento «{traslado.NumeroComprobante}» de «{destino.Nombre}» es un traslado de apertura " +
-                        $"que no referencia al periodo «{nombreOrigen}»: no se puede eliminar. Verifique el origen del traslado.");
-
                 _context.AsientosDetalles.RemoveRange(traslado.Detalles);
                 _context.AsientosContables.Remove(traslado);
                 respuesta.TrasladoEliminado = true;
                 respuesta.NumeroComprobanteTraslado = traslado.NumeroComprobante;
+                respuesta.PeriodoDestinoId = destino.Id;
                 respuesta.PeriodoDestinoNombre = destino.Nombre ?? string.Empty;
             }
         }
@@ -692,7 +884,20 @@ public class PeriodoContableService
         respuesta.Mensaje = respuesta.TrasladoEliminado
             ? $"Periodo «{periodo.Nombre}» reabierto; traslado {respuesta.NumeroComprobanteTraslado} eliminado de «{respuesta.PeriodoDestinoNombre}». Corrija los asientos y vuelva a cerrar y trasladar."
             : $"Periodo «{periodo.Nombre}» reabierto para corrección. Corrija los asientos y vuelva a cerrar y trasladar.";
+
+        if (transaccion != null) await transaccion.CommitAsync();
         return respuesta;
+    }
+
+    private static bool EsTrasladoDelPeriodo(AsientoContable traslado, PeriodoContable periodo)
+    {
+        if (traslado.PeriodoOrigenId.HasValue)
+            return traslado.PeriodoOrigenId.Value == periodo.Id;
+
+        // Compatibilidad estricta para los conceptos generados antes de existir
+        // PeriodoOrigenId. No basta con Contains: debe coincidir el encabezado.
+        var encabezado = $"{AsientoContableService.PrefijoAperturaBalance} {periodo.Nombre}:";
+        return traslado.Concepto.StartsWith(encabezado, StringComparison.Ordinal);
     }
 
     /// <summary>
@@ -844,11 +1049,14 @@ public class EliminacionPeriodoResponse
 public class ReabrirParaCorreccionResponse
 {
     public int PeriodoId { get; set; }
+    public int EmpresaId { get; set; }
     public string Nombre { get; set; } = string.Empty;
     /// <summary>TRUE cuando se eliminó el traslado de apertura del destino.</summary>
     public bool TrasladoEliminado { get; set; }
     /// <summary>Comprobante del asiento «APERTURA DE BALANCE» eliminado.</summary>
     public string NumeroComprobanteTraslado { get; set; } = string.Empty;
+    /// <summary>Id del periodo que recibía el traslado.</summary>
+    public int PeriodoDestinoId { get; set; }
     /// <summary>Nombre del periodo que recibía el traslado.</summary>
     public string PeriodoDestinoNombre { get; set; } = string.Empty;
     /// <summary>Cantidad de subperiodos reabiertos en cascada.</summary>

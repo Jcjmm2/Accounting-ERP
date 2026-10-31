@@ -3,6 +3,18 @@ using System.ComponentModel.DataAnnotations.Schema;
 
 namespace Tyted.API.Models;
 
+/// <summary>
+/// Identifica el proceso que originó el comprobante. El concepto queda para
+/// presentación; la titularidad y las reglas de edición usan estos valores.
+/// </summary>
+public static class OrigenGeneracionAsiento
+{
+    public const string Manual = "Manual";
+    public const string MotorFiscal = "MotorFiscal";
+    public const string CierreResultados = "CierreResultados";
+    public const string TrasladoApertura = "TrasladoApertura";
+}
+
 public class AsientoContable
 {
     [Key]
@@ -13,6 +25,12 @@ public class AsientoContable
 
     [Required]
     public int PeriodoContableId { get; set; }
+
+    /// <summary>Periodo cuyo cierre generó este comprobante, si aplica.</summary>
+    public int? PeriodoOrigenId { get; set; }
+
+    [Required, StringLength(30)]
+    public string OrigenGeneracion { get; set; } = OrigenGeneracionAsiento.Manual;
 
     [Required, StringLength(20)]
     public string NumeroComprobante { get; set; } = string.Empty;
@@ -36,6 +54,9 @@ public class AsientoContable
 
     [ForeignKey(nameof(PeriodoContableId))]
     public PeriodoContable? PeriodoContable { get; set; }
+
+    [ForeignKey(nameof(PeriodoOrigenId))]
+    public PeriodoContable? PeriodoOrigen { get; set; }
 
     public decimal TotalDebe { get; set; }
 

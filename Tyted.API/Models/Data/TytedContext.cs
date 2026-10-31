@@ -163,6 +163,21 @@ public DbSet<ResumenVentaFiscalDetalle> ResumenesVentasFiscalesDetalles { get; s
                 .HasForeignKey(a => a.PeriodoContableId)
                 .OnDelete(DeleteBehavior.Restrict);
 
+            // Trazabilidad del traslado automático: el periodo de origen es una
+            // relación real, no un nombre que deba inferirse desde el concepto.
+            modelBuilder.Entity<AsientoContable>()
+                .HasOne(a => a.PeriodoOrigen)
+                .WithMany()
+                .HasForeignKey(a => a.PeriodoOrigenId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            modelBuilder.Entity<AsientoContable>()
+                .HasIndex(a => a.PeriodoOrigenId);
+
+            modelBuilder.Entity<AsientoContable>()
+                .Property(a => a.OrigenGeneracion)
+                .HasDefaultValue(OrigenGeneracionAsiento.Manual);
+
             // --- FISCAL: CONCEPTOS DE OPERACIÓN (puente UI ↔ plan de cuentas) ---
             modelBuilder.Entity<ConceptoOperacional>()
                 .HasIndex(c => new { c.EmpresaId, c.NombreConcepto })

@@ -149,7 +149,8 @@ public class AsientoRegistroTests
             new AsientoContableService(context),
             new EmpresaAccessService(context),
             context,
-            new MotorAsientosAutomaticos(context, new AsientoContableService(context), new MappingContable()));
+            new MotorAsientosAutomaticos(context, new AsientoContableService(context), new MappingContable()),
+            new PeriodoContableService(context, new AsientoContableService(context)));
 
         var resultado = await controller.CrearAsiento(null!);
 
@@ -162,16 +163,31 @@ public class AsientoRegistroTests
     {
         await using var context = CrearContexto();
 
+        var periodo1 = new PeriodoContable
+        {
+            EmpresaId = 1, Anio = 2026, Mes = 10, Nombre = "Octubre 2026",
+            TipoPeriodo = "Mensual", FechaInicio = new DateTime(2026, 10, 1),
+            FechaFin = new DateTime(2026, 10, 31), Estado = "Abierto"
+        };
+        var periodo2 = new PeriodoContable
+        {
+            EmpresaId = 2, Anio = 2026, Mes = 10, Nombre = "Octubre 2026",
+            TipoPeriodo = "Mensual", FechaInicio = new DateTime(2026, 10, 1),
+            FechaFin = new DateTime(2026, 10, 31), Estado = "Abierto"
+        };
+        context.PeriodosContables.AddRange(periodo1, periodo2);
+        await context.SaveChangesAsync();
+
         context.AsientosContables.AddRange(
             new AsientoContable
             {
-                EmpresaId = 1, PeriodoContableId = 1, NumeroComprobante = "A-1",
+                EmpresaId = 1, PeriodoContableId = periodo1.Id, NumeroComprobante = "A-1",
                 FechaComprobante = new DateTime(2026, 10, 2), Concepto = "Empresa 1",
                 TipoComprobante = "Diario", Estado = "Aprobado", UsuarioId = 1
             },
             new AsientoContable
             {
-                EmpresaId = 2, PeriodoContableId = 2, NumeroComprobante = "A-2",
+                EmpresaId = 2, PeriodoContableId = periodo2.Id, NumeroComprobante = "A-2",
                 FechaComprobante = new DateTime(2026, 10, 3), Concepto = "Empresa 2",
                 TipoComprobante = "Diario", Estado = "Aprobado", UsuarioId = 1
             });
@@ -184,5 +200,40 @@ public class AsientoRegistroTests
         Assert.Single(asientosEmpresa1);
         Assert.Equal("Empresa 1", asientosEmpresa1[0].Concepto);
         Assert.Equal(2, todos.Count);
+    }
+
+    [Fact]
+    public async Task GetAsientos_EjercicioAnual_IncluyeSubperiodosCuandoSeSolicita()
+    {
+        await using var context = CrearContexto();
+        var (mensual, debe, haber) = await SembrarBaseAsync(context);
+        var anual = new PeriodoContable
+        {
+            EmpresaId = 1,
+            Anio = 2026,
+            Mes = null,
+            Nombre = "Ejercicio Fiscal 2026",
+            TipoPeriodo = "Anual",
+            FechaInicio = new DateTime(2026, 1, 1),
+            FechaFin = new DateTime(2026, 12, 31, 23, 59, 59),
+            Estado = "Abierto"
+        };
+        context.PeriodosContables.Add(anual);
+        await context.SaveChangesAsync();
+        mensual.PeriodoPadreId = anual.Id;
+
+        context.AsientosContables.AddRange(
+            NuevoAsiento(1, anual, debe, haber),
+            NuevoAsiento(1, mensual, debe, haber));
+        await context.SaveChangesAsync();
+
+        var service = new AsientoContableService(context);
+        var soloAnual = await service.GetAsientosAsync(anual.Id, 1);
+        var consolidado = await service.GetAsientosAsync(anual.Id, 1, incluirSubperiodos: true);
+
+        Assert.Single(soloAnual);
+        Assert.Equal(2, consolidado.Count);
+        Assert.Contains(consolidado, a => a.PeriodoContableId == mensual.Id);
+        Assert.All(consolidado, a => Assert.NotNull(a.PeriodoContable));
     }
 }

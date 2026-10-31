@@ -82,7 +82,16 @@ namespace Tyted.API.Migrations
                         .HasMaxLength(20)
                         .HasColumnType("character varying(20)");
 
+                    b.Property<string>("OrigenGeneracion")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)")
+                        .HasDefaultValue("Manual");
+
                     b.Property<int>("PeriodoContableId")
+                        .HasColumnType("integer");
+
+                    b.Property<int?>("PeriodoOrigenId")
                         .HasColumnType("integer");
 
                     b.Property<string>("TipoComprobante")
@@ -102,6 +111,8 @@ namespace Tyted.API.Migrations
                     b.HasKey("Id");
 
                     b.HasIndex("PeriodoContableId");
+
+                    b.HasIndex("PeriodoOrigenId");
 
                     b.ToTable("AsientosContables");
                 });
@@ -1785,7 +1796,14 @@ namespace Tyted.API.Migrations
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
 
+                    b.HasOne("Tyted.API.Models.PeriodoContable", "PeriodoOrigen")
+                        .WithMany()
+                        .HasForeignKey("PeriodoOrigenId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
                     b.Navigation("PeriodoContable");
+
+                    b.Navigation("PeriodoOrigen");
                 });
 
             modelBuilder.Entity("Tyted.API.Models.AsientoDetalle", b =>
