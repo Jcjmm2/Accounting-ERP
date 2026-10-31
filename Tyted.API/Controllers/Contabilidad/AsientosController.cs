@@ -119,6 +119,33 @@ public class AsientosController : ControllerBase
     }
 
     /// <summary>
+    /// Elimina un asiento MANUAL: solo comprobantes propios (no traslados del
+    /// sistema ni asientos del motor fiscal), periodo ABIERTO y empresa
+    /// coincidente. Se registra auditoría de la eliminación.
+    /// </summary>
+    [HttpDelete("asientos/{id}")]
+    public async Task<IActionResult> EliminarAsiento(int id, [FromQuery] int empresaId, [FromQuery] string? usuario = null)
+    {
+        if (empresaId <= 0)
+            return BadRequest(new { message = "Indique la empresa (empresaId)." });
+
+        await _access.ValidarAccesoAsync(User, empresaId);
+
+        try
+        {
+            var eliminado = await _service.EliminarAsientoAsync(id, empresaId, usuario ?? "Sistema");
+            if (!eliminado)
+                return NotFound(new { message = $"No se encontró el asiento con ID {id}." });
+
+            return Ok(new { message = $"El asiento con ID {id} fue eliminado correctamente." });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+    }
+
+    /// <summary>
     /// Revierte una APERTURA DE BALANCE automática: elimina el traslado y
     /// reabre el periodo que lo originó dentro de una única transacción.
     /// </summary>

@@ -178,10 +178,18 @@ public class AsientoContableService
 
         if (asientoExistente == null) return null;
 
-        if (EsAutomatico(asientoExistente))
+        // No se pueden modificar traslados automáticos de saldos generados por
+        // el cierre de OTRO periodo ( TrasladoApertura ) ni asientos del motor
+        // fiscal (vinculados a documentos de venta/compra/gasto). Sí se pueden
+        // editar aperturas manuales y cierres propios mientras el periodo esté abierto.
+        if (asientoExistente.OrigenGeneracion == OrigenGeneracionAsiento.TrasladoApertura
+            || asientoExistente.OrigenGeneracion == OrigenGeneracionAsiento.MotorFiscal
+            || EsTraspasoApertura(asientoExistente.Concepto))
+        {
             throw new InvalidOperationException(
-                "Los comprobantes generados por el sistema no se modifican manualmente. " +
+                "Los comprobantes generados automáticamente por el sistema no se modifican manualmente. " +
                 "Regenere el proceso de origen o revierta el traslado desde sus acciones disponibles.");
+        }
 
         if (asientoActualizado.PeriodoContableId != asientoExistente.PeriodoContableId)
             throw new InvalidOperationException("No se puede cambiar el periodo contable de un asiento existente.");
@@ -261,6 +269,62 @@ public class AsientoContableService
 
         await _context.SaveChangesAsync();
         return asientoExistente;
+    }
+
+    /// <summary>
+    /// Elimina un asiento MANUAL: solo se pueden borrar asientos propios (no
+    /// traslados del sistema ni asientos del motor fiscal), el periodo debe
+    /// estar ABIERTO y se registra auditoría de la eliminación.
+    /// </summary>
+    public async Task<bool> EliminarAsientoAsync(int id, int empresaId, string usuario)
+    {
+        var asiento = await _context.AsientosContables
+            .Include(a => a.Detalles)
+            .FirstOrDefaultAsync(a => a.Id == id)
+            ?? throw new InvalidOperationException($"No se encontró el asiento con ID {id}.");
+
+        if (asiento.EmpresaId != empresaId)
+            throw new InvalidOperationException("El asiento no pertenece a la empresa activa.");
+
+        // Solo se eliminan asientos manuales. Los traslados del sistema
+        // (TrasladoApertura) y los asientos del motor fiscal (MotorFiscal)
+        // deben revertirse/regenerarse desde su proceso de origen.
+        if (asiento.OrigenGeneracion == OrigenGeneracionAsiento.TrasladoApertura
+            || asiento.OrigenGeneracion == OrigenGeneracionAsiento.MotorFiscal
+            || EsTraspasoApertura(asiento.Concepto))
+        {
+            throw new InvalidOperationException(
+                "No se puede eliminar un comprobante generado automáticamente por el sistema. " +
+                "Use la acción de reversión o regeneración correspondiente desde el origen.");
+        }
+
+        var periodo = await _context.PeriodosContables
+            .AsNoTracking()
+            .FirstOrDefaultAsync(p => p.Id == asiento.PeriodoContableId)
+            ?? throw new InvalidOperationException("El periodo contable del asiento no existe.");
+
+        if (periodo.Cerrado || string.Equals(periodo.Estado, "Cerrado", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("No se puede eliminar un asiento que pertenece a un periodo cerrado.");
+
+        _context.AsientosDetalles.RemoveRange(asiento.Detalles);
+        _context.AsientosContables.Remove(asiento);
+
+        var usuarioNombre = await _context.Usuarios.AsNoTracking()
+            .Where(u => u.Id == asiento.UsuarioId)
+            .Select(u => u.Username)
+            .FirstOrDefaultAsync() ?? usuario;
+
+        _context.AuditoriasContables.Add(new AuditoriaContable
+        {
+            Fecha = DateTime.Now,
+            Usuario = usuarioNombre,
+            Accion = "Eliminación de asiento",
+            Detalle = $"Se eliminó el asiento {asiento.NumeroComprobante} del periodo «{periodo.Nombre ?? asiento.PeriodoContableId.ToString()}» (concepto: {asiento.Concepto}).",
+            AsientoContableId = asiento.Id
+        });
+
+        await _context.SaveChangesAsync();
+        return true;
     }
 
     // ---------------------------------------------------------------------------

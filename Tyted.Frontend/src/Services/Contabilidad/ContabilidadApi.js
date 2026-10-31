@@ -160,6 +160,15 @@ export const contabilidadApi = {
     return response.data;
   },
 
+  // Elimina un asiento MANUAL (solo comprobantes propios, periodo abierto).
+  // Requiere empresaId para validar el acceso a la empresa.
+  eliminarAsiento: async (id, empresaId, usuario = 'Sistema') => {
+    const response = await api.delete(`/asientos/${id}`, {
+      params: { empresaId, usuario }
+    });
+    return response.data;
+  },
+
   // Genera el asiento de cierre que traslada el resultado del periodo
   // (utilidad o pérdida) a la cuenta de patrimonio "Resultados del ejercicio".
   // Si el periodo ya tiene un cierre generado por el sistema, el backend

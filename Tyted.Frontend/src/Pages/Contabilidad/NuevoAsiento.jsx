@@ -50,6 +50,9 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
   const [asientosRegistrados, setAsientosRegistrados] = useState([]);
   const [cargando, setCargando] = useState(true);
   const [errorCuentas, setErrorCuentas] = useState(null);
+  // Estados para eliminación con doble confirmación
+  const [deleteConfirmId, setDeleteConfirmId] = useState(null);
+  const [deleteConfirmStep, setDeleteConfirmStep] = useState(1); // 1 = primera, 2 = segunda
 
   // 1. CARGA DE CUENTAS DE LA EMPRESA ACTIVA (selector único): se recargan
   // al cambiar de empresa para no mostrar cuentas de otra compañía.
@@ -260,6 +263,8 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
     setAsientoIdEditando(null);
     setPeriodoEditando(null);
     setErrorConcepto(false);
+    setDeleteConfirmId(null);
+    setDeleteConfirmStep(1);
   };
 
   // --- FUNCIONES DE GUARDADO ---
@@ -279,11 +284,22 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
     if (lineasInvalidas) return alert('⚠️ Una o más líneas tienen montos pero no tienen una cuenta contable válida asociada.');
 
     const empId = Number(empresaActiva?.id ?? 1);
-    const perId = Number(periodoFormulario?.id ?? 1);
     const usuarioId = Number(user?.id ?? 1);
 
     if (!empresaActiva?.id || !periodoFormulario?.id) {
       return alert('⚠️ No hay un contexto contable activo. Seleccione la empresa y el periodo antes de guardar.');
+    }
+
+    // No se permiten asientos directamente en un ejercicio anual (padre). El
+    // asiento debe registrar contra el subperiodo mensual que contenga la
+    // fecha del comprobante.
+    let perId = Number(periodoFormulario.id ?? 1);
+    if (periodoFormulario.tipoPeriodo === 'Anual') {
+      return alert(
+        '⚠️ No se pueden registrar asientos directamente en un ejercicio anual.\n' +
+        'Seleccione el subperiodo mensual (Enero, Febrero, etc.) desde el selector de periodo ' +
+        'y vuelva a intentar.'
+      );
     }
 
     const payload = {
@@ -331,8 +347,21 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
   };
 
   const prepararEdicion = (asiento) => {
+    // Los traslados automáticos de saldo generados por el cierre de OTRO
+    // periodo no se editan: hay que revertirlos y reabrir su origen.
+    if (esTrasladoApertura(asiento)) {
+      return alert(
+        '🔒 Este asiento es un traslado automático de saldo generado por un cierre. ' +
+        'Use «↩️ Revertir y reabrir origen» para eliminarlo y reabrir el periodo de origen.'
+      );
+    }
+    // Otros comprobantes automáticos (motor fiscal, cierre de resultados del
+    // sistema) no se editan directamente.
     if (esAsientoAutomatico(asiento)) {
-      return alert('🔒 Los comprobantes automáticos no se editan directamente. Use la acción de regeneración o reversión correspondiente.');
+      return alert(
+        '🔒 Los comprobantes automáticos no se editan directamente. ' +
+        'Use la acción de regeneración o reversión correspondiente.'
+      );
     }
 
     setPeriodoEditando(asiento.periodoContable || {
@@ -394,6 +423,61 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
       alert(`❌ No se pudo revertir el traslado:\n${mensajeErrorApi(error)}`);
     } finally {
       setCargando(false);
+    }
+  };
+
+  // Elimina un comprobante MANUAL con doble confirmación de seguridad.
+  const eliminarComprobante = async (asiento) => {
+    // Paso 1: primera confirmación
+    if (deleteConfirmStep === 1 && deleteConfirmId !== asiento.id) {
+      const confirmado1 = window.confirm(
+        `¿Eliminar el comprobante ${asiento.numeroComprobante || `ID-${asiento.id}`}?\n\n` +
+        `Concepto: ${asiento.concepto || '—'}\n` +
+        `Periodo: ${asiento.periodoContable?.nombre || periodoActivo?.nombre || '—'}\n\n` +
+        'Esta acción borrará el asiento y todos sus detalles contables.\n\n' +
+        '¿Desea continuar?'
+      );
+      if (!confirmado1) return;
+      setDeleteConfirmId(asiento.id);
+      setDeleteConfirmStep(2);
+      return;
+    }
+
+    // Paso 2: segunda confirmación de seguridad
+    if (deleteConfirmStep === 2 && deleteConfirmId === asiento.id) {
+      const confirmado2 = window.confirm(
+        '⚠️ CONFIRMACIÓN FINAL DE SEGURIDAD ⚠️\n\n' +
+        `Está a punto de ELIMINAR definitivamente el comprobante ${asiento.numeroComprobante || `ID-${asiento.id}`}.\n\n` +
+        'Esta acción NO se puede deshacer. Afectará el saldo del periodo y los reportes contables.\n\n' +
+        '¿Está absolutamente seguro de que desea eliminar este comprobante?'
+      );
+      if (!confirmado2) {
+        // Cancelar: volver al paso 1
+        setDeleteConfirmStep(1);
+        return;
+      }
+
+      try {
+        setCargando(true);
+        await contabilidadApi.eliminarAsiento(
+          asiento.id,
+          Number(empresaActiva?.id ?? 1),
+          user?.username || user?.nombre || 'Sistema'
+        );
+        alert('✅ Comprobante eliminado correctamente.');
+        setDeleteConfirmId(null);
+        setDeleteConfirmStep(1);
+        // Recargar el listado
+        await cargarAsientosDelPeriodo();
+        if (refrescarContextoContable) await refrescarContextoContable();
+      } catch (error) {
+        console.error('Error eliminando comprobante:', error);
+        alert(`❌ No se pudo eliminar el comprobante:\n${mensajeErrorApi(error)}`);
+        setDeleteConfirmStep(1);
+      } finally {
+        setCargando(false);
+      }
+      return;
     }
   };
 
@@ -669,12 +753,22 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
                             🔒 Automático
                           </span>
                         ) : (
-                          <button
-                            onClick={() => prepararEdicion(asiento)}
-                            style={{ background: '#f59e0b', color: '#000', border: 'none', borderRadius: '6px', padding: '6px 14px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.85rem' }}
-                          >
-                            ✏️️ Editar
-                          </button>
+                          <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
+                            <button
+                              onClick={() => prepararEdicion(asiento)}
+                              style={{ background: '#f59e0b', color: '#000', border: 'none', borderRadius: '6px', padding: '6px 12px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.8rem' }}
+                            >
+                              ✏️ Editar
+                            </button>
+                            <button
+                              onClick={() => eliminarComprobante(asiento)}
+                              disabled={cargando}
+                              title="Eliminar comprobante (doble confirmación)"
+                              style={{ background: '#7f1d1d', color: '#fff', border: 'none', borderRadius: '6px', padding: '6px 12px', cursor: cargando ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '0.8rem' }}
+                            >
+                              🗑️
+                            </button>
+                          </div>
                         )}
                       </td>
                     </tr>
