@@ -202,7 +202,8 @@ public class AsientosController : ControllerBase
                 request.EmpresaId,
                 request.UsuarioId,
                 request.Usuario,
-                request.Regenerar);
+                request.Regenerar,
+                request.CuentaResultadosId);
 
             return Ok(resultado);
         }
@@ -408,4 +409,6 @@ public class CierreResultadosRequest
     public string? Usuario { get; set; }
     /// <summary>Reemplaza el cierre previo del sistema si ya existía.</summary>
     public bool Regenerar { get; set; }
+    /// <summary>Cuenta de patrimonio destino opcional para recibir el resultado del periodo.</summary>
+    public int? CuentaResultadosId { get; set; }
 }

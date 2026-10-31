@@ -173,13 +173,15 @@ export const contabilidadApi = {
   // (utilidad o pérdida) a la cuenta de patrimonio "Resultados del ejercicio".
   // Si el periodo ya tiene un cierre generado por el sistema, el backend
   // responde 400 salvo que se envíe regenerar=true (lo reemplaza).
-  generarCierreResultados: async ({ periodoId, empresaId, usuarioId = 1, usuario = 'Sistema', regenerar = false }) => {
+  // cuentaResultadosId permite elegir la cuenta de patrimonio destino.
+  generarCierreResultados: async ({ periodoId, empresaId, usuarioId = 1, usuario = 'Sistema', regenerar = false, cuentaResultadosId = null }) => {
     const response = await api.post('/asientos/cierre-resultados', {
       periodoId,
       empresaId,
       usuarioId,
       usuario,
-      regenerar
+      regenerar,
+      cuentaResultadosId
     });
     return response.data;
   },

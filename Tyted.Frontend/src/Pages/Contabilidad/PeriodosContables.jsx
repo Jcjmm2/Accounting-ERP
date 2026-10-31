@@ -14,6 +14,11 @@ export default function PeriodosContables() {
   const [generandoCierreId, setGenerandoCierreId] = useState(null);
   // Spinner del botón de regeneración de comprobantes en BOLÍVARES.
   const [regenerandoBs, setRegenerandoBs] = useState(false);
+  // Cuenta de patrimonio seleccionada para recibir el resultado del periodo al cerrar.
+  const [cuentaResultadosSeleccionada, setCuentaResultadosSeleccionada] = useState(null);
+  // Lista de cuentas de patrimonio para el selector de destino del cierre.
+  const [cuentasPatrimonio, setCuentasPatrimonio] = useState([]);
+  const [cargandoCuentasPatrimonio, setCargandoCuentasPatrimonio] = useState(false);
 
   const cargarPeriodos = async () => {
     if (!empresaActiva?.id) return;
@@ -46,6 +51,23 @@ export default function PeriodosContables() {
     cargarPeriodos();
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [empresaActiva]);
+
+  // Carga las cuentas de patrimonio para el selector de destino del cierre de resultados.
+  useEffect(() => {
+    if (!empresaActiva?.id) return;
+    setCargandoCuentasPatrimonio(true);
+    contabilidadApi.getCuentas(empresaActiva.id).then((data) => {
+      const lista = Array.isArray(data) ? data : (data?.$values || []);
+      const patrimonio = lista.filter((c) => {
+        const tipo = String(c?.tipoCuenta ?? c?.TipoCuenta ?? '').toUpperInvariant ? String(c?.tipoCuenta ?? c?.TipoCuenta ?? '').toUpperCase() : String(c?.tipoCuenta ?? c?.TipoCuenta ?? '');
+        return tipo.includes('PATRIMONIO') || tipo.includes('CAPITAL');
+      });
+      setCuentasPatrimonio(patrimonio);
+    }).catch((err) => {
+      console.error('Error cargando cuentas de patrimonio:', err);
+      setCuentasPatrimonio([]);
+    }).finally(() => setCargandoCuentasPatrimonio(false));
+  }, [empresaActiva?.id]);
 
   // Preselección del AÑO por defecto: el siguiente al último ejercicio
   // existente de la empresa (más correcto que el año calendario actual al
@@ -112,10 +134,17 @@ export default function PeriodosContables() {
   // que el estado de situación financiera cumple ACTIVO = PASIVO + PATRIMONIO.
   const generarCierre = async (periodo) => {
     const nombrePeriodo = periodo?.nombre || `ID ${periodo?.id}`;
+    const cuentaDestinoId = cuentaResultadosSeleccionada?.id ?? null;
+    const cuentaDestinoNombre = cuentaDestinoId
+      ? (cuentasPatrimonio.find(c => Number(c.id) === Number(cuentaDestinoId))?.nombreCuenta ||
+         cuentasPatrimonio.find(c => Number(c.id) === Number(cuentaDestinoId))?.nombre ||
+         'la cuenta seleccionada')
+      : 'RESULTADOS DEL EJERCICIO';
+
     const confirmado = window.confirm(
       `Se generará el asiento de cierre de resultados del periodo «${nombrePeriodo}».\n\n` +
       'El resultado del periodo (utilidad o pérdida) se transferirá a la cuenta de patrimonio ' +
-      '"RESULTADOS DEL EJERCICIO" y las cuentas de ingresos y egresos quedarán en cero.\n\n' +
+      `"${cuentaDestinoNombre}" y las cuentas de ingresos y egresos quedarán en cero.\n\n` +
       'Si el periodo ya tiene un cierre del sistema, será reemplazado por el nuevo. ¿Continuar?'
     );
     if (!confirmado) return;
@@ -129,7 +158,8 @@ export default function PeriodosContables() {
         empresaId: empresaActiva?.id,
         usuarioId: Number(user?.id ?? 1),
         usuario: user?.username || user?.nombre || 'Sistema',
-        regenerar: true
+        regenerar: true,
+        cuentaResultadosId: cuentaDestinoId
       });
 
       const monto = Math.abs(Number(r.resultado ?? 0)).toLocaleString('es-VE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -325,7 +355,8 @@ export default function PeriodosContables() {
             empresaId: empresaActiva?.id,
             usuarioId: Number(user?.id ?? 1),
             usuario: user?.username || user?.nombre || 'Sistema',
-            regenerar: true
+            regenerar: true,
+            cuentaResultadosId: cuentaResultadosSeleccionada?.id ?? null
           });
           // Paso 2: reintentar el cierre con traslado
           await ejecutarCierrePeriodo(periodo, nombrePeriodo);
@@ -520,11 +551,29 @@ export default function PeriodosContables() {
                     >
                       {generandoCierreId === padre.id ? '⏳ Cerrando...' : '🔒 Cerrar y Trasladar'}
                     </button>
+                    {cuentasPatrimonio.length > 0 && (
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginLeft: '10px' }}>
+                        <select
+                          value={cuentaResultadosSeleccionada?.id ?? ''}
+                          onChange={(e) => {
+                            const id = Number(e.target.value);
+                            setCuentaResultadosSeleccionada(cuentasPatrimonio.find(c => Number(c.id) === id) || null);
+                          }}
+                          style={{ padding: '4px 8px', borderRadius: '4px', border: '1px solid #475569', background: '#0f172a', color: '#fff', fontSize: '0.7rem' }}
+                          disabled={generandoCierreId !== null}
+                        >
+                          <option value="">Cuenta destino</option>
+                          {cuentasPatrimonio.map((c) => (
+                            <option key={c.id} value={c.id}>{c.codigoCuenta || c.codigo} - {c.nombreCuenta || c.nombre}</option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
                     <button
                       type="button"
                       onClick={(e) => { e.stopPropagation(); generarCierre(padre); }}
                       disabled={padre.estado !== 'Abierto' || generandoCierreId !== null}
-                      title={padre.estado !== 'Abierto' ? 'El ejercicio está cerrado: no se pueden generar asientos de cierre' : 'Generar el asiento que traslada el resultado del ejercicio a la cuenta de patrimonio "Resultados del ejercicio"'}
+                      title={padre.estado !== 'Abierto' ? 'El ejercicio está cerrado: no se pueden generar asientos de cierre' : 'Generar el asiento que traslada el resultado del ejercicio a la cuenta de patrimonio seleccionada'}
                       style={{
                         background: padre.estado === 'Abierto' ? '#7c3aed' : '#334155',
                         color: '#fff', border: 'none', borderRadius: '6px', padding: '6px 12px',
@@ -592,11 +641,29 @@ export default function PeriodosContables() {
                             >
                               {generandoCierreId === sub.id ? '⏳' : '🔒 Cerrar'}
                             </button>
+                            {cuentasPatrimonio.length > 0 && (
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '4px', marginLeft: '4px' }}>
+                                <select
+                                  value={cuentaResultadosSeleccionada?.id ?? ''}
+                                  onChange={(e) => {
+                                    const id = Number(e.target.value);
+                                    setCuentaResultadosSeleccionada(cuentasPatrimonio.find(c => Number(c.id) === id) || null);
+                                  }}
+                                  style={{ padding: '3px 6px', borderRadius: '4px', border: '1px solid #475569', background: '#0f172a', color: '#fff', fontSize: '0.65rem' }}
+                                  disabled={generandoCierreId !== null}
+                                >
+                                  <option value="">Cuenta</option>
+                                  {cuentasPatrimonio.map((c) => (
+                                    <option key={c.id} value={c.id}>{c.codigoCuenta || c.codigo}</option>
+                                  ))}
+                                </select>
+                              </div>
+                            )}
                             <button
                               type="button"
                               onClick={() => generarCierre(sub)}
                               disabled={sub.estado !== 'Abierto' || generandoCierreId !== null}
-                              title={sub.estado !== 'Abierto' ? 'El periodo está cerrado: no se pueden generar asientos de cierre' : 'Generar el asiento que traslada el resultado del periodo a la cuenta de patrimonio "Resultados del ejercicio"'}
+                              title={sub.estado !== 'Abierto' ? 'El periodo está cerrado: no se pueden generar asientos de cierre' : 'Generar el asiento que traslada el resultado del periodo a la cuenta de patrimonio seleccionada'}
                               style={{
                                 background: sub.estado === 'Abierto' ? '#7c3aed' : '#334155',
                                 color: '#fff', border: 'none', borderRadius: '6px', padding: '4px 10px',

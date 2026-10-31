@@ -286,7 +286,7 @@ public class AsientoContableService
         if (asiento.EmpresaId != empresaId)
             throw new InvalidOperationException("El asiento no pertenece a la empresa activa.");
 
-        // Solo se eliminan asientos manuales. Los traslados del sistema
+        // Solo se eliminan asientos propios. Los traslados del sistema
         // (TrasladoApertura) y los asientos del motor fiscal (MotorFiscal)
         // deben revertirse/regenerarse desde su proceso de origen.
         if (asiento.OrigenGeneracion == OrigenGeneracionAsiento.TrasladoApertura
@@ -296,6 +296,21 @@ public class AsientoContableService
             throw new InvalidOperationException(
                 "No se puede eliminar un comprobante generado automáticamente por el sistema. " +
                 "Use la acción de reversión o regeneración correspondiente desde el origen.");
+        }
+
+        // Los asientos de CIERRE DE RESULTADOS y las APERTURAS MANUALES se
+        // pueden eliminar (anular) cuando el periodo está ABIERTO, lo que
+        // permite corregir el cierre anterior sin quedar atrapado en un bucle.
+        var esCierreResultados = asiento.TipoComprobante == "Cierre"
+            && asiento.Concepto.StartsWith(PrefijoCierreResultados, StringComparison.Ordinal);
+        var esAperturaManual = asiento.TipoComprobante == "Apertura"
+            && !EsTraspasoApertura(asiento.Concepto);
+
+        if (!esCierreResultados && !esAperturaManual)
+        {
+            throw new InvalidOperationException(
+                "Solo se pueden eliminar asientos manuales, asientos de cierre de resultados " +
+                "o aperturas manuales. Use la acción de reversión para traslados automáticos.");
         }
 
         var periodo = await _context.PeriodosContables
@@ -428,7 +443,8 @@ public class AsientoContableService
         int empresaId,
         int usuarioId,
         string? usuario = null,
-        bool regenerar = false)
+        bool regenerar = false,
+        int? cuentaResultadosId = null)
     {
         await using var transaccion = _context.Database.IsRelational()
             ? await _context.Database.BeginTransactionAsync()
@@ -526,8 +542,41 @@ public class AsientoContableService
         var resultado = totalIngresos - totalEgresos; // > 0 utilidad, < 0 pérdida
         var esUtilidad = resultado >= 0m;
 
-        // Cuenta de patrimonio destino ("Resultados del ejercicio")
-        var (cuentaResultados, creada) = await ObtenerOCrearCuentaResultadosAsync(empresaId);
+        // Cuenta de patrimonio destino ("Resultados del ejercicio").
+        // Si el usuario especifica cuentaResultadosId, se usa esa cuenta (debe
+        // ser de Patrimonio/Capital y estar activa). En caso contrario se
+        // busca/crea la cuenta por defecto.
+        CuentaContable cuentaResultados;
+        bool creada;
+        if (cuentaResultadosId.HasValue && cuentaResultadosId.Value > 0)
+        {
+            cuentaResultados = await _context.CuentasContables
+                .AsNoTracking()
+                .FirstOrDefaultAsync(c => c.Id == cuentaResultadosId.Value
+                    && c.EmpresaId == empresaId)
+                ?? throw new InvalidOperationException(
+                    $"La cuenta de destino {cuentaResultadosId.Value} no existe o no pertenece a la empresa.");
+
+            var tipoPatrimonio = (cuentaResultados.TipoCuenta ?? string.Empty).ToUpperInvariant();
+            if (!tipoPatrimonio.Contains("PATRIMONIO") && !tipoPatrimonio.Contains("CAPITAL"))
+            {
+                throw new InvalidOperationException(
+                    $"La cuenta {cuentaResultados.CodigoCuenta} - {cuentaResultados.NombreCuenta} no es de tipo Patrimonio. " +
+                    "Seleccione una cuenta de patrimonio para recibir el resultado del periodo.");
+            }
+
+            if (!cuentaResultados.Activa)
+            {
+                throw new InvalidOperationException(
+                    $"La cuenta {cuentaResultados.CodigoCuenta} - {cuentaResultados.NombreCuenta} está inactiva.");
+            }
+
+            creada = false;
+        }
+        else
+        {
+            (cuentaResultados, creada) = await ObtenerOCrearCuentaResultadosAsync(empresaId);
+        }
 
         detalles.Add(new AsientoDetalle
         {
