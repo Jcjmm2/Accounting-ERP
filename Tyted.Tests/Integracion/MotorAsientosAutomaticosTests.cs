@@ -452,4 +452,55 @@ public class MotorAsientosAutomaticosTests
         Assert.Equal(160m, Assert.Single(asiento.Detalles, d => d.CuentaContableId == ivaCredito.Id).Debe);
         Assert.Equal(1160m, Assert.Single(asiento.Detalles, d => d.CuentaContableId == caja.Id).Haber);
     }
+
+    [Fact]
+    public async Task Gasto_ConceptoOperacionalConCuentaTitulo_SeRechazaConMensajeClaro()
+    {
+        await using var context = CrearContexto();
+        await SembrarPeriodoYPlanAsync(context);
+
+        var concepto = new ConceptoOperacional
+        {
+            EmpresaId = 1,
+            NombreConcepto = "Gasto de servicio - título",
+            TipoOperacion = "GASTO",
+            CuentaContable = "5.1.2.99",
+            CodigoSeniat = "001"
+        };
+        context.ConceptosOperacionales.Add(concepto);
+        await context.SaveChangesAsync();
+
+        context.CuentasContables.Add(new CuentaContable
+        {
+            EmpresaId = 1,
+            CodigoCuenta = "5.1.2.99",
+            NombreCuenta = "Gastos operativos (título / no movimiento)",
+            TipoCuenta = "Gasto",
+            Naturaleza = "D",
+            EsMovimiento = false,
+            Nivel = 5,
+            Activa = true
+        });
+
+        var gasto = new Gasto
+        {
+            EmpresaId = 1,
+            Fecha = new DateTime(2026, 10, 12),
+            Concepto = "Servicio con cuenta título",
+            Monto = 150m,
+            MontoMonedaExt = 150m,
+            IvaMonedaExt = 0m,
+            TipoTransaccion = "01",
+            ConceptoOperacionalId = concepto.Id
+        };
+        context.Gastos.Add(gasto);
+        await context.SaveChangesAsync();
+
+        var r = await CrearMotor(context).GenerarAsientoGastoAsync(await context.Gastos.SingleAsync(g => g.Id == gasto.Id));
+
+        Assert.False(r.Generada);
+        Assert.Contains("cuenta contable", r.Mensaje, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("no es una cuenta de movimiento", r.Advertencia ?? string.Empty, StringComparison.OrdinalIgnoreCase);
+        Assert.Equal(0, await context.AsientosContables.CountAsync());
+    }
 }

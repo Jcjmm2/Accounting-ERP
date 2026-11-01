@@ -748,15 +748,26 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
                           <button
                             onClick={() => revertirTraslado(asiento)}
                             disabled={cargando}
-                            title="Elimina únicamente este traslado automático y reabre el periodo que lo generó"
+                            title="Anular y reabrir origen: elimina este traslado automático y reabre el periodo que lo generó"
                             style={{ background: '#b45309', color: '#fff', border: 'none', borderRadius: '6px', padding: '6px 14px', cursor: cargando ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '0.8rem' }}
                           >
-                            ↩️ Revertir y reabrir origen
+                            ↩️ Anular y reabrir origen
                           </button>
                         ) : asiento?.origenGeneracion === 'MotorFiscal' ? (
-                          <span title="Comprobante derivado del motor fiscal: debe regenerarse desde su proceso de origen" style={{ color: '#94a3b8', fontSize: '0.8rem' }}>
-                            🔒 Automático
-                          </span>
+                          <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
+                            <button
+                              onClick={() => {
+                                const mensaje = '⚠️ Este comprobante es automático del motor fiscal. ' +
+                                  'Si necesita corregirlo, re-genérelo desde su proceso de origen o anule la operación que lo produjo.';
+                                alert(mensaje);
+                                prepararEdicion(asiento);
+                              }}
+                              title="Editar comprobante automático: aviso explícito de la regla de origen"
+                              style={{ background: '#0ea5e9', color: '#fff', border: 'none', borderRadius: '6px', padding: '6px 12px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.8rem' }}
+                            >
+                              ✏️ Editar comprobante automático
+                            </button>
+                          </div>
                         ) : esCierreAutomatico(asiento) ? (
                           <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
                             <button

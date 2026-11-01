@@ -195,6 +195,19 @@ public class MotorAsientosAutomaticos
         }
 
         if (faltantes.Count > 0)
+        {
+            var cuentasInvalidas = faltantes.Where(c => c.Contains("no es una cuenta de movimiento", StringComparison.OrdinalIgnoreCase)).ToList();
+            if (cuentasInvalidas.Count > 0)
+            {
+                return new MotorAsientosResponse
+                {
+                    Generada = false,
+                    Mensaje = "Cuenta contable inválida para la operación.",
+                    Advertencia = $"Las siguientes cuentas no pueden usarse en el asiento porque no son cuentas de movimiento: {string.Join(", ", cuentasInvalidas)}. " +
+                        "Corrija la cuenta asignada en 🧮 Conceptos y use una cuenta activa de movimiento del plan de cuentas."
+                };
+            }
+
             return new MotorAsientosResponse
             {
                 Generada = false,
@@ -203,6 +216,7 @@ public class MotorAsientosAutomaticos
                     "Son cuentas base del asiento (caja/CxC, IVA o ingresos): créelas o reactívelas en Contabilidad → Plan de Cuentas, " +
                     "o bien asígneles una cuenta distinta en 🧮 Conceptos → pestaña ⚙️ SISTEMA y vuelva a intentar."
             };
+        }
 
         var periodo = await BuscarPeriodoAbiertoAsync(venta.EmpresaId, venta.FechaVenta);
 
@@ -333,6 +347,19 @@ public class MotorAsientosAutomaticos
             : null;
 
         if (faltantes.Count > 0)
+        {
+            var cuentasInvalidas = faltantes.Where(c => c.Contains("no es una cuenta de movimiento", StringComparison.OrdinalIgnoreCase)).ToList();
+            if (cuentasInvalidas.Count > 0)
+            {
+                return new MotorAsientosResponse
+                {
+                    Generada = false,
+                    Mensaje = "Cuenta contable inválida para la operación.",
+                    Advertencia = $"Las siguientes cuentas no pueden usarse en el asiento porque no son cuentas de movimiento: {string.Join(", ", cuentasInvalidas)}. " +
+                        "Corrija la cuenta asignada en 🧮 Conceptos y use una cuenta activa de movimiento del plan de cuentas."
+                };
+            }
+
             return new MotorAsientosResponse
             {
                 Generada = false,
@@ -341,6 +368,7 @@ public class MotorAsientosAutomaticos
                     "Son cuentas base del asiento (caja, IVA o ingresos): créelas o reactívelas en Contabilidad → Plan de Cuentas, " +
                     "o bien asígneles una cuenta distinta en 🧮 Conceptos → pestaña ⚙️ SISTEMA y vuelva a intentar."
             };
+        }
 
         var periodo = await BuscarPeriodoAbiertoAsync(resumen.EmpresaId, resumen.Fecha);
 
@@ -447,6 +475,19 @@ public class MotorAsientosAutomaticos
             : null;
 
         if (faltantes.Count > 0)
+        {
+            var cuentasInvalidas = faltantes.Where(c => c.Contains("no es una cuenta de movimiento", StringComparison.OrdinalIgnoreCase)).ToList();
+            if (cuentasInvalidas.Count > 0)
+            {
+                return new MotorAsientosResponse
+                {
+                    Generada = false,
+                    Mensaje = "Cuenta contable inválida para la operación.",
+                    Advertencia = $"Las siguientes cuentas no pueden usarse en el asiento porque no son cuentas de movimiento: {string.Join(", ", cuentasInvalidas)}. " +
+                        "Corrija la cuenta asignada en 🧮 Conceptos y use una cuenta activa de movimiento del plan de cuentas."
+                };
+            }
+
             return new MotorAsientosResponse
             {
                 Generada = false,
@@ -455,6 +496,7 @@ public class MotorAsientosAutomaticos
                     "Son cuentas base del asiento (caja/proveedores, IVA crédito o compras): créelas o reactívelas en Contabilidad → Plan de Cuentas, " +
                     "o bien asígneles una cuenta distinta en 🧮 Conceptos → pestaña ⚙️ SISTEMA y vuelva a intentar."
             };
+        }
 
         var periodo = await BuscarPeriodoAbiertoAsync(compra.EmpresaId, compra.FechaCompra);
 
@@ -580,6 +622,19 @@ public class MotorAsientosAutomaticos
             : null;
 
         if (faltantes.Count > 0)
+        {
+            var cuentasInvalidas = faltantes.Where(c => c.Contains("no es una cuenta de movimiento", StringComparison.OrdinalIgnoreCase)).ToList();
+            if (cuentasInvalidas.Count > 0)
+            {
+                return new MotorAsientosResponse
+                {
+                    Generada = false,
+                    Mensaje = "Cuenta contable inválida para la operación.",
+                    Advertencia = $"Las siguientes cuentas no pueden usarse en el asiento porque no son cuentas de movimiento: {string.Join(", ", cuentasInvalidas)}. " +
+                        "Corrija la cuenta asignada en 🧮 Conceptos y use una cuenta activa de movimiento del plan de cuentas."
+                };
+            }
+
             return new MotorAsientosResponse
             {
                 Generada = false,
@@ -588,6 +643,7 @@ public class MotorAsientosAutomaticos
                     "Son cuentas base del asiento (caja/proveedores o gastos): créelas o reactívelas en Contabilidad → Plan de Cuentas, " +
                     "o bien asígneles una cuenta distinta en 🧮 Conceptos → pestaña ⚙️ SISTEMA y vuelva a intentar."
             };
+        }
 
         var periodo = await BuscarPeriodoAbiertoAsync(gasto.EmpresaId, gasto.Fecha);
 
@@ -1149,17 +1205,45 @@ public class MotorAsientosAutomaticos
         return string.IsNullOrWhiteSpace(codigo) ? codigoMapping : codigo;
     }
 
-    /// <summary>Cuenta activa por código dentro del plan de la empresa; si no existe se anota en `faltantes`.</summary>
+    /// <summary>Cuenta válida para asiento: debe existir, estar activa y ser de movimiento.</summary>
     private async Task<CuentaContable?> BuscarCuentaActivaAsync(int empresaId, string codigo, List<string> faltantes)
     {
+        var codigoNormalizado = codigo?.Trim();
+        if (string.IsNullOrWhiteSpace(codigoNormalizado))
+        {
+            if (!faltantes.Contains("Cuenta no definida"))
+                faltantes.Add("Cuenta no definida");
+            return null;
+        }
+
         var cuenta = await _context.CuentasContables
             .AsNoTracking()
             .FirstOrDefaultAsync(c => c.EmpresaId == empresaId
-                && c.CodigoCuenta == codigo
-                && c.Activa);
+                && c.CodigoCuenta == codigoNormalizado);
 
-        if (cuenta == null && !faltantes.Contains(codigo))
-            faltantes.Add(codigo);
+        if (cuenta == null)
+        {
+            if (!faltantes.Contains(codigoNormalizado))
+                faltantes.Add(codigoNormalizado);
+            return null;
+        }
+
+        if (!cuenta.Activa)
+        {
+            var valor = $"{codigoNormalizado} ({cuenta.NombreCuenta}) - cuenta inactiva";
+            if (!faltantes.Contains(valor))
+                faltantes.Add(valor);
+            return null;
+        }
+
+        if (!cuenta.EsMovimiento)
+        {
+            var valor = $"{codigoNormalizado} ({cuenta.NombreCuenta}) - no es una cuenta de movimiento";
+            if (!faltantes.Contains(valor))
+                faltantes.Add(valor);
+            return null;
+        }
+
         return cuenta;
     }
 

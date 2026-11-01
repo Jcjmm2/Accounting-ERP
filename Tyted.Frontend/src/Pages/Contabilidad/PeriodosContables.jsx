@@ -181,20 +181,20 @@ export default function PeriodosContables() {
     }
   };
 
-  // RECALCULAR CIERRE: reabre un periodo CERRADO para corrección. El backend
+  // ANULAR CIERRE: reabre un periodo CERRADO para corrección. El backend
   // elimina el asiento «APERTURA DE BALANCE» que el cierre generó en el
   // periodo siguiente (sólo si ese periodo y los posteriores no tienen
-  // actividad propia) y reabre el periodo y sus subperiodos en cascada. Tras
-  // corregir, «Cerrar y Trasladar» regenera el cierre y el nuevo saldo inicial.
+  // actividad propia) y reabre el periodo y sus subperiodos en cascada. Esta
+  // acción anula el cierre sin borrar el historial contable; tras corregir,
+  // «Cerrar y Trasladar» regenera el cierre y reemplaza el saldo inicial.
   const recalcularCierre = async (periodo) => {
     const nombrePeriodo = periodo?.nombre || `ID ${periodo?.id}`;
     const confirmado = window.confirm(
-      `Se reabrirá el periodo «${nombrePeriodo}» para corrección (recalcular cierre).\n\n` +
+      `Se anulará el cierre del periodo «${nombrePeriodo}».\n\n` +
       '1) Se eliminará el asiento «APERTURA DE BALANCE» que su cierre generó en el periodo siguiente ' +
       '(sólo si ese periodo y los posteriores no tienen actividad propia).\n' +
       '2) El periodo y sus subperiodos quedarán ABIERTOS para corregir los asientos.\n' +
-      '3) Después pulse «🔒 Cerrar y Trasladar»: regenerará el Cierre de Resultados si hace falta y ' +
-      'reemplazará el saldo inicial del periodo siguiente (sin duplicarlo).\n\n¿Continuar?'
+      '3) Esta acción anula el cierre sin borrar el historial contable; luego podrá volver a «🔒 Cerrar y Trasladar».\n\n¿Continuar?'
     );
     if (!confirmado) return;
 
@@ -205,7 +205,7 @@ export default function PeriodosContables() {
         user?.username || user?.nombre || 'Sistema'
       );
       alert(
-        `✅ Periodo «${nombrePeriodo}» reabierto para corrección.\n\n` +
+        `✅ Cierre anulado para «${nombrePeriodo}».\n\n` +
         (r.trasladoEliminado
           ? `Traslado eliminado del periodo «${r.periodoDestinoNombre}»: comprobante ${r.numeroComprobanteTraslado}\n`
           : 'No había traslado de apertura que eliminar.\n') +
@@ -589,8 +589,8 @@ export default function PeriodosContables() {
                       onClick={(e) => { e.stopPropagation(); recalcularCierre(padre); }}
                       disabled={padre.estado !== 'Cerrado' || generandoCierreId !== null}
                       title={padre.estado === 'Cerrado'
-                        ? 'Recalcular el cierre: reabrir este periodo para corrección (elimina el asiento «APERTURA DE BALANCE» del periodo siguiente si éste no tiene actividad propia). Tras corregir, vuelva a «Cerrar y Trasladar»'
-                        : 'Sólo los periodos CERRADOS se pueden recalcular'}
+                        ? 'Anular cierre: reabrir este periodo para corrección y eliminar el asiento «APERTURA DE BALANCE» del periodo siguiente si no tiene actividad propia. Se conserva el historial contable.'
+                        : 'Sólo los periodos CERRADOS se pueden anular'}
                       style={{
                         background: padre.estado === 'Cerrado' ? '#b45309' : '#334155',
                         color: '#fff', border: 'none', borderRadius: '6px', padding: '6px 12px',
@@ -599,7 +599,7 @@ export default function PeriodosContables() {
                         opacity: padre.estado === 'Cerrado' && generandoCierreId === null ? 1 : 0.5
                       }}
                     >
-                      {generandoCierreId === padre.id ? '⏳ Recalculando...' : '🔄 Recalcular'}
+                      {generandoCierreId === padre.id ? '⏳ Anulando...' : '🗑️ Anular cierre'}
                     </button>
                     <span style={{ padding: '6px 14px', borderRadius: '20px', fontSize: '0.75rem', fontWeight: 'bold', background: padre.estado === 'Abierto' ? '#064e3b' : '#7f1d1d', color: padre.estado === 'Abierto' ? '#34d399' : '#fca5a5' }}>
                       {padre.estado}
@@ -696,8 +696,8 @@ export default function PeriodosContables() {
                               onClick={() => recalcularCierre(sub)}
                               disabled={sub.estado !== 'Cerrado' || generandoCierreId !== null}
                               title={sub.estado === 'Cerrado'
-                                ? 'Recalcular el cierre: reabrir este periodo para corrección (elimina el asiento «APERTURA DE BALANCE» del periodo siguiente si éste no tiene actividad propia)'
-                                : 'Sólo los periodos CERRADOS se pueden recalcular'}
+                                ? 'Anular cierre: reabrir este periodo para corrección y eliminar el asiento «APERTURA DE BALANCE» del periodo siguiente si no tiene actividad propia. Se conserva el historial contable.'
+                                : 'Sólo los periodos CERRADOS se pueden anular'}
                               style={{
                                 background: sub.estado === 'Cerrado' ? '#b45309' : '#334155',
                                 color: '#fff', border: 'none', borderRadius: '6px', padding: '4px 10px',
@@ -706,7 +706,7 @@ export default function PeriodosContables() {
                                 opacity: sub.estado === 'Cerrado' && generandoCierreId === null ? 1 : 0.5
                               }}
                             >
-                              {generandoCierreId === sub.id ? '⏳' : '🔄'}
+                              {generandoCierreId === sub.id ? '⏳' : '🗑️ Anular cierre'}
                             </button>
                             <button
                               type="button"
