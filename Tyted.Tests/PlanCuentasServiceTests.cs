@@ -230,5 +230,116 @@ public class PlanCuentasServiceTests
         Assert.False(actualizada.EsMovimiento);
         Assert.Equal("Activo", actualizada.TipoCuenta);
     }
+
+    [Fact]
+    public async Task GenerarAsientoCierreResultados_EligeCuentaPatrimonioDeMovimiento_NoTitulo()
+    {
+        await using var context = CreateContext();
+        var service = new AsientoContableService(context);
+
+        var periodo = new PeriodoContable
+        {
+            EmpresaId = 1,
+            Anio = 2026,
+            Mes = 1,
+            Nombre = "Enero 2026",
+            TipoPeriodo = "Mensual",
+            FechaInicio = new DateTime(2026, 1, 1),
+            FechaFin = new DateTime(2026, 1, 31),
+            Estado = "Abierto",
+            Cerrado = false
+        };
+        context.PeriodosContables.Add(periodo);
+        await context.SaveChangesAsync();
+
+        var tituloPatrimonio = new CuentaContable
+        {
+            EmpresaId = 1,
+            CodigoCuenta = "3",
+            NombreCuenta = "PATRIMONIO",
+            TipoCuenta = "Patrimonio",
+            Naturaleza = "C",
+            EsMovimiento = false,
+            Nivel = 1,
+            AceptaTerceros = false,
+            AceptaCentroCosto = false,
+            Activa = true
+        };
+        context.CuentasContables.Add(tituloPatrimonio);
+        await context.SaveChangesAsync();
+
+        var cuentaPatrimonioMovimiento = new CuentaContable
+        {
+            EmpresaId = 1,
+            CodigoCuenta = "3.1.1",
+            NombreCuenta = "Capital social",
+            TipoCuenta = "Patrimonio",
+            Naturaleza = "C",
+            EsMovimiento = true,
+            Nivel = 3,
+            PadreCuentaId = tituloPatrimonio.Id,
+            AceptaTerceros = false,
+            AceptaCentroCosto = false,
+            Activa = true
+        };
+
+        var ingreso = new CuentaContable
+        {
+            EmpresaId = 1,
+            CodigoCuenta = "4.1.1",
+            NombreCuenta = "Ingresos por servicios",
+            TipoCuenta = "Ingreso",
+            Naturaleza = "C",
+            EsMovimiento = true,
+            Nivel = 3,
+            AceptaTerceros = true,
+            AceptaCentroCosto = true,
+            Activa = true
+        };
+
+        var gasto = new CuentaContable
+        {
+            EmpresaId = 1,
+            CodigoCuenta = "5.1.1",
+            NombreCuenta = "Gastos operativos",
+            TipoCuenta = "Gasto",
+            Naturaleza = "D",
+            EsMovimiento = true,
+            Nivel = 3,
+            AceptaTerceros = true,
+            AceptaCentroCosto = true,
+            Activa = true
+        };
+
+        context.CuentasContables.AddRange(cuentaPatrimonioMovimiento, ingreso, gasto);
+        await context.SaveChangesAsync();
+
+        context.AsientosContables.Add(new AsientoContable
+        {
+            EmpresaId = 1,
+            PeriodoContableId = periodo.Id,
+            OrigenGeneracion = OrigenGeneracionAsiento.Manual,
+            NumeroComprobante = "DIA-001",
+            FechaComprobante = new DateTime(2026, 1, 15),
+            Concepto = "Ingreso enero",
+            TipoComprobante = "Diario",
+            Estado = "Aprobado",
+            UsuarioId = 1,
+            Detalles = new List<AsientoDetalle>
+            {
+                new() { CuentaContableId = ingreso.Id, Debe = 0m, Haber = 500m },
+                new() { CuentaContableId = gasto.Id, Debe = 100m, Haber = 0m }
+            }
+        });
+        await context.SaveChangesAsync();
+
+        var cierre = await service.GenerarAsientoCierreResultadosAsync(periodo.Id, 1, 1, "Sistema");
+
+        var cuentaResultado = await context.CuentasContables.SingleAsync(c => c.Id == cierre.CuentaResultadosId);
+        Assert.NotEqual(tituloPatrimonio.Id, cierre.CuentaResultadosId);
+        Assert.Equal("RESULTADOS DEL EJERCICIO", cuentaResultado.NombreCuenta);
+        Assert.True(cuentaResultado.EsMovimiento);
+        Assert.NotEqual("PATRIMONIO", cuentaResultado.TipoCuenta);
+    }
 }
 

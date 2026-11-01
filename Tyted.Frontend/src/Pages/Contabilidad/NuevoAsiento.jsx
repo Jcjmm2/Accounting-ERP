@@ -7,11 +7,15 @@ const esTrasladoApertura = (asiento) =>
   && (asiento?.origenGeneracion === 'TrasladoApertura'
     || String(asiento?.concepto || '').startsWith('APERTURA DE BALANCE'));
 
+const esCierreAutomatico = (asiento) =>
+  asiento?.origenGeneracion === 'CierreResultados'
+  || (asiento?.tipoComprobante === 'Cierre'
+    && String(asiento?.concepto || '').startsWith('CIERRE DE RESULTADOS'));
+
 const esAsientoAutomatico = (asiento) =>
   (asiento?.origenGeneracion && asiento.origenGeneracion !== 'Manual')
   || esTrasladoApertura(asiento)
-  || (asiento?.tipoComprobante === 'Cierre'
-    && String(asiento?.concepto || '').startsWith('CIERRE DE RESULTADOS'));
+  || esCierreAutomatico(asiento);
 
 export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodoActivo: periodoActivoProp }) {
   const {
@@ -355,12 +359,13 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
         'Use «↩️ Revertir y reabrir origen» para eliminarlo y reabrir el periodo de origen.'
       );
     }
-    // Otros comprobantes automáticos (motor fiscal, cierre de resultados del
-    // sistema) no se editan directamente.
-    if (esAsientoAutomatico(asiento)) {
+    // Los traslados automáticos de apertura y los asientos del motor fiscal
+    // siguen protegidos; el cierre de resultados sí admite edición controlada
+    // cuando hay una cuenta de patrimonio/título no apta y hay que corregirla.
+    if (asiento?.origenGeneracion === 'MotorFiscal' || esTrasladoApertura(asiento)) {
       return alert(
-        '🔒 Los comprobantes automáticos no se editan directamente. ' +
-        'Use la acción de regeneración o reversión correspondiente.'
+        '🔒 Este comprobante es automático y requiere reversión/regeneración desde su origen. ' +
+        'No se puede editar directamente.'
       );
     }
 
@@ -748,10 +753,27 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
                           >
                             ↩️ Revertir y reabrir origen
                           </button>
-                        ) : esAsientoAutomatico(asiento) ? (
-                          <span title="Comprobante derivado: debe regenerarse desde su proceso de origen" style={{ color: '#94a3b8', fontSize: '0.8rem' }}>
+                        ) : asiento?.origenGeneracion === 'MotorFiscal' ? (
+                          <span title="Comprobante derivado del motor fiscal: debe regenerarse desde su proceso de origen" style={{ color: '#94a3b8', fontSize: '0.8rem' }}>
                             🔒 Automático
                           </span>
+                        ) : esCierreAutomatico(asiento) ? (
+                          <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
+                            <button
+                              onClick={() => prepararEdicion(asiento)}
+                              style={{ background: '#f59e0b', color: '#000', border: 'none', borderRadius: '6px', padding: '6px 12px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.8rem' }}
+                            >
+                              ✏️ Editar
+                            </button>
+                            <button
+                              onClick={() => eliminarComprobante(asiento)}
+                              disabled={cargando}
+                              title="Eliminar comprobante (doble confirmación)"
+                              style={{ background: '#7f1d1d', color: '#fff', border: 'none', borderRadius: '6px', padding: '6px 12px', cursor: cargando ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '0.8rem' }}
+                            >
+                              🗑️
+                            </button>
+                          </div>
                         ) : (
                           <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
                             <button

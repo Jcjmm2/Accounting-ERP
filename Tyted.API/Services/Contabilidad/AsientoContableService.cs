@@ -139,6 +139,9 @@ public class AsientoContableService
             if (!cuenta.Activa)
                 throw new InvalidOperationException($"La cuenta {cuenta.CodigoCuenta} está inactiva.");
 
+            if (!cuenta.EsMovimiento)
+                throw new InvalidOperationException($"La cuenta {cuenta.CodigoCuenta} - {cuenta.NombreCuenta} es una cuenta de título y no puede usarse en un asiento de movimiento.");
+
             NormalizarDetalle(detalle);
         }
 
@@ -237,6 +240,7 @@ public class AsientoContableService
 
             if (cuenta == null) throw new InvalidOperationException($"La cuenta {detalle.CuentaContableId} no existe.");
             if (!cuenta.Activa) throw new InvalidOperationException($"La cuenta {cuenta.CodigoCuenta} está inactiva.");
+            if (!cuenta.EsMovimiento) throw new InvalidOperationException($"La cuenta {cuenta.CodigoCuenta} - {cuenta.NombreCuenta} es una cuenta de título y no puede usarse en un asiento de movimiento.");
 
             NormalizarDetalle(detalle);
             detalle.CuentaContable = null;
@@ -571,6 +575,12 @@ public class AsientoContableService
                     $"La cuenta {cuentaResultados.CodigoCuenta} - {cuentaResultados.NombreCuenta} está inactiva.");
             }
 
+            if (!cuentaResultados.EsMovimiento)
+            {
+                throw new InvalidOperationException(
+                    $"La cuenta {cuentaResultados.CodigoCuenta} - {cuentaResultados.NombreCuenta} es una cuenta de título y no puede recibir el cierre del resultado del ejercicio.");
+            }
+
             creada = false;
         }
         else
@@ -671,6 +681,7 @@ public class AsientoContableService
         var existente = await _context.CuentasContables
             .AsNoTracking()
             .Where(c => c.EmpresaId == empresaId
+                && c.EsMovimiento
                 && (c.TipoCuenta.ToUpper().Contains("PATRIMONIO") || c.TipoCuenta.ToUpper().Contains("CAPITAL"))
                 && c.NombreCuenta.ToUpper().Contains("RESULTADO"))
             .OrderBy(c => c.CodigoCuenta)
@@ -681,6 +692,7 @@ public class AsientoContableService
         var tituloPatrimonio = await _context.CuentasContables
             .AsNoTracking()
             .Where(c => c.EmpresaId == empresaId
+                && c.EsMovimiento
                 && (c.TipoCuenta.ToUpper().Contains("PATRIMONIO") || c.TipoCuenta.ToUpper().Contains("CAPITAL")))
             .OrderBy(c => c.Nivel).ThenBy(c => c.CodigoCuenta)
             .FirstOrDefaultAsync();
