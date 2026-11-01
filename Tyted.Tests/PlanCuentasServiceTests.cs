@@ -208,6 +208,65 @@ public class PlanCuentasServiceTests
     }
 
     [Fact]
+    public async Task EliminarAsientoCierre_AnulaElAsientoSinBorrarloFisicamente()
+    {
+        await using var context = CreateContext();
+        var service = new AsientoContableService(context);
+
+        var periodo = new PeriodoContable
+        {
+            EmpresaId = 1,
+            Anio = 2026,
+            Mes = 11,
+            TipoPeriodo = "Mensual",
+            Nombre = "Noviembre 2026",
+            FechaInicio = new DateTime(2026, 11, 1),
+            FechaFin = new DateTime(2026, 11, 30),
+            Estado = "Abierto",
+            Cerrado = false
+        };
+        context.PeriodosContables.Add(periodo);
+        await context.SaveChangesAsync();
+
+        var asiento = new AsientoContable
+        {
+            EmpresaId = 1,
+            PeriodoContableId = periodo.Id,
+            OrigenGeneracion = OrigenGeneracionAsiento.CierreResultados,
+            NumeroComprobante = "26110000001",
+            FechaComprobante = new DateTime(2026, 11, 30),
+            Concepto = "CIERRE DE RESULTADOS Noviembre 2026: traslado de utilidad por 1000.00 a la cuenta 3.99 - RESULTADOS DEL EJERCICIO",
+            TipoComprobante = "Cierre",
+            Estado = "Aprobado",
+            UsuarioId = 1,
+            TotalDebe = 1_000m,
+            TotalHaber = 1_000m,
+            Detalles = new List<AsientoDetalle>
+            {
+                new AsientoDetalle { CuentaContableId = 1, Debe = 1_000m, Haber = 0m },
+                new AsientoDetalle { CuentaContableId = 2, Debe = 0m, Haber = 1_000m }
+            }
+        };
+        context.AsientosContables.Add(asiento);
+        context.AuditoriasContables.Add(new AuditoriaContable
+        {
+            Fecha = DateTime.Now,
+            Usuario = "Sistema",
+            Accion = "Creación de asiento",
+            Detalle = "Prueba",
+            AsientoContableId = asiento.Id
+        });
+        await context.SaveChangesAsync();
+
+        var eliminado = await service.EliminarAsientoAsync(asiento.Id, 1, "admin");
+
+        Assert.True(eliminado);
+        Assert.Equal(1, await context.AsientosContables.CountAsync());
+        Assert.Equal("Anulado", (await context.AsientosContables.SingleAsync()).Estado);
+        Assert.Equal(2, await context.AuditoriasContables.CountAsync());
+    }
+
+    [Fact]
     public async Task ActualizarCuenta_ConservaLosCamposEstructuralesQueEnviaElCliente()
     {
         await using var context = CreateContext();

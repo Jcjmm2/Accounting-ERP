@@ -37,14 +37,15 @@ public class AsientosController : ControllerBase
     public async Task<ActionResult<List<AsientoContable>>> GetAsientos(
         [FromQuery] int? periodoContableId,
         [FromQuery] int? empresaId,
-        [FromQuery] bool incluirSubperiodos = false)
+        [FromQuery] bool incluirSubperiodos = false,
+        [FromQuery] bool incluirAnulados = false)
     {
         // AISLAMIENTO POR EMPRESA
         if (empresaId.HasValue)
             await _access.ValidarAccesoAsync(User, empresaId.Value);
 
         // Filtros opcionales: el frontend puede traer los asientos de un periodo y/o de la empresa activa
-        var asientos = await _service.GetAsientosAsync(periodoContableId, empresaId, incluirSubperiodos);
+        var asientos = await _service.GetAsientosAsync(periodoContableId, empresaId, incluirSubperiodos, incluirAnulados);
         return Ok(asientos);
     }
 
@@ -137,7 +138,12 @@ public class AsientosController : ControllerBase
             if (!eliminado)
                 return NotFound(new { message = $"No se encontró el asiento con ID {id}." });
 
-            return Ok(new { message = $"El asiento con ID {id} fue eliminado correctamente." });
+            var asiento = await _context.AsientosContables.AsNoTracking().FirstOrDefaultAsync(a => a.Id == id);
+            var mensaje = asiento != null && string.Equals(asiento.Estado, "Anulado", StringComparison.OrdinalIgnoreCase)
+                ? $"El asiento con ID {id} fue anulado correctamente. Se conserva el registro y la auditoría para trazabilidad contable."
+                : $"El asiento con ID {id} fue eliminado correctamente.";
+
+            return Ok(new { message = mensaje });
         }
         catch (Exception ex)
         {

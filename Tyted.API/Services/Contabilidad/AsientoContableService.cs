@@ -21,13 +21,15 @@ public class AsientoContableService
     public async Task<List<AsientoContable>> GetAsientosAsync(
         int? periodoContableId = null,
         int? empresaId = null,
-        bool incluirSubperiodos = false)
+        bool incluirSubperiodos = false,
+        bool incluirAnulados = false)
     {
         var query = _context.AsientosContables
             .Include(a => a.Detalles)
             .ThenInclude(d => d.CuentaContable)
             .Include(a => a.PeriodoContable)
             .Include(a => a.PeriodoOrigen)
+            .Where(a => incluirAnulados || a.Estado != "Anulado")
             .AsQueryable();
 
         if (periodoContableId.HasValue)
@@ -303,8 +305,8 @@ public class AsientoContableService
         }
 
         // Los asientos de CIERRE DE RESULTADOS y las APERTURAS MANUALES se
-        // pueden eliminar (anular) cuando el periodo está ABIERTO, lo que
-        // permite corregir el cierre anterior sin quedar atrapado en un bucle.
+        // pueden anular cuando el periodo está ABIERTO, lo que permite corregir
+        // el cierre anterior sin destruir el histórico contable ni romper la FK de auditoría.
         var esCierreResultados = asiento.TipoComprobante == "Cierre"
             && asiento.Concepto.StartsWith(PrefijoCierreResultados, StringComparison.Ordinal);
         var esAperturaManual = asiento.TipoComprobante == "Apertura"
@@ -325,13 +327,36 @@ public class AsientoContableService
         if (periodo.Cerrado || string.Equals(periodo.Estado, "Cerrado", StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException("No se puede eliminar un asiento que pertenece a un periodo cerrado.");
 
-        _context.AsientosDetalles.RemoveRange(asiento.Detalles);
-        _context.AsientosContables.Remove(asiento);
-
         var usuarioNombre = await _context.Usuarios.AsNoTracking()
             .Where(u => u.Id == asiento.UsuarioId)
             .Select(u => u.Username)
             .FirstOrDefaultAsync() ?? usuario;
+
+        // Opción 1: anulación segura para cierres. No se elimina físicamente la
+        // fila porque deja huellas auditables y rompe la FK de AuditoriasContables.
+        if (esCierreResultados)
+        {
+            if (string.Equals(asiento.Estado, "Anulado", StringComparison.OrdinalIgnoreCase))
+                return true;
+
+            asiento.Estado = "Anulado";
+            _context.AuditoriasContables.Add(new AuditoriaContable
+            {
+                Fecha = DateTime.Now,
+                Usuario = usuarioNombre,
+                Accion = "Anulación de asiento de cierre",
+                Detalle = $"Se anuló el asiento {asiento.NumeroComprobante} del periodo «{periodo.Nombre ?? asiento.PeriodoContableId.ToString()}» (concepto: {asiento.Concepto}).",
+                AsientoContableId = asiento.Id
+            });
+
+            await _context.SaveChangesAsync();
+            return true;
+        }
+
+        // Borrado físico de asientos manuales que realmente no están ligados a
+        // trazabilidad crítica (cumple con el modelo normal de edición).
+        _context.AsientosDetalles.RemoveRange(asiento.Detalles);
+        _context.AsientosContables.Remove(asiento);
 
         _context.AuditoriasContables.Add(new AuditoriaContable
         {
