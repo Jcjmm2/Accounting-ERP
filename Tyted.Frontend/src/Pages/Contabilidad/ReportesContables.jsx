@@ -37,11 +37,17 @@ const formatMoney = (value) => moneyFormatter.format(Number(value ?? 0));
 const valorPresentacionCuenta = (cuenta, saldo) => {
   const monto = Number(saldo ?? 0);
   if (!Number.isFinite(monto)) return 0;
+
+  // Las cuentas de Pasivo, Patrimonio e Ingresos (Acreedoras) deben
+  // mostrarse con signo negativo para que la suma algebraica cuadre con el
+  // Activo y los Egresos.
   const tipo = String(cuenta?.tipo ?? '').toUpperCase();
   const naturaleza = String(cuenta?.naturaleza ?? '').trim().toUpperCase();
-  const esCuentaPatrimonio = tipo.includes('PATRIMONIO') || tipo.includes('CAPITAL');
-  const esAcreedora = naturaleza === 'C' || naturaleza === 'ACREEDORA';
-  return (esCuentaPatrimonio || esAcreedora) && monto < 0 ? Math.abs(monto) : Math.abs(monto);
+
+  const esAcreedora = naturaleza === 'C' || naturaleza === 'ACREEDORA' ||
+    tipo.includes('PASIVO') || tipo.includes('PATRIMONIO') || tipo.includes('CAPITAL') || tipo.includes('INGRESO');
+
+  return esAcreedora ? -Math.abs(monto) : Math.abs(monto);
 };
 
 // Regla de alineación compartida por la vista previa, el PDF y Excel: la
@@ -650,9 +656,12 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
         const ingresos = plan.filter(c => c.tipo.includes('INGRESO'));
         const egresos = plan.filter(c => c.tipo.includes('GASTO') || c.tipo.includes('COSTO') || c.tipo.includes('EGRESO'));
 
-        const totalIngresos = ingresos.reduce((sum, c) => sum + Math.abs(c.saldoFinal), 0);
-        const totalEgresos = egresos.reduce((sum, c) => sum + Math.abs(c.saldoFinal), 0);
-        const utilidad = totalIngresos - totalEgresos;
+        // Los ingresos ya vienen negativos por la función valorPresentacionCuenta,
+        // así que se suman algebraicamente; la utilidad queda como ingreso neto
+        // más egresos con signo contable.
+        const totalIngresos = ingresos.reduce((sum, c) => sum + valorPresentacionCuenta(c, c.saldoFinal), 0);
+        const totalEgresos = egresos.reduce((sum, c) => sum + valorPresentacionCuenta(c, c.saldoFinal), 0);
+        const utilidad = totalIngresos + totalEgresos;
 
         const filas = [
           ...(ingresos.length > 0
@@ -745,9 +754,9 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
         // al capital); el resto de cuentas conserva el valor absoluto.
         const valorPatrimonio = (c) => valorPresentacionCuenta(c, c.saldoFinal);
 
-        const totalActivos = activos.reduce((sum, c) => sum + Math.abs(c.saldoFinal), 0);
-        const totalPasivos = pasivos.reduce((sum, c) => sum + Math.abs(c.saldoFinal), 0);
-        const totalPatrimonioCuentas = patrimonio.reduce((sum, c) => sum + valorPatrimonio(c), 0);
+        const totalActivos = activos.reduce((sum, c) => sum + valorPresentacionCuenta(c, c.saldoFinal), 0);
+        const totalPasivos = pasivos.reduce((sum, c) => sum + valorPresentacionCuenta(c, c.saldoFinal), 0);
+        const totalPatrimonioCuentas = patrimonio.reduce((sum, c) => sum + valorPresentacionCuenta(c, c.saldoFinal), 0);
 
         // Etiqueta de la fila de RESPALDO (sólo cuando no se integró).
         const etiquetaResultado = cuentaResultadosOk
@@ -799,15 +808,16 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
         // PATRIMONIO) debe ser 0,00. Sin integrar (respaldo histórico) se
         // suma además la fila RESULTADO.
         if (filas.length > 0) {
-          const diferenciaRaw = totalActivos - totalPasivoPatrimonio;
+          // Al tener pasivos y patrimonio en negativo, la suma algebraica debe ser cero.
+          const diferenciaRaw = totalActivos + totalPasivoPatrimonio;
           // Si el desfase es menor a medio centavo (0.005), se considera 0 (cuadrado)
           const diferencia = Math.abs(diferenciaRaw) < 0.005 ? 0 : diferenciaRaw;
 
           // Se muestra únicamente si existe una diferencia/descuadre real
           if (Math.abs(diferencia) > 0) {
             const etiquetaEcuacion = integraResultado
-              ? 'ECUACIÓN CONTABLE: ACTIVO − (PASIVO + PATRIMONIO)'
-              : 'ECUACIÓN CONTABLE: ACTIVO − (PASIVO + PATRIMONIO + RESULTADO)';
+              ? 'ECUACIÓN CONTABLE: ACTIVO + PASIVO + PATRIMONIO'
+              : 'ECUACIÓN CONTABLE: ACTIVO + PASIVO + PATRIMONIO + RESULTADO';
             
             filas.push([
               { content: etiquetaEcuacion, styles: { fontStyle: 'bold' } },
