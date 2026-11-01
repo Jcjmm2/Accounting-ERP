@@ -30,24 +30,13 @@ const field = (obj, ...keys) => {
 
 const formatMoney = (value) => moneyFormatter.format(Number(value ?? 0));
 
-// La representación financiera puede diferir del saldo contable bruto: en una
-// cuenta de patrimonio acreedora, un saldo negativo significa pérdida y debe
-// mostrarse como un valor positivo en la columna deudora de la presentación
-// (pantalla, PDF y Excel), sin cambiar el dato almacenado en la base.
+// La representación financiera debe respetar 100% la estructura de saldos
+// generada por la base de datos. Se eliminan los hacks de signo por
+// naturaleza para conservar el saldo real de cada cuenta y sumar
+// algebraicamente sin alterar la realidad contable.
 const valorPresentacionCuenta = (cuenta, saldo) => {
   const monto = Number(saldo ?? 0);
-  if (!Number.isFinite(monto)) return 0;
-
-  // Las cuentas de Pasivo, Patrimonio e Ingresos (Acreedoras) deben
-  // mostrarse con signo negativo para que la suma algebraica cuadre con el
-  // Activo y los Egresos.
-  const tipo = String(cuenta?.tipo ?? '').toUpperCase();
-  const naturaleza = String(cuenta?.naturaleza ?? '').trim().toUpperCase();
-
-  const esAcreedora = naturaleza === 'C' || naturaleza === 'ACREEDORA' ||
-    tipo.includes('PASIVO') || tipo.includes('PATRIMONIO') || tipo.includes('CAPITAL') || tipo.includes('INGRESO');
-
-  return esAcreedora ? -Math.abs(monto) : Math.abs(monto);
+  return Number.isFinite(monto) ? monto : 0;
 };
 
 // Regla de alineación compartida por la vista previa, el PDF y Excel: la
@@ -656,12 +645,12 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
         const ingresos = plan.filter(c => c.tipo.includes('INGRESO'));
         const egresos = plan.filter(c => c.tipo.includes('GASTO') || c.tipo.includes('COSTO') || c.tipo.includes('EGRESO'));
 
-        // Los ingresos ya vienen negativos por la función valorPresentacionCuenta,
-        // así que se suman algebraicamente; la utilidad queda como ingreso neto
-        // más egresos con signo contable.
-        const totalIngresos = ingresos.reduce((sum, c) => sum + valorPresentacionCuenta(c, c.saldoFinal), 0);
-        const totalEgresos = egresos.reduce((sum, c) => sum + valorPresentacionCuenta(c, c.saldoFinal), 0);
-        const utilidad = totalIngresos + totalEgresos;
+        // La base de datos ya entrega el saldo real de cada cuenta; se suman
+        // algebraicamente los valores tal cual llegan y la utilidad conserva el
+        // signo del origen contable.
+        const totalIngresos = ingresos.reduce((sum, c) => sum + Number(c.saldoFinal ?? 0), 0);
+        const totalEgresos = egresos.reduce((sum, c) => sum + Number(c.saldoFinal ?? 0), 0);
+        const utilidad = totalIngresos - totalEgresos;
 
         const filas = [
           ...(ingresos.length > 0
@@ -754,9 +743,11 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
         // al capital); el resto de cuentas conserva el valor absoluto.
         const valorPatrimonio = (c) => valorPresentacionCuenta(c, c.saldoFinal);
 
-        const totalActivos = activos.reduce((sum, c) => sum + valorPresentacionCuenta(c, c.saldoFinal), 0);
-        const totalPasivos = pasivos.reduce((sum, c) => sum + valorPresentacionCuenta(c, c.saldoFinal), 0);
-        const totalPatrimonioCuentas = patrimonio.reduce((sum, c) => sum + valorPresentacionCuenta(c, c.saldoFinal), 0);
+        // Las sumatorias respetan los saldos crudos de la base de datos y no
+        // fuerzan un signo por naturaleza que pueda romper la ecuación.
+        const totalActivos = activos.reduce((sum, c) => sum + Number(c.saldoFinal ?? 0), 0);
+        const totalPasivos = pasivos.reduce((sum, c) => sum + Number(c.saldoFinal ?? 0), 0);
+        const totalPatrimonioCuentas = patrimonio.reduce((sum, c) => sum + Number(c.saldoFinal ?? 0), 0);
 
         // Etiqueta de la fila de RESPALDO (sólo cuando no se integró).
         const etiquetaResultado = cuentaResultadosOk
@@ -808,16 +799,17 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
         // PATRIMONIO) debe ser 0,00. Sin integrar (respaldo histórico) se
         // suma además la fila RESULTADO.
         if (filas.length > 0) {
-          // Al tener pasivos y patrimonio en negativo, la suma algebraica debe ser cero.
-          const diferenciaRaw = totalActivos + totalPasivoPatrimonio;
+          // Si la base de datos calcula los saldos con su signo natural, la
+          // ecuación contable debe verificarse con las sumas algebraicas reales.
+          const diferenciaRaw = totalActivos - totalPasivoPatrimonio;
           // Si el desfase es menor a medio centavo (0.005), se considera 0 (cuadrado)
           const diferencia = Math.abs(diferenciaRaw) < 0.005 ? 0 : diferenciaRaw;
 
           // Se muestra únicamente si existe una diferencia/descuadre real
           if (Math.abs(diferencia) > 0) {
             const etiquetaEcuacion = integraResultado
-              ? 'ECUACIÓN CONTABLE: ACTIVO + PASIVO + PATRIMONIO'
-              : 'ECUACIÓN CONTABLE: ACTIVO + PASIVO + PATRIMONIO + RESULTADO';
+              ? 'ECUACIÓN CONTABLE: ACTIVO − (PASIVO + PATRIMONIO)'
+              : 'ECUACIÓN CONTABLE: ACTIVO − (PASIVO + PATRIMONIO + RESULTADO)';
             
             filas.push([
               { content: etiquetaEcuacion, styles: { fontStyle: 'bold' } },
