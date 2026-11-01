@@ -109,8 +109,8 @@ services:
     image: dpage/pgadmin4:9
     profiles: ["tools"]
     environment:
-      PGADMIN_DEFAULT_EMAIL: "admin@tyted.net"
-      PGADMIN_DEFAULT_PASSWORD: "${PGADMIN_PASSWORD:?Falta PGADMIN_PASSWORD (en Coolify)}"
+      PGADMIN_DEFAULT_EMAIL: "${PGADMIN_EMAIL:-admin@tyted.net}"
+      PGADMIN_DEFAULT_PASSWORD: "${PGADMIN_PASSWORD:-admin-tyted-local}"
       PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
     ports:
       # Solo localhost del servidor: se accede por túnel SSH, nunca expuesto a internet
