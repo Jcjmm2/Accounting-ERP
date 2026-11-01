@@ -312,4 +312,61 @@ public class ReportesContablesTests
         Assert.Equal(130m, cajaSinRango[1].SaldoAcumulado);
         Assert.Equal(170m, cajaSinRango[2].SaldoAcumulado);
     }
+
+    // Regresión: las cuentas creadas desde el formulario del Plan de Cuentas
+    // guardan la naturaleza como "Deudora"/"Acreedora" (no "D"/"C"). El balance
+    // sólo reconocía "D", así que un gasto 5.2.1.1.25 registrado al Debe salía
+    // en negativo en la sección de gastos.
+    [Fact]
+    public async Task GetBalanceComprobacion_NaturalezaDeudoraAcreedoraDelFormulario_ConservaElSignoNatural()
+    {
+        await using var context = CrearContexto();
+        var (periodo, caja, _) = await SembrarPeriodoAsync(context, new DateTime(2026, 10, 1), new DateTime(2026, 10, 31));
+
+        var gasto = new CuentaContable
+        {
+            EmpresaId = 1, CodigoCuenta = "5.2.1.1.25", NombreCuenta = "Reparaciones",
+            TipoCuenta = "Gasto", Naturaleza = "Deudora", EsMovimiento = true, Nivel = 5, Activa = true
+        };
+        var ingreso = new CuentaContable
+        {
+            EmpresaId = 1, CodigoCuenta = "4.1.1.1.09", NombreCuenta = "Otros ingresos",
+            TipoCuenta = "Ingreso", Naturaleza = "Acreedora", EsMovimiento = true, Nivel = 5, Activa = true
+        };
+        context.CuentasContables.AddRange(gasto, ingreso);
+        await context.SaveChangesAsync();
+
+        context.AsientosContables.AddRange(
+            new AsientoContable
+            {
+                EmpresaId = 1, PeriodoContableId = periodo.Id, NumeroComprobante = "TEST-2610-G1",
+                FechaComprobante = new DateTime(2026, 10, 5), Concepto = "Reparación", TipoComprobante = "Diario",
+                Estado = "Aprobado", UsuarioId = 1,
+                Detalles = new List<AsientoDetalle>
+                {
+                    new() { CuentaContableId = gasto.Id, Debe = 80m, Haber = 0m },
+                    new() { CuentaContableId = caja.Id, Debe = 0m, Haber = 80m }
+                }
+            },
+            new AsientoContable
+            {
+                EmpresaId = 1, PeriodoContableId = periodo.Id, NumeroComprobante = "TEST-2610-I1",
+                FechaComprobante = new DateTime(2026, 10, 6), Concepto = "Ingreso", TipoComprobante = "Diario",
+                Estado = "Aprobado", UsuarioId = 1,
+                Detalles = new List<AsientoDetalle>
+                {
+                    new() { CuentaContableId = caja.Id, Debe = 120m, Haber = 0m },
+                    new() { CuentaContableId = ingreso.Id, Debe = 0m, Haber = 120m }
+                }
+            });
+        await context.SaveChangesAsync();
+
+        var balance = await new ReportesContablesService(context).GetBalanceComprobacionAsync(periodo.Id);
+
+        // Gasto deudor con movimiento al Debe: saldo positivo.
+        Assert.Equal(80m, Assert.Single(balance, b => b.CuentaId == gasto.Id).SaldoFinal);
+        // Ingreso acreedor con movimiento al Haber: saldo positivo.
+        Assert.Equal(120m, Assert.Single(balance, b => b.CuentaId == ingreso.Id).SaldoFinal);
+    }
+
 }

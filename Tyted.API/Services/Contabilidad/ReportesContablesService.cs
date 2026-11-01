@@ -53,6 +53,17 @@ public class ReportesContablesService
     ///   BALANCE" siguen excluidos de ambas sumas (el saldo llega por histórico).
     /// - Saldo final se expresa con el signo natural de la cuenta (D:Debe-Haber, C:Haber-Debe).
     /// </summary>
+    /// <summary>
+    /// La naturaleza se guarda en dos formatos: "D"/"C" (plan sembrado por el
+    /// sistema) y "Deudora"/"Acreedora" (formulario del Plan de Cuentas). Se
+    /// reconocen ambos; comparar sólo con "D" trataba como acreedora toda
+    /// cuenta creada desde la UI y mostraba en negativo, por ejemplo, un
+    /// gasto registrado al Debe.
+    /// </summary>
+    private static bool EsNaturalezaDeudora(string naturaleza) =>
+        (naturaleza ?? string.Empty).Trim()
+            .StartsWith("D", StringComparison.OrdinalIgnoreCase);
+
     public async Task<List<BalanceComprobacionDto>> GetBalanceComprobacionAsync(int periodoId, int? empresaId = null)
     {
         var periodo = await _context.PeriodosContables
@@ -134,7 +145,7 @@ public class ReportesContablesService
             var debePeriodo = movimiento?.Debe ?? 0m;
             var haberPeriodo = movimiento?.Haber ?? 0m;
 
-            var esDeudora = string.Equals(cuenta.Naturaleza, "D", StringComparison.OrdinalIgnoreCase);
+            var esDeudora = EsNaturalezaDeudora(cuenta.Naturaleza);
             // Saldo inicial = histórico anterior al periodo + APERTURA MANUAL
             // del periodo (expresado con el signo natural de la cuenta).
             var saldoInicial = esDeudora

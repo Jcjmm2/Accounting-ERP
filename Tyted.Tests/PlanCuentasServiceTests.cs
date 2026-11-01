@@ -55,8 +55,66 @@ public class PlanCuentasServiceTests
         var guardada = await context.CuentasContables.SingleAsync();
         Assert.Equal("1.1.02", guardada.CodigoCuenta);
         Assert.Equal("Caja Chica", guardada.NombreCuenta);
-        Assert.Equal("Acreedora", guardada.Naturaleza);
+        // El formulario envía "Acreedora": se guarda normalizada como "C".
+        Assert.Equal("C", guardada.Naturaleza);
         Assert.False(guardada.Activa);
+    }
+
+    [Theory]
+    [InlineData("Deudora", "D")]
+    [InlineData("deudora", "D")]
+    [InlineData("D", "D")]
+    [InlineData("Acreedora", "C")]
+    [InlineData("acreedora", "C")]
+    [InlineData("C", "C")]
+    [InlineData("  Acreedora  ", "C")]
+    public async Task CrearCuenta_NormalizaLaNaturalezaADoC(string entrada, string esperada)
+    {
+        await using var context = CreateContext();
+        var service = new PlanCuentasService(context);
+        var cuenta = NuevaCuenta("5.2.1.1.25", "Reparaciones");
+        cuenta.Naturaleza = entrada;
+
+        var creada = await service.CrearCuentaAsync(cuenta);
+
+        Assert.Equal(esperada, creada.Naturaleza);
+        Assert.Equal(esperada, (await context.CuentasContables.SingleAsync()).Naturaleza);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("   ")]
+    [InlineData("Neutra")]
+    public async Task CrearCuenta_NaturalezaInvalida_LanzaInvalidOperationException(string entrada)
+    {
+        await using var context = CreateContext();
+        var service = new PlanCuentasService(context);
+        var cuenta = NuevaCuenta();
+        cuenta.Naturaleza = entrada;
+
+        var excepcion = await Assert.ThrowsAsync<InvalidOperationException>(
+            () => service.CrearCuentaAsync(cuenta));
+
+        Assert.Contains("aturaleza", excepcion.Message);
+        Assert.Equal(0, await context.CuentasContables.CountAsync());
+    }
+
+    [Fact]
+    public async Task ActualizarCuenta_SinNaturalezaEnElPayload_ConservaYNormalizaLaActual()
+    {
+        await using var context = CreateContext();
+        var service = new PlanCuentasService(context);
+        // Cuenta con el formato histórico del formulario antiguo
+        context.CuentasContables.Add(NuevaCuenta("5.2.1.1.25", "Reparaciones"));
+        await context.SaveChangesAsync();
+        var existente = await context.CuentasContables.SingleAsync();
+
+        var datos = NuevaCuenta("5.2.1.1.25", "Reparaciones y mantenimiento");
+        datos.Naturaleza = "";
+
+        var actualizada = await service.ActualizarCuentaAsync(existente.Id, datos);
+
+        Assert.Equal("D", actualizada.Naturaleza);
     }
 
     [Fact]

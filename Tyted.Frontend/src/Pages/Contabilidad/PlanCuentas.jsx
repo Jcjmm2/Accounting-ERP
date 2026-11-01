@@ -9,6 +9,13 @@ import { contabilidadApi, mensajeErrorApi } from '../../Services/Contabilidad/Co
 // y su creación con el tipo de cuenta correcto (Patrimonio).
 const CUENTA_RESULTADO_SITUACION = '3.1.3.1.02';
 
+// La naturaleza se guarda como 'D' (deudora) o 'C' (acreedora). Las cuentas
+// antiguas pueden traer 'Deudora'/'Acreedora' hasta que corra la migración de
+// normalización, así que se interpreta por la primera letra.
+const esNaturalezaDeudora = (naturaleza) =>
+  String(naturaleza ?? '').trim().toUpperCase().startsWith('D');
+const normalizarNaturaleza = (naturaleza) => (esNaturalezaDeudora(naturaleza) ? 'D' : 'C');
+
 export default function PlanCuentas() {
   const { empresaActiva } = useContext(ConfigContext);
   const empresaId = Number(empresaActiva?.id ?? 1);
@@ -26,7 +33,7 @@ export default function PlanCuentas() {
     id: null,
     codigo: '',
     nombre: '',
-    naturaleza: 'Deudora',
+    naturaleza: 'D',
     // Tipo de cuenta editable: determina la sección del estado financiero a
     // la que pertenece la cuenta (p. ej. 3.1.3.1.02 debe ser Patrimonio)
     tipo: 'Activo',
@@ -116,7 +123,7 @@ export default function PlanCuentas() {
       }
 
       // Limpiar formulario y volver al menú principal
-      setFormData({ id: null, codigo: '', nombre: '', naturaleza: 'Deudora', tipo: 'Activo', original: null });
+      setFormData({ id: null, codigo: '', nombre: '', naturaleza: 'D', tipo: 'Activo', original: null });
       setVista('menu');
       
       // Si la lista de cuentas estaba cargada en pantalla, recargarla
@@ -137,7 +144,7 @@ export default function PlanCuentas() {
       id: cuenta.id ?? cuenta.cuentaId,
       codigo: cuenta.codigoCuenta ?? cuenta.codigo ?? '',
       nombre: cuenta.nombreCuenta ?? cuenta.nombre ?? '',
-      naturaleza: cuenta.naturaleza ?? 'Deudora',
+      naturaleza: normalizarNaturaleza(cuenta.naturaleza ?? cuenta.Naturaleza),
       tipo: cuenta.tipoCuenta ?? cuenta.TipoCuenta ?? 'Activo',
       // Se conserva la cuenta original para no perder en la edición los
       // campos que el formulario no muestra (nivel, padre, flags, etc.)
@@ -147,7 +154,7 @@ export default function PlanCuentas() {
   };
 
   const cancelarFormulario = () => {
-    setFormData({ id: null, codigo: '', nombre: '', naturaleza: 'Deudora', tipo: 'Activo', original: null });
+    setFormData({ id: null, codigo: '', nombre: '', naturaleza: 'D', tipo: 'Activo', original: null });
     setVista('menu');
   };
 
@@ -254,8 +261,8 @@ export default function PlanCuentas() {
                 onChange={manejarCambioInput}
                 style={inputStyle}
               >
-                <option value="Deudora">Deudora</option>
-                <option value="Acreedora">Acreedora</option>
+                <option value="D">Deudora</option>
+                <option value="C">Acreedora</option>
               </select>
             </div>
 
@@ -385,11 +392,11 @@ export default function PlanCuentas() {
                         </td>
                         <td style={{ padding: '12px' }}>
                           <span style={{ 
-                            background: (cuenta.naturaleza === 'Deudora') ? '#064e3b' : '#450a0a', 
-                            color: (cuenta.naturaleza === 'Deudora') ? '#6ee7b7' : '#fca5a5',
+                            background: esNaturalezaDeudora(cuenta.naturaleza) ? '#064e3b' : '#450a0a', 
+                            color: esNaturalezaDeudora(cuenta.naturaleza) ? '#6ee7b7' : '#fca5a5',
                             padding: '4px 10px', borderRadius: '12px', fontSize: '0.8rem', fontWeight: 'bold'
                           }}>
-                            {cuenta.naturaleza}
+                            {esNaturalezaDeudora(cuenta.naturaleza) ? 'Deudora' : 'Acreedora'}
                           </span>
                         </td>
                         <td style={{ padding: '12px', textAlign: 'center' }}>
