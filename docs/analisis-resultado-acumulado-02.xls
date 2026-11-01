@@ -1,0 +1,5 @@
+Cuenta	Tipo	Saldo final	Regla aplicada
+4.1.1 - Ventas	Ingreso	300	Se contabiliza como ingreso positivo en el Estado de Resultado.
+5.1.1 - Gastos	Gasto	-1000	Se contabiliza como egreso en el Estado de Resultado.
+3.1.3.1.02 - RESULTADOS DEL EJERCICIO	Patrimonio	-700	La pérdida resta al patrimonio; se conserva el signo negativo.
+TOTAL PATRIMONIO	Resumen	-700	No se usa valor absoluto en la cuenta de resultados acumulada.

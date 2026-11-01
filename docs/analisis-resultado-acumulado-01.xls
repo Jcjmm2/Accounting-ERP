@@ -1,0 +1,3 @@
+Caso	Ventas	Gastos	Resultado	Cuenta resultado acumulado	Observacion
+Pérdida acumulada	300	1000	-700	-700	La pérdida debe conservar signo negativo; no debe mostrarse como valor absoluto positivo.
+Utilidad acumulada	1000	300	700	700	La utilidad se presenta en sentido acreedor/positivo.
