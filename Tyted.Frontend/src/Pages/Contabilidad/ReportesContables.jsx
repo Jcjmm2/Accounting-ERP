@@ -30,6 +30,20 @@ const field = (obj, ...keys) => {
 
 const formatMoney = (value) => moneyFormatter.format(Number(value ?? 0));
 
+// La representación financiera puede diferir del saldo contable bruto: en una
+// cuenta de patrimonio acreedora, un saldo negativo significa pérdida y debe
+// mostrarse como un valor positivo en la columna deudora de la presentación
+// (pantalla, PDF y Excel), sin cambiar el dato almacenado en la base.
+const valorPresentacionCuenta = (cuenta, saldo) => {
+  const monto = Number(saldo ?? 0);
+  if (!Number.isFinite(monto)) return 0;
+  const tipo = String(cuenta?.tipo ?? '').toUpperCase();
+  const naturaleza = String(cuenta?.naturaleza ?? '').trim().toUpperCase();
+  const esCuentaPatrimonio = tipo.includes('PATRIMONIO') || tipo.includes('CAPITAL');
+  const esAcreedora = naturaleza === 'C' || naturaleza === 'ACREEDORA';
+  return (esCuentaPatrimonio || esAcreedora) && monto < 0 ? Math.abs(monto) : Math.abs(monto);
+};
+
 // Regla de alineación compartida por la vista previa, el PDF y Excel: la
 // primera columna de texto (o Código y Nombre en los reportes de 4 columnas,
 // o Fecha/Comprobante/Concepto en el Libro Mayor de 6) va a la izquierda y las
@@ -249,7 +263,7 @@ const pintarSeccionJerarquica = (etiqueta, lista, valorDe = (c) => Math.abs(c.sa
     const mostrarMonto = !r.esPadre || esSubtotal;
     filasSeccion.push([
       { content: etiquetaFila, styles: estilo },
-      { content: mostrarMonto ? formatMoney(r.valores.monto) : '', styles: estilo },
+      { content: mostrarMonto ? formatMoney(valorPresentacionCuenta(r.cuenta, r.valores.monto)) : '', styles: estilo },
     ]);
   });
 
@@ -729,9 +743,7 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
 
         // La cuenta de resultados aporta con signo FIRMADO (una pérdida resta
         // al capital); el resto de cuentas conserva el valor absoluto.
-        const valorPatrimonio = (c) => (integraResultado && esCuentaResultados(c)
-          ? c.saldoFinal
-          : Math.abs(c.saldoFinal));
+        const valorPatrimonio = (c) => valorPresentacionCuenta(c, c.saldoFinal);
 
         const totalActivos = activos.reduce((sum, c) => sum + Math.abs(c.saldoFinal), 0);
         const totalPasivos = pasivos.reduce((sum, c) => sum + Math.abs(c.saldoFinal), 0);
@@ -746,7 +758,7 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
         // sin integrar se suma en la fila plana de respaldo (formato histórico).
         const totalPatrimonio = integraResultado
           ? totalPatrimonioCuentas
-          : totalPatrimonioCuentas + resultadoEjercicio;
+          : totalPatrimonioCuentas + Math.abs(resultadoEjercicio);
         const totalPasivoPatrimonio = totalPasivos + totalPatrimonio;
 
         const filas = [
@@ -775,7 +787,7 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
                 // (empresa sin 3.1.3.1.02 o cuenta no clasificada como
                 // patrimonio).
                 ...(!integraResultado && hayResultado
-                  ? [filaTotalSeccion(etiquetaResultado, resultadoEjercicio)]
+                  ? [filaTotalSeccion(etiquetaResultado, Math.abs(resultadoEjercicio))]
                   : []),
                 filaTotalSeccion('TOTAL PATRIMONIO', totalPatrimonio),
               ]
@@ -929,7 +941,9 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
         const estructura = getEstructuraReporte();
         if (!estructura) return;
 
-        // Limpiar celdas con estilos (igual que en PDF)
+        // Limpiar celdas con estilos (igual que en PDF). La estructura de
+        // reporte ya trae el saldo de presentación normalizado para pantalla,
+        // PDF y Excel, así que no se reinterpreta aquí el signo bruto.
         const cleanFilas = estructura.filas.map(fila => 
           fila.map(celda => (typeof celda === 'object' && celda !== null ? celda.content : celda))
         );
