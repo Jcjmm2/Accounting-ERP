@@ -1,7 +1,7 @@
 # =========================================================================
-# Stack de producción Tyted — web (nginx) + api (.NET) + tyted-db (PostgreSQL) + backup
+# Stack de producción Tyted — web (nginx) + api (.NET) + postgres (+ backup)
 # Diseño de seguridad:
-#   - Solo 'web' publica puertos (8080). 'api' y 'tyted-db' viven en la red
+#   - Solo 'web' publica puertos (8080). 'api' y 'postgres' viven en la red
 #     interna del compose: no hay ningún puerto de BD/API expuesto afuera.
 #   - Los secretos NO están aquí: llegan por interpolación de variables
 #     (.env en local, variables de entorno en Coolify). Ver .env.example
@@ -38,7 +38,7 @@ services:
       AllowedOrigins__0: "${APP_ORIGIN:-http://localhost:8080}"
       ADMIN_SEED_PASSWORD: "${ADMIN_SEED_PASSWORD:-}"
     depends_on:
-      tyted-db:
+      postgres:
         condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8080/health"]
@@ -48,14 +48,7 @@ services:
       start_period: 30s
     restart: unless-stopped
 
-  # SERVICIO RENOMBRADO de 'postgres' a 'tyted-db' (incidente 25/10/2026):
-  # el nombre 'postgres' es ambiguo en la red compartida con Coolify (también
-  # lo resuelve coolify-db) y la API recibía 28P01 del servidor equivocado.
-  # Coolify IGNORA los aliases de red del compose pero SÍ registra el nombre
-  # de SERVICIO del contenedor en todas las redes a las que lo conecta, así
-  # que 'tyted-db' resuelve único en cualquier topología. El volumen pgdata
-  # no cambia (es del proyecto, no del servicio): los datos se conservan.
-  tyted-db:
+  postgres:
     image: postgres:18-alpine
     environment:
       POSTGRES_USER: postgres
@@ -73,16 +66,23 @@ services:
       retries: 5
       start_period: 10s
     restart: unless-stopped
+    # Alias de red exclusivo 'tyted-db' (red default del stack). Ver la nota
+    # en el servicio api: en la red compartida con Coolify, el nombre 'postgres'
+    # es ambiguo (también lo resuelve coolify-db) y la API recibía 28P01.
+    networks:
+      default:
+        aliases:
+          - tyted-db
 
   # Backup diario de la BD (pg_dump → /backups → subida a Cloudflare R2)
   backup:
     build:
       context: ./docker/backup
     depends_on:
-      tyted-db:
+      postgres:
         condition: service_healthy
     environment:
-      # Nombre de servicio 'tyted-db' (ver nota en el servicio tyted-db)
+      # Alias exclusivo del postgres del stack (ver nota en el servicio api)
       PGHOST: tyted-db
       PGPORT: "5432"
       PGUSER: postgres
@@ -104,22 +104,7 @@ services:
     entrypoint: ["/bin/sh", "/backup.sh"]
     restart: unless-stopped
 
-  # pgAdmin de gestión — SOLO arranca con: docker compose --profile tools up -d pgadmin
-  pgadmin:
-    image: dpage/pgadmin4:9
-    profiles: ["tools"]
-    environment:
-      PGADMIN_DEFAULT_EMAIL: "admin@tyted.net"
-      PGADMIN_DEFAULT_PASSWORD: "${PGADMIN_PASSWORD:?Falta PGADMIN_PASSWORD (en Coolify)}"
-      PGADMIN_CONFIG_MASTER_PASSWORD_REQUIRED: "False"
-    ports:
-      # Solo localhost del servidor: se accede por túnel SSH, nunca expuesto a internet
-      - "127.0.0.1:8888:80"
-    volumes:
-      - pgadmin_data:/var/lib/pgadmin
-    restart: unless-stopped
-
 volumes:
   pgdata:
   backups:
-  pgadmin_data:
+
