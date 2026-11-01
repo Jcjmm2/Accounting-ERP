@@ -227,23 +227,26 @@ const filtrarRamasConMovimiento = (lista) => {
 // Pinta una sección (ACTIVO, PASIVO, PATRIMONIO, INGRESOS, EGRESOS) con la
 // MISMA estructura del balance de comprobación: título de cuenta en negrita,
 // detalle jerárquico con sangría, cuentas títulos (padres) sin monto propio
-// y fila SUBTOTAL de cierre consolidando cada subárbol. Devuelve [] cuando
-// la sección no tiene cuentas con movimiento.
-// `valorDe` permite cambiar cómo se mide cada cuenta (por defecto, valor
-// absoluto); la sección de PATRIMONIO usa uno propio para que la cuenta de
-// resultados (3.1.3.1.02) aporte con signo: una pérdida resta al capital.
-const pintarSeccionJerarquica = (etiqueta, lista, valorDe = (c) => Math.abs(c.saldoFinal)) => {
+// y fila SUBTOTAL de cierre consolidando cada subárbol. 
+// Ahora se confía 100% en los saldos reales de la BD y se omiten líneas en 0
+// para ahorrar papel y evitar sumar partidas sin movimiento.
+const pintarSeccionJerarquica = (etiqueta, lista, valorDe = (c) => Number(c.saldoFinal ?? 0)) => {
   if (lista.length === 0) return [];
 
   const jerarquia = filasJerarquicas(lista, (c, esPadre, hijosMap) => ({
     monto: sumarSubarbol(c, hijosMap, valorDe),
   }));
 
-  const filasSeccion = [
-    [{ content: etiqueta, styles: { fontStyle: 'bold' } }, ''],
-  ];
+  const filasSeccion = [];
+  const filasTemp = [];
+  let tieneMovimientosVisibles = false;
 
   insertarSubtotalesJerarquia(jerarquia).forEach(r => {
+    // FILTRO DE CERO: Si la cuenta o el subárbol consolidado da 0, se oculta.
+    if (Math.abs(r.valores.monto) < 0.005) return;
+
+    tieneMovimientosVisibles = true;
+
     const esSubtotal = r.esSubtotalCierre === true;
     const estilo = (r.esPadre || esSubtotal) ? { fontStyle: 'bold' } : {};
     const descripcion = r.cuenta.codigo
@@ -252,15 +255,20 @@ const pintarSeccionJerarquica = (etiqueta, lista, valorDe = (c) => Math.abs(c.sa
     const etiquetaFila = esSubtotal
       ? `${sangria(r.profundidad)}SUBTOTAL ${descripcion}`
       : `${sangria(r.profundidad)}${descripcion}`;
-    // Los padres consolidan su subárbol en la fila SUBTOTAL de cierre (los
-    // valores propios de las cuentas título son cero), evitando el doble
-    // conteo al sumar el detalle visible.
+
     const mostrarMonto = !r.esPadre || esSubtotal;
-    filasSeccion.push([
+
+    filasTemp.push([
       { content: etiquetaFila, styles: estilo },
       { content: mostrarMonto ? formatMoney(valorPresentacionCuenta(r.cuenta, r.valores.monto)) : '', styles: estilo },
     ]);
   });
+
+  // Solo imprimimos el título si quedaron líneas visibles con movimiento.
+  if (tieneMovimientosVisibles) {
+    filasSeccion.push([{ content: etiqueta, styles: { fontStyle: 'bold' } }, '']);
+    filasSeccion.push(...filasTemp);
+  }
 
   return filasSeccion;
 };
@@ -521,27 +529,26 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
           }), { inicial: 0, debe: 0, haber: 0, final: 0 });
           subtotalesPorTitulo.set(etiqueta, subtotal);
 
-          // Encabezado de la cuenta título
-          filas.push([
-            celdaNegrita(` ${etiqueta}`),
-            celdaVaciaNegrita(), celdaVaciaNegrita(), celdaVaciaNegrita(), celdaVaciaNegrita()
-          ]);
-
-          // Detalle: subtítulos y cuentas con sangría según su profundidad.
-          // Tras cada subárbol (profundidad ≥ 1) se cierra con su fila
-          // SUBTOTAL consolidada; los padres raíz los cubre el SUBTOTAL
-          // del título de sección.
+          const filasTemp = [];
           const jerarquiaConSubtotales = insertarSubtotalesJerarquia(jerarquia);
+
           jerarquiaConSubtotales.forEach(r => {
+            // FILTRO DE CERO: Ocultar la línea si todos los saldos y movimientos del periodo son 0.
+            if (Math.abs(r.valores.inicial) < 0.005 && 
+                Math.abs(r.valores.debe) < 0.005 && 
+                Math.abs(r.valores.haber) < 0.005 && 
+                Math.abs(r.valores.final) < 0.005) {
+              return;
+            }
+
             const estilo = r.esPadre || r.esSubtotalCierre ? { fontStyle: 'bold' } : {};
             const etiquetaFila = r.esSubtotalCierre
               ? `${sangria(r.profundidad)}SUBTOTAL ${r.cuenta.codigo} - ${r.cuenta.nombre}`
               : `${sangria(r.profundidad)}${r.cuenta.codigo} - ${r.cuenta.nombre}`;
 
-            // Si la fila es un padre que NO es un subtotal de cierre, ocultamos sus celdas de monto
             const mostrarMontos = !r.esPadre || r.esSubtotalCierre;
 
-            filas.push([
+            filasTemp.push([
               { content: etiquetaFila, styles: estilo },
               { content: mostrarMontos ? formatMoney(r.valores.inicial) : '', styles: estilo },
               { content: mostrarMontos ? formatMoney(r.valores.debe) : '', styles: estilo },
@@ -550,17 +557,24 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
             ]);
           });
 
-          // Subtotal/Total de la cuenta título principal (ACTIVO, PASIVO, etc.)
-          filas.push([
-            celdaNegrita(`TOTAL ${etiqueta}`),
-            celdaNegrita(formatMoney(subtotal.inicial)),
-            celdaNegrita(formatMoney(subtotal.debe)),
-            celdaNegrita(formatMoney(subtotal.haber)),
-            celdaNegrita(formatMoney(subtotal.final)),
-          ]);
+          // Solo dibujamos el título y los subtotales si existieron cuentas que superaron el filtro de cero.
+          if (filasTemp.length > 0) {
+            filas.push([
+              celdaNegrita(` ${etiqueta}`),
+              celdaVaciaNegrita(), celdaVaciaNegrita(), celdaVaciaNegrita(), celdaVaciaNegrita()
+            ]);
 
-          // Fila separadora entre títulos
-          filas.push([{ content: '', styles: { minCellHeight: 8 } }, '', '', '', '']);
+            filas.push(...filasTemp);
+
+            filas.push([
+              celdaNegrita(`TOTAL ${etiqueta}`),
+              celdaNegrita(formatMoney(subtotal.inicial)),
+              celdaNegrita(formatMoney(subtotal.debe)),
+              celdaNegrita(formatMoney(subtotal.haber)),
+              celdaNegrita(formatMoney(subtotal.final)),
+            ]);
+            filas.push([{ content: '', styles: { minCellHeight: 8 } }, '', '', '', '']);
+          }
         };
 
         // Cada cuenta se asigna a un solo título para evitar duplicidad de montos
@@ -697,14 +711,20 @@ export default function ReportesContables({ empresaActiva, periodoActivo }) {
         // para datos contables sanos).
         const ingresos = cuentasBalancePlan.filter(c => c.tipo.includes('INGRESO'));
         const egresos = cuentasBalancePlan.filter(c => c.tipo.includes('GASTO') || c.tipo.includes('COSTO') || c.tipo.includes('EGRESO'));
-        const totalIngresosER = ingresos.reduce((sum, c) => sum + Math.abs(c.saldoFinal), 0);
-        const totalEgresosER = egresos.reduce((sum, c) => sum + Math.abs(c.saldoFinal), 0);
+
+        // Algebraico puro: la BD ya entrega el signo real; no se fuerzan
+        // magnitudes ni se altera el comportamiento contable.
+        const totalIngresosER = ingresos.reduce((sum, c) => sum + Number(c.saldoFinal ?? 0), 0);
+        const totalEgresosER = egresos.reduce((sum, c) => sum + Number(c.saldoFinal ?? 0), 0);
 
         const usaAsientoTemporal = asientoTemporal !== null && asientoTemporal !== undefined;
         const cuentaResultadosOk = usaAsientoTemporal && Boolean(asientoTemporal.cuentaResultadosEncontrada);
+
+        // Al sumar algebraicamente (Ingresos negativos + Egresos positivos),
+        // la utilidad queda con el signo correcto.
         const resultadoEjercicio = usaAsientoTemporal
           ? Number(asientoTemporal.resultado ?? 0)
-          : totalIngresosER - totalEgresosER;
+          : totalIngresosER + totalEgresosER;
         const hayResultado = Math.abs(resultadoEjercicio) >= 0.005;
 
         // Cuenta destino del asiento dentro del plan de la empresa activa.
