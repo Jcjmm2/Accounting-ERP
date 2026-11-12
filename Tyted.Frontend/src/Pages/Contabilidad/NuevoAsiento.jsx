@@ -17,6 +17,11 @@ const esAsientoAutomatico = (asiento) =>
   || esTrasladoApertura(asiento)
   || esCierreAutomatico(asiento);
 
+const tieneLineasProtegidas = (asiento) =>
+  asiento?.origenGeneracion === 'MotorFiscal'
+  || asiento?.origenGeneracion === 'CierreResultados'
+  || esCierreAutomatico(asiento);
+
 export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodoActivo: periodoActivoProp }) {
   const {
     empresaActiva: empresaActivaContext,
@@ -31,6 +36,7 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
   // --- ESTADOS DE CONTROL DE VISTA ---
   const [vista, setVista] = useState('formulario'); // 'formulario' | 'listado'
   const [modo, setModo] = useState('crear'); // 'crear' | 'editar'
+  const [modoLectura, setModoLectura] = useState(false);
   const [asientoIdEditando, setAsientoIdEditando] = useState(null);
   const [periodoEditando, setPeriodoEditando] = useState(null);
   const periodoFormulario = modo === 'editar' && periodoEditando ? periodoEditando : periodoActivo;
@@ -48,6 +54,7 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
     { cuentaId: '', codigoManual: '', debe: '', haber: '' },
     { cuentaId: '', codigoManual: '', debe: '', haber: '' }
   ]);
+  const [lineasOriginalesProtegidas, setLineasOriginalesProtegidas] = useState([]);
   
   // --- ESTADOS AUXILIARES ---
   const [cuentasDisponibles, setCuentasDisponibles] = useState([]);
@@ -129,7 +136,13 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
   const cuadrado = diferencia <= 0.01 && totalDebe > 0;
 
   // --- MANEJO DE LÍNEAS DEL ASIENTO ---
-  const agregarLinea = () => setLineas([...lineas, { cuentaId: '', codigoManual: '', debe: '', haber: '' }]);
+  const agregarLinea = () => {
+    if (lineasOriginalesProtegidas.length > 0 && lineas.some(l => l.bloqueado)) {
+      setLineas(prev => [...prev, { detalleId: null, cuentaId: '', codigoManual: '', debe: '', haber: '', bloqueado: false, esAjusteManual: true }]);
+      return;
+    }
+    setLineas(prev => [...prev, { cuentaId: '', codigoManual: '', debe: '', haber: '' }]);
+  };
 
   // Cambio del TIPO de comprobante con fecha coherente a la naturaleza del
   // asiento:
@@ -154,6 +167,9 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
   };
 
   const eliminarLinea = (index) => {
+    if (lineas[index]?.bloqueado) {
+      return alert('🔒 Las líneas del comprobante fiscal original quedan protegidas para conservar el origen contable. Puede añadir nuevas líneas de ajuste manual en lugar de borrar las existentes.');
+    }
     if (lineas.length > 2) setLineas(lineas.filter((_, i) => i !== index));
   };
 
@@ -163,6 +179,10 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
   // código exacto, asocia la cuenta contable correspondiente.
   const handleCodigoManual = (index, valor) => {
     const nuevasLineas = [...lineas];
+    if (nuevasLineas[index]?.bloqueado) {
+      return;
+    }
+
     const valorLimpio = String(valor).replace(/\./g, '').trim();
 
     if (valorLimpio === '') {
@@ -209,6 +229,10 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
 
   const actualizarLinea = (index, campo, valor) => {
     const nuevasLineas = [...lineas];
+    if (nuevasLineas[index]?.bloqueado) {
+      return;
+    }
+
     nuevasLineas[index][campo] = valor;
     
     if (campo === 'debe' && valor) nuevasLineas[index].haber = '';
@@ -263,7 +287,9 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
     setTipoComprobante('Diario');
     setNumeroComprobante('');
     setLineas([{ cuentaId: '', codigoManual: '', debe: '', haber: '' }, { cuentaId: '', codigoManual: '', debe: '', haber: '' }]);
+    setLineasOriginalesProtegidas([]);
     setModo('crear');
+    setModoLectura(false);
     setAsientoIdEditando(null);
     setPeriodoEditando(null);
     setErrorConcepto(false);
@@ -274,6 +300,8 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
   // --- FUNCIONES DE GUARDADO ---
   const guardar = async (e) => {
     e.preventDefault();
+
+    if (modoLectura) return;
 
     // La descripción (concepto/glosa) es obligatoria: sin ella el asiento no
     // se graba y se resalta el campo para que el usuario sepa qué completar.
@@ -286,6 +314,21 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
 
     const lineasInvalidas = lineas.some(l => (l.debe || l.haber) && !l.cuentaId);
     if (lineasInvalidas) return alert('⚠️ Una o más líneas tienen montos pero no tienen una cuenta contable válida asociada.');
+
+    if (lineasOriginalesProtegidas.length > 0) {
+      const hayLineaProtegidaAlterada = lineas.some((linea) => {
+        if (!linea.detalleId && linea.bloqueado) return true;
+        const original = lineasOriginalesProtegidas.find(item => String(item.detalleId) === String(linea.detalleId));
+        if (!original) return false;
+        return Number(linea.cuentaId || 0) !== Number(original.cuentaId || 0)
+          || Math.abs((Number(linea.debe || 0) || 0) - Number(original.debe || 0)) > 0.01
+          || Math.abs((Number(linea.haber || 0) || 0) - Number(original.haber || 0)) > 0.01;
+      });
+
+      if (hayLineaProtegidaAlterada) {
+        return alert('🔒 Las líneas originales del comprobante automático están protegidas. No puede alterar la cuenta ni los importes de la línea fiscal; sólo puede añadir líneas nuevas de ajuste manual.');
+      }
+    }
 
     const empId = Number(empresaActiva?.id ?? 1);
     const usuarioId = Number(user?.id ?? 1);
@@ -323,6 +366,7 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
       detalles: lineas
         .filter(l => l.cuentaId && (l.debe || l.haber))
         .map(l => ({
+          id: l.detalleId ? Number(l.detalleId) : 0,
           cuentaContableId: Number(l.cuentaId),
           debe: parseFloat(l.debe) || 0,
           haber: parseFloat(l.haber) || 0,
@@ -350,22 +394,11 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
     }
   };
 
-  const prepararEdicion = (asiento) => {
-    // Los traslados automáticos de saldo generados por el cierre de OTRO
-    // periodo no se editan: hay que revertirlos y reabrir su origen.
+  const prepararEdicion = (asiento, soloLectura = false) => {
     if (esTrasladoApertura(asiento)) {
       return alert(
         '🔒 Este asiento es un traslado automático de saldo generado por un cierre. ' +
         'Use «↩️ Revertir y reabrir origen» para eliminarlo y reabrir el periodo de origen.'
-      );
-    }
-    // Los traslados automáticos de apertura y los asientos del motor fiscal
-    // siguen protegidos; el cierre de resultados sí admite edición controlada
-    // cuando hay una cuenta de patrimonio/título no apta y hay que corregirla.
-    if (asiento?.origenGeneracion === 'MotorFiscal' || esTrasladoApertura(asiento)) {
-      return alert(
-        '🔒 Este comprobante es automático y requiere reversión/regeneración desde su origen. ' +
-        'No se puede editar directamente.'
       );
     }
 
@@ -379,25 +412,43 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
     setConcepto(asiento.concepto || '');
     setTipoComprobante(asiento.tipoComprobante || 'Diario');
     setNumeroComprobante(asiento.numeroComprobante || `ID-${asiento.id}`);
-    
+
+    const lineasProtegidas = tieneLineasProtegidas(asiento);
     const lineasFormateadas = (asiento.detalles?.$values || asiento.detalles || []).map(d => {
       const cta = cuentasDisponibles.find(c => (c.id ?? c.cuentaId) === d.cuentaContableId);
+      const lineaOriginal = {
+        detalleId: d.id ?? null,
+        cuentaId: d.cuentaContableId || '',
+        debe: Number(d.debe || 0),
+        haber: Number(d.haber || 0)
+      };
       return {
+        detalleId: d.id ?? null,
         cuentaId: d.cuentaContableId || '',
         codigoManual: cta ? (cta.codigoCuenta || cta.codigo || '') : '',
         debe: d.debe > 0 ? d.debe : '',
-        haber: d.haber > 0 ? d.haber : ''
+        haber: d.haber > 0 ? d.haber : '',
+        bloqueado: lineasProtegidas,
+        esFiscalOriginal: lineasProtegidas,
+        esAjusteManual: false,
+        original: lineaOriginal
       };
     });
 
     while (lineasFormateadas.length < 2) {
-      lineasFormateadas.push({ cuentaId: '', codigoManual: '', debe: '', haber: '' });
+      lineasFormateadas.push({ detalleId: null, cuentaId: '', codigoManual: '', debe: '', haber: '', bloqueado: false, esFiscalOriginal: false, esAjusteManual: true, original: null });
     }
 
+    setLineasOriginalesProtegidas(lineasProtegidas ? (asiento.detalles?.$values || asiento.detalles || []).map(d => ({ detalleId: d.id ?? null, cuentaId: d.cuentaContableId || '', debe: Number(d.debe || 0), haber: Number(d.haber || 0) })) : []);
     setLineas(lineasFormateadas);
     setAsientoIdEditando(asiento.id);
     setModo('editar');
+    setModoLectura(Boolean(soloLectura));
     setVista('formulario');
+  };
+
+  const consultarAsiento = (asiento) => {
+    prepararEdicion(asiento, true);
   };
 
   const revertirTraslado = async (asiento) => {
@@ -509,7 +560,7 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
           <div style={{ background: '#1e293b', padding: '16px', borderRadius: '10px', marginBottom: '20px', border: `1px solid ${modo === 'editar' ? '#f59e0b' : '#334155'}` }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px' }}>
               <h2 style={{ margin: 0, color: modo === 'editar' ? '#fbbf24' : '#fff' }}>
-                {modo === 'editar' ? `✏️ Modificar Asiento (N°: ${numeroComprobante})` : '✍️ Comprobante Contable'}
+                {modoLectura ? '👁️ Consulta de Asiento' : (modo === 'editar' ? `✏️ Modificar Asiento (N°: ${numeroComprobante})` : '✍️ Comprobante Contable')}
               </h2>
               <div style={{ fontSize: '0.85rem', color: '#94a3b8', textAlign: 'right' }}>
                 <div>🏢 {empresaActiva?.nombre || 'Empresa por defecto'}</div>
@@ -567,6 +618,15 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
               </div>
             </div>
 
+            {lineas.some(l => l.bloqueado) && (
+              <div style={{
+                background: '#0f172a', border: '1px solid #f59e0b', color: '#fcd34d',
+                padding: '10px 14px', borderRadius: '8px', marginBottom: '16px', fontSize: '0.85rem'
+              }}>
+                🔒 <b>Comprobante del motor fiscal:</b> se conservan las líneas originales del origen fiscal y sólo se permiten nuevas líneas de ajuste manual. Las líneas de origen no se pueden borrar ni modificar.
+              </div>
+            )}
+
             {/* Aviso de la naturaleza del tipo de comprobante seleccionado */}
             {tipoComprobante === 'Apertura' && (
               <div style={{
@@ -612,14 +672,14 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
                             value={linea.codigoManual}
                             onChange={e => handleCodigoManual(index, e.target.value)}
                             style={{ ...inputStyle, width: '140px', fontFamily: 'monospace' }}
-                            disabled={cargando}
+                            disabled={cargando || linea.bloqueado}
                           />
                           <select 
                             value={linea.cuentaId} 
                             onChange={e => actualizarLinea(index, 'cuentaId', e.target.value)}
                             style={{ ...inputStyle, flex: 1, textOverflow: 'ellipsis' }}
                             required
-                            disabled={cargando}
+                            disabled={cargando || linea.bloqueado}
                           >
                             <option value="">{cargando ? 'Cargando...' : 'Seleccionar...'}</option>
                             {cuentasDisponibles.map(c => {
@@ -636,13 +696,13 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
                         </div>
                       </td>
                       <td style={{ padding: '8px' }}>
-                        <input type="number" step="0.01" value={linea.debe} onChange={e => actualizarLinea(index, 'debe', e.target.value)} onBlur={() => completarDecimales(index, 'debe')} placeholder="0.00" style={{ ...inputStyle, textAlign: 'right' }} />
+                        <input type="number" step="0.01" value={linea.debe} onChange={e => actualizarLinea(index, 'debe', e.target.value)} onBlur={() => completarDecimales(index, 'debe')} placeholder="0.00" style={{ ...inputStyle, textAlign: 'right' }} disabled={linea.bloqueado || cargando} />
                       </td>
                       <td style={{ padding: '8px' }}>
-                        <input type="number" step="0.01" value={linea.haber} onChange={e => actualizarLinea(index, 'haber', e.target.value)} onBlur={() => completarDecimales(index, 'haber')} placeholder="0.00" style={{ ...inputStyle, textAlign: 'right' }} />
+                        <input type="number" step="0.01" value={linea.haber} onChange={e => actualizarLinea(index, 'haber', e.target.value)} onBlur={() => completarDecimales(index, 'haber')} placeholder="0.00" style={{ ...inputStyle, textAlign: 'right' }} disabled={linea.bloqueado || cargando} />
                       </td>
                       <td style={{ padding: '8px', textAlign: 'center' }}>
-                        <button type="button" onClick={() => eliminarLinea(index)} style={{ background: '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', padding: '6px 10px', cursor: 'pointer' }}>✕</button>
+                        <button type="button" onClick={() => eliminarLinea(index)} style={{ background: linea.bloqueado ? '#334155' : '#dc2626', color: '#fff', border: 'none', borderRadius: '6px', padding: '6px 10px', cursor: linea.bloqueado ? 'not-allowed' : 'pointer', opacity: linea.bloqueado ? 0.7 : 1 }} disabled={linea.bloqueado}>✕</button>
                       </td>
                     </tr>
                   ))}
@@ -681,12 +741,12 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
                     Cancelar Edición
                   </button>
                 )}
-                <button type="submit" disabled={!cuadrado || cargando} title={!concepto.trim() ? 'Complete el campo "Concepto / Glosa" para poder grabar el asiento' : undefined} style={{ 
-                  background: cuadrado ? (modo === 'editar' ? '#f59e0b' : '#16a34a') : '#475569', 
+                <button type="submit" disabled={!cuadrado || cargando || modoLectura} title={modoLectura ? 'Consulta de asiento: no se permite editar' : (!concepto.trim() ? 'Complete el campo "Concepto / Glosa" para poder grabar el asiento' : undefined)} style={{ 
+                  background: cuadrado && !modoLectura ? (modo === 'editar' ? '#f59e0b' : '#16a34a') : '#475569', 
                   color: '#fff', border: 'none', borderRadius: '8px', padding: '12px 24px', 
-                  cursor: cuadrado ? 'pointer' : 'not-allowed', fontWeight: 'bold', fontSize: '1rem'
+                  cursor: cuadrado && !modoLectura ? 'pointer' : 'not-allowed', fontWeight: 'bold', fontSize: '1rem'
                 }}>
-                  {cargando ? 'Procesando...' : modo === 'editar' ? '💾 Actualizar Asiento' : '💾 Guardar Asiento'}
+                  {modoLectura ? '👁️ Solo lectura' : (cargando ? 'Procesando...' : modo === 'editar' ? '💾 Actualizar Asiento' : '💾 Guardar Asiento')}
                 </button>
               </div>
             </div>
@@ -745,31 +805,49 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
                       <td style={{ padding: '12px', color: '#e2e8f0' }}>{asiento.concepto}</td>
                       <td style={{ padding: '12px', textAlign: 'center' }}>
                         {esTrasladoApertura(asiento) ? (
-                          <button
-                            onClick={() => revertirTraslado(asiento)}
-                            disabled={cargando}
-                            title="Anular y reabrir origen: elimina este traslado automático y reabre el periodo que lo generó"
-                            style={{ background: '#b45309', color: '#fff', border: 'none', borderRadius: '6px', padding: '6px 14px', cursor: cargando ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '0.8rem' }}
-                          >
-                            ↩️ Anular y reabrir origen
-                          </button>
-                        ) : asiento?.origenGeneracion === 'MotorFiscal' ? (
-                          <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
+                          <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', flexWrap: 'wrap' }}>
                             <button
-                              onClick={() => {
-                                const mensaje = '⚠️ Este comprobante es automático del motor fiscal. ' +
-                                  'Si necesita corregirlo, re-genérelo desde su proceso de origen o anule la operación que lo produjo.';
-                                alert(mensaje);
-                                prepararEdicion(asiento);
-                              }}
-                              title="Editar comprobante automático: aviso explícito de la regla de origen"
-                              style={{ background: '#0ea5e9', color: '#fff', border: 'none', borderRadius: '6px', padding: '6px 12px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.8rem' }}
+                              onClick={() => consultarAsiento(asiento)}
+                              title="Consultar comprobante"
+                              style={{ background: '#0ea5e9', color: '#fff', border: 'none', borderRadius: '6px', padding: '6px 10px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.8rem' }}
                             >
-                              ✏️ Editar comprobante automático
+                              👁️ Consultar
+                            </button>
+                            <button
+                              onClick={() => revertirTraslado(asiento)}
+                              disabled={cargando}
+                              title="Anular y reabrir origen: elimina este traslado automático y reabre el periodo que lo generó"
+                              style={{ background: '#b45309', color: '#fff', border: 'none', borderRadius: '6px', padding: '6px 14px', cursor: cargando ? 'not-allowed' : 'pointer', fontWeight: 'bold', fontSize: '0.8rem' }}
+                            >
+                              ↩️ Anular y reabrir origen
+                            </button>
+                          </div>
+                        ) : asiento?.origenGeneracion === 'MotorFiscal' ? (
+                          <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', flexWrap: 'wrap' }}>
+                            <button
+                              onClick={() => consultarAsiento(asiento)}
+                              title="Consultar comprobante automático"
+                              style={{ background: '#0ea5e9', color: '#fff', border: 'none', borderRadius: '6px', padding: '6px 10px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.8rem' }}
+                            >
+                              👁️ Consultar
+                            </button>
+                            <button
+                              onClick={() => prepararEdicion(asiento)}
+                              title="Editar comprobante automático conservando líneas de origen"
+                              style={{ background: '#f59e0b', color: '#000', border: 'none', borderRadius: '6px', padding: '6px 12px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.8rem' }}
+                            >
+                              ✏️ Editar
                             </button>
                           </div>
                         ) : esCierreAutomatico(asiento) ? (
-                          <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
+                          <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', flexWrap: 'wrap' }}>
+                            <button
+                              onClick={() => consultarAsiento(asiento)}
+                              title="Consultar comprobante"
+                              style={{ background: '#0ea5e9', color: '#fff', border: 'none', borderRadius: '6px', padding: '6px 10px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.8rem' }}
+                            >
+                              👁️ Consultar
+                            </button>
                             <button
                               onClick={() => prepararEdicion(asiento)}
                               style={{ background: '#f59e0b', color: '#000', border: 'none', borderRadius: '6px', padding: '6px 12px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.8rem' }}
@@ -786,7 +864,14 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
                             </button>
                           </div>
                         ) : (
-                          <div style={{ display: 'flex', gap: '6px', justifyContent: 'center' }}>
+                          <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', flexWrap: 'wrap' }}>
+                            <button
+                              onClick={() => consultarAsiento(asiento)}
+                              title="Consultar comprobante"
+                              style={{ background: '#0ea5e9', color: '#fff', border: 'none', borderRadius: '6px', padding: '6px 10px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.8rem' }}
+                            >
+                              👁️ Consultar
+                            </button>
                             <button
                               onClick={() => prepararEdicion(asiento)}
                               style={{ background: '#f59e0b', color: '#000', border: 'none', borderRadius: '6px', padding: '6px 12px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.8rem' }}

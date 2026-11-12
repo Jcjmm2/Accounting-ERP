@@ -184,11 +184,11 @@ public class AsientoContableService
         if (asientoExistente == null) return null;
 
         // No se pueden modificar traslados automáticos de saldos generados por
-        // el cierre de OTRO periodo ( TrasladoApertura ) ni asientos del motor
-        // fiscal (vinculados a documentos de venta/compra/gasto). Sí se pueden
-        // editar aperturas manuales y cierres propios mientras el periodo esté abierto.
+        // el cierre de OTRO periodo ( TrasladoApertura ), porque alteran la
+        // trazabilidad del cierre del ejercicio anterior. Los comprobantes del
+        // motor fiscal sí admiten ajustes manuales siempre que se conserven sus
+        // líneas originales y sólo se añadan nuevas líneas de corrección.
         if (asientoExistente.OrigenGeneracion == OrigenGeneracionAsiento.TrasladoApertura
-            || asientoExistente.OrigenGeneracion == OrigenGeneracionAsiento.MotorFiscal
             || EsTraspasoApertura(asientoExistente.Concepto))
         {
             throw new InvalidOperationException(
@@ -208,6 +208,39 @@ public class AsientoContableService
 
         if (asientoActualizado.Detalles == null || !asientoActualizado.Detalles.Any())
             throw new InvalidOperationException("El asiento modificado debe incluir al menos un detalle.");
+
+        var esMotorFiscal = asientoExistente.OrigenGeneracion == OrigenGeneracionAsiento.MotorFiscal;
+        var esCierreAutomatico = asientoExistente.OrigenGeneracion == OrigenGeneracionAsiento.CierreResultados
+            || (asientoExistente.TipoComprobante == "Cierre"
+                && asientoExistente.Concepto.StartsWith(PrefijoCierreResultados, StringComparison.Ordinal));
+
+        if (esMotorFiscal || esCierreAutomatico)
+        {
+            var idsOriginales = asientoExistente.Detalles.Select(d => d.Id).ToHashSet();
+            var idsSolicitados = new HashSet<int>();
+
+            foreach (var detalle in asientoActualizado.Detalles)
+            {
+                if (detalle.Id > 0)
+                {
+                    idsSolicitados.Add(detalle.Id);
+                    if (!idsOriginales.Contains(detalle.Id))
+                        throw new InvalidOperationException("Las líneas ajenas a la generación automática no pueden incorporarse sin conservar primero las líneas originales del comprobante.");
+
+                    var detalleOriginal = asientoExistente.Detalles.First(d => d.Id == detalle.Id);
+                    if (detalleOriginal.CuentaContableId != detalle.CuentaContableId
+                        || Math.Abs(detalleOriginal.Debe - detalle.Debe) > 0.01m
+                        || Math.Abs(detalleOriginal.Haber - detalle.Haber) > 0.01m)
+                    {
+                        throw new InvalidOperationException("Las líneas generadas automáticamente quedan protegidas; sólo se permiten líneas nuevas de ajuste manual.");
+                    }
+                }
+            }
+
+            var faltantes = idsOriginales.Except(idsSolicitados).ToList();
+            if (faltantes.Count > 0)
+                throw new InvalidOperationException("Debe conservar todas las líneas del comprobante automático original antes de guardar ajustes manuales.");
+        }
 
         var periodo = await _context.PeriodosContables
             .AsNoTracking()
@@ -255,12 +288,31 @@ public class AsientoContableService
         asientoExistente.TotalDebe = totalDebe;
         asientoExistente.TotalHaber = totalHaber;
 
-        _context.RemoveRange(asientoExistente.Detalles);
-        
-        foreach (var nuevoDetalle in asientoActualizado.Detalles)
+        if (esMotorFiscal || esCierreAutomatico)
         {
-            nuevoDetalle.Id = 0;
-            asientoExistente.Detalles.Add(nuevoDetalle);
+            var idsOriginales = asientoExistente.Detalles.Select(d => d.Id).ToHashSet();
+            var detallesNuevos = asientoActualizado.Detalles
+                .Where(d => d.Id == 0 || !idsOriginales.Contains(d.Id))
+                .ToList();
+
+            foreach (var nuevoDetalle in detallesNuevos)
+            {
+                nuevoDetalle.Id = 0;
+                nuevoDetalle.AsientoContableId = asientoExistente.Id;
+                nuevoDetalle.AsientoContable = null;
+                nuevoDetalle.CuentaContable = null;
+                asientoExistente.Detalles.Add(nuevoDetalle);
+            }
+        }
+        else
+        {
+            _context.RemoveRange(asientoExistente.Detalles);
+
+            foreach (var nuevoDetalle in asientoActualizado.Detalles)
+            {
+                nuevoDetalle.Id = 0;
+                asientoExistente.Detalles.Add(nuevoDetalle);
+            }
         }
 
         var usuario = await _context.Usuarios.AsNoTracking().FirstOrDefaultAsync(u => u.Id == asientoActualizado.UsuarioId);
