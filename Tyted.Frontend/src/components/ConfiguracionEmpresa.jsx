@@ -56,6 +56,11 @@ const ConfiguracionEmpresa = () => {
     const [empresaOrigenPlanId, setEmpresaOrigenPlanId] = useState('');
     const [importandoPlan, setImportandoPlan] = useState(false);
 
+    // --- Validación de Conceptos Operacionales ---
+    const [verificandoConceptos, setVerificandoConceptos] = useState(false);
+    const [tieneConceptos, setTieneConceptos] = useState(true);
+    const [importandoConceptos, setImportandoConceptos] = useState(false);
+
     // Sincronizar el formulario con la empresa activa global
     useEffect(() => {
         if (empresaActiva) {
@@ -94,11 +99,77 @@ const ConfiguracionEmpresa = () => {
         }
     };
 
+    const validarConceptosOperacionales = async () => {
+        const idActiva = Number(empresaActiva?.id ?? 0);
+        if (!idActiva) {
+            setTieneConceptos(true);
+            return;
+        }
+
+        try {
+            setVerificandoConceptos(true);
+            const res = await fetch(`${API_URL}/conceptos-operacionales?empresaId=${idActiva}`, { headers: getAuthHeaders() });
+            if (!res.ok) {
+                setTieneConceptos(false);
+                return;
+            }
+
+            const data = await res.json();
+            const total = Array.isArray(data) ? data.length : (data?.$values?.length || 0);
+            setTieneConceptos(total > 0);
+        } catch (error) {
+            console.error('Error validando conceptos operacionales:', error);
+            setTieneConceptos(false);
+        } finally {
+            setVerificandoConceptos(false);
+        }
+    };
+
     // Se re-valida cada vez que cambia la empresa activa (empresa recién creada o seleccionada)
     useEffect(() => {
         validarPlanCuentas();
+        validarConceptosOperacionales();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [empresaActiva?.id]);
+
+    const importarConceptosOperacionales = async () => {
+        const origenId = Number(empresaOrigenPlanId);
+        const destinoId = Number(empresaActiva?.id);
+
+        if (!origenId) {
+            alert('⚠️ Seleccione la empresa origen.');
+            return;
+        }
+
+        const confirmar = window.confirm(
+            `Se copiarán los conceptos operacionales desde la empresa origen hacia "${empresaActiva.razonSocial || empresaActiva.nombre}".\n\n¿Desea continuar?`
+        );
+
+        if (!confirmar) return;
+
+        setImportandoConceptos(true);
+        try {
+            const res = await fetch(`${API_URL}/conceptos-operacionales/importar`, {
+                method: 'POST',
+                headers: getAuthHeaders(),
+                body: JSON.stringify({ empresaOrigenId: origenId, empresaDestinoId: destinoId })
+            });
+
+            if (res.ok) {
+                alert('✅ Conceptos operacionales importados con éxito.');
+                await validarConceptosOperacionales();
+            } else {
+                const error = await res.json().catch(() => null);
+                alert(`❌ Error al importar conceptos: ${error?.message || 'Fallo desconocido'}`);
+            }
+        } catch (error) {
+            console.error('Error importando conceptos operacionales:', error);
+            alert('Error de conexión al importar los conceptos operacionales.');
+        } finally {
+            setImportandoConceptos(false);
+            setEmpresaOrigenPlanId('');
+        }
+    };
 
     // Cuentas que pertenecen estrictamente a la empresa activa
     const cuentasEmpresaActiva = useMemo(() => {
@@ -494,6 +565,52 @@ const ConfiguracionEmpresa = () => {
             ) : (
                 <div style={{ background: '#052e16', padding: '10px 20px', borderRadius: '10px', border: '1px solid #16a34a', marginBottom: '32px', color: '#86efac', fontSize: '0.85rem' }}>
                     ✅ Plan de cuentas válido: la empresa <strong>{empresaActiva.razonSocial || empresaActiva.nombre}</strong> tiene <strong>{cuentasEmpresaActiva.length}</strong> cuenta(s) registradas.
+                </div>
+            )}
+
+            {/* =========================================================
+                VALIDACIÓN DE CONCEPTOS OPERACIONALES (Dependen del Plan)
+            ========================================================= */}
+            {!planVacio && !tieneConceptos && !verificandoConceptos && (
+                <div style={{ background: '#422006', padding: '20px 24px', borderRadius: '12px', border: '1px solid #f59e0b', marginBottom: '32px' }}>
+                    <h3 style={{ margin: '0 0 8px 0', color: '#fbbf24', fontSize: '1.05rem' }}>
+                        ⚠️ La empresa «{empresaActiva.razonSocial || empresaActiva.nombre}» no tiene Conceptos Operacionales
+                    </h3>
+                    <p style={{ margin: '0 0 14px 0', color: '#fde68a', fontSize: '0.85rem' }}>
+                        Para que el motor de asientos automáticos funcione (ventas, compras, gastos y claves de SISTEMA),
+                        debe configurarlos manualmente o clonarlos desde otra empresa que comparta el mismo plan de cuentas.
+                    </p>
+
+                    <div style={{ display: 'flex', gap: '10px', alignItems: 'flex-end', flexWrap: 'wrap' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', minWidth: '300px' }}>
+                            <label style={{ color: '#fde68a', fontSize: '0.8rem', fontWeight: 'bold' }}>
+                                📄 Empresa origen de los conceptos
+                            </label>
+                            <select
+                                value={empresaOrigenPlanId}
+                                onChange={(e) => setEmpresaOrigenPlanId(e.target.value)}
+                                style={{ padding: '10px', borderRadius: '8px', background: '#0f172a', border: '1px solid #92400e', color: '#fff' }}
+                            >
+                                <option value="">Seleccione la empresa origen...</option>
+                                {empresasConPlan.map(emp => (
+                                    <option key={emp.id} value={emp.id}>
+                                        🏢 {emp.razonSocial || emp.nombre} (RIF: {emp.rif || 'S/N'})
+                                    </option>
+                                ))}
+                            </select>
+                        </div>
+                        <button
+                            onClick={importarConceptosOperacionales}
+                            disabled={importandoConceptos || !empresaOrigenPlanId}
+                            style={{
+                                padding: '10px 18px', background: importandoConceptos ? '#475569' : '#059669',
+                                color: '#fff', border: 'none', borderRadius: '8px', cursor: importandoConceptos ? 'wait' : 'pointer',
+                                fontWeight: 'bold', opacity: empresaOrigenPlanId ? 1 : 0.6
+                            }}
+                        >
+                            {importandoConceptos ? '⏳ Clonando conceptos...' : '📥 Clonar Conceptos y Claves SISTEMA'}
+                        </button>
+                    </div>
                 </div>
             )}
 

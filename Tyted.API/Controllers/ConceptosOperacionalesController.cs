@@ -133,6 +133,104 @@ namespace Tyted.API.Controllers
             return await query.OrderBy(c => c.NombreConcepto).ToListAsync();
         }
 
+        // POST: api/conceptos-operacionales/importar
+        [HttpPost("importar")]
+        [HttpPost("/api/Fiscal/ConceptosOperacionales/importar")]
+        [Authorize(Roles = "AdministradorSistema,Administrador")]
+        public async Task<IActionResult> ImportarConceptos([FromBody] ImportarConceptosRequest request)
+        {
+            if (request is null || request.EmpresaOrigenId <= 0 || request.EmpresaDestinoId <= 0)
+                return BadRequest(new { message = "Indique la empresa origen y la empresa destino." });
+
+            if (request.EmpresaOrigenId == request.EmpresaDestinoId)
+                return BadRequest(new { message = "La empresa origen y la empresa destino deben ser distintas." });
+
+            await _access.ValidarAccesoAsync(User, request.EmpresaOrigenId);
+            await _access.ValidarAccesoAsync(User, request.EmpresaDestinoId);
+
+            var origen = await _context.ConceptosOperacionales
+                .AsNoTracking()
+                .Where(c => c.EmpresaId == request.EmpresaOrigenId)
+                .OrderBy(c => c.TipoOperacion)
+                .ThenBy(c => c.NombreConcepto)
+                .ToListAsync();
+
+            if (origen.Count == 0)
+                return NotFound(new { message = "La empresa origen no tiene conceptos operacionales para importar." });
+
+            using var transaccion = await _context.Database.BeginTransactionAsync();
+
+            var destinoActual = await _context.ConceptosOperacionales
+                .Where(c => c.EmpresaId == request.EmpresaDestinoId)
+                .ToListAsync();
+
+            if (destinoActual.Count > 0)
+                _context.ConceptosOperacionales.RemoveRange(destinoActual);
+
+            var clon = origen.Select(c => new ConceptoOperacional
+            {
+                EmpresaId = request.EmpresaDestinoId,
+                NombreConcepto = c.NombreConcepto,
+                TipoOperacion = c.TipoOperacion,
+                CuentaContable = c.CuentaContable,
+                CodigoSeniat = c.CodigoSeniat,
+                TipoPersona = c.TipoPersona,
+                PorcentajeRetencion = c.PorcentajeRetencion,
+                AplicaSustraendo = c.AplicaSustraendo,
+                MontoSustraendoBs = c.MontoSustraendoBs,
+                AplicaRetencionIslr = c.AplicaRetencionIslr,
+                ConceptoIslrSugeridoId = null
+            }).ToList();
+
+            await _context.ConceptosOperacionales.AddRangeAsync(clon);
+            await _context.SaveChangesAsync();
+
+            var conceptosDestino = await _context.ConceptosOperacionales
+                .Where(c => c.EmpresaId == request.EmpresaDestinoId)
+                .ToListAsync();
+
+            var mapaOrigenDestino = new Dictionary<int, int>();
+            foreach (var fuente in origen)
+            {
+                var destino = conceptosDestino.FirstOrDefault(c =>
+                    c.EmpresaId == request.EmpresaDestinoId &&
+                    c.TipoOperacion == fuente.TipoOperacion &&
+                    c.NombreConcepto == fuente.NombreConcepto);
+
+                if (destino is not null)
+                    mapaOrigenDestino[fuente.Id] = destino.Id;
+            }
+
+            var referenciasCorregidas = 0;
+            foreach (var fuente in origen.Where(c => c.ConceptoIslrSugeridoId.HasValue))
+            {
+                if (!mapaOrigenDestino.TryGetValue(fuente.Id, out var destinoId))
+                    continue;
+
+                if (!mapaOrigenDestino.TryGetValue(fuente.ConceptoIslrSugeridoId.Value, out var sugeridoDestinoId))
+                    continue;
+
+                var destinoConcepto = conceptosDestino.First(c => c.Id == destinoId);
+                destinoConcepto.ConceptoIslrSugeridoId = sugeridoDestinoId;
+                referenciasCorregidas++;
+            }
+
+            if (referenciasCorregidas > 0)
+                await _context.SaveChangesAsync();
+
+            await transaccion.CommitAsync();
+
+            return Ok(new
+            {
+                message = $"Se importaron {conceptosDestino.Count} conceptos operacionales desde la empresa {request.EmpresaOrigenId} hacia la empresa {request.EmpresaDestinoId}.",
+                importados = conceptosDestino.Count,
+                empresaOrigenId = request.EmpresaOrigenId,
+                empresaDestinoId = request.EmpresaDestinoId,
+                reemplazados = destinoActual.Count,
+                referenciasCorregidas
+            });
+        }
+
         // GET: api/conceptos-operacionales/5
         [HttpGet("{id}")]
         public async Task<ActionResult<ConceptoOperacional>> GetConcepto(int id)
@@ -374,5 +472,11 @@ namespace Tyted.API.Controllers
 
         /// <summary>Referencia de la Gaceta Oficial/Resolución (ej: «G.O. N° 6.906 de 30/12/2024»).</summary>
         public string? Gaceta { get; set; }
+    }
+
+    public class ImportarConceptosRequest
+    {
+        public int EmpresaOrigenId { get; set; }
+        public int EmpresaDestinoId { get; set; }
     }
 }
