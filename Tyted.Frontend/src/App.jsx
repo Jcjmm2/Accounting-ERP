@@ -164,6 +164,63 @@ function App() {
     }
   };
 
+  // Construye la lista ordenada de Periodo Padre + Subperiodos mensuales
+  const construirOpcionesPeriodos = () => {
+    const listaBase = Array.isArray(periodos) ? periodos : (periodos?.$values || []);
+    if (!listaBase.length) return [];
+
+    const formatearNombre = (p) =>
+      p.nombre || `${p.mes ? `${String(p.mes).padStart(2, '0')}/` : ''}${p.anio || ''}`;
+
+    const extraerHijosAnidados = (p) =>
+      p.subPeriodos?.$values || p.subPeriodos ||
+      p.periodosHijos?.$values || p.periodosHijos ||
+      p.hijos?.$values || p.hijos ||
+      p.children?.$values || p.children ||
+      [];
+
+    // Detectar si vienen en lista plana con periodoPadreId / padreId
+    const tienePadreId = listaBase.some(
+      (p) => (p.periodoPadreId ?? p.padreId ?? p.parentId) != null
+    );
+
+    const opciones = [];
+    const idsAgregados = new Set();
+
+    const padres = tienePadreId
+      ? listaBase.filter((p) => (p.periodoPadreId ?? p.padreId ?? p.parentId) == null)
+      : listaBase;
+
+    padres.forEach((padre) => {
+      if (!idsAgregados.has(padre.id)) {
+        opciones.push({ id: padre.id, etiqueta: `📅 ${formatearNombre(padre)}` });
+        idsAgregados.add(padre.id);
+      }
+
+      const hijos = tienePadreId
+        ? listaBase.filter((p) => (p.periodoPadreId ?? p.padreId ?? p.parentId) === padre.id)
+        : extraerHijosAnidados(padre);
+
+      hijos.forEach((sub) => {
+        if (!idsAgregados.has(sub.id)) {
+          opciones.push({ id: sub.id, etiqueta: `   ↳ ${formatearNombre(sub)}` });
+          idsAgregados.add(sub.id);
+        }
+      });
+    });
+
+    // Respaldo: incluir cualquier periodo restante que no haya coincidido
+    listaBase.forEach((p) => {
+      if (!idsAgregados.has(p.id)) {
+        opciones.push({ id: p.id, etiqueta: `📅 ${formatearNombre(p)}` });
+        idsAgregados.add(p.id);
+      }
+    });
+
+    return opciones;
+  };
+
+  const opcionesPeriodos = construirOpcionesPeriodos();
   const nombreEmpresaActual = empresaActiva?.razonSocial || empresaActiva?.nombre || 'Empresa principal';
   const nombrePeriodoActual = periodoActivo?.nombre || 'Periodo actual';
 
@@ -457,14 +514,14 @@ function App() {
               </select>
 
               <select
-                value={periodoActivo?.id ?? 1}
+                value={periodoActivo?.id ?? ''}
                 onChange={(e) => seleccionarPeriodo(e.target.value)}
                 className="sb-select"
                 title={`Periodo activo: ${nombrePeriodoActual}`}
               >
-                {periodos.length ? periodos.map((periodo) => (
-                  <option key={periodo.id} value={periodo.id}>
-                    📅 {periodo.nombre || `${periodo.mes ? `${periodo.mes}/` : ''}${periodo.anio}`}
+                {opcionesPeriodos.length ? opcionesPeriodos.map((op) => (
+                  <option key={op.id} value={op.id}>
+                    {op.etiqueta}
                   </option>
                 )) : (
                   <option value={periodoActivo?.id ?? 1}>📅 {nombrePeriodoActual}</option>
