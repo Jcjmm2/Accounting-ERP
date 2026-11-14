@@ -25,26 +25,105 @@ import ConceptosOperacionales from './Pages/Fiscal/ConceptosOperacionales';
 import ReporteForma30 from './Pages/Fiscal/ReporteForma30';
 import DeclaracionesSeniat from './Pages/Fiscal/DeclaracionesSeniat';
 
+const GRUPOS_MENU = [
+  {
+    id: 'ventas',
+    titulo: 'VENTAS',
+    items: [
+      { id: 'dashboard', icono: '📊', label: 'Dashboard' },
+      { id: 'pos', icono: '🛒', label: 'Punto de Venta' },
+      { id: 'cxc', icono: '📋', label: 'Cuentas por Cobrar' },
+      { id: 'clientes', icono: '👩‍💼', label: 'Clientes' },
+      { id: 'pedidos', icono: '🥫', label: 'Pedidos' },
+    ],
+  },
+  {
+    id: 'almacen',
+    titulo: 'ALMACÉN',
+    items: [
+      { id: 'productos', icono: '🍎', label: 'Productos' },
+      { id: 'categorias', icono: '📁', label: 'Categorías' },
+      { id: 'inventario', icono: '📦', label: 'Inventario / Kardex' },
+    ],
+  },
+  {
+    id: 'compras',
+    titulo: 'COMPRAS',
+    items: [
+      { id: 'compras', icono: '🧾', label: 'Compras / Notas' },
+      { id: 'proveedores', icono: '🤝', label: 'Proveedores' },
+    ],
+  },
+  {
+    id: 'contabilidad',
+    titulo: 'CONTABILIDAD',
+    items: [
+      { id: 'contabilidad', icono: '📒', label: 'Contabilidad' },
+    ],
+  },
+  {
+    id: 'fiscal',
+    titulo: 'FISCAL (IVA SENIAT)',
+    items: [
+      { id: 'ventas-fiscal', icono: '📕', label: 'Registro de Ventas' },
+      { id: 'compras-fiscal', icono: '📗', label: 'Registro de Compras' },
+      { id: 'forma30', icono: '🧮', label: 'Forma 30 (IVA)' },
+      { id: 'conceptos-fiscal', icono: '🏷️', label: 'Conceptos Ingresos/Gastos' },
+      { id: 'declaraciones-seniat', icono: '📄', label: 'Declaraciones SENIAT' },
+    ],
+  },
+  {
+    id: 'sistema',
+    titulo: 'SISTEMA',
+    items: [
+      { id: 'reportes', icono: '📈', label: 'Reportes' },
+      { id: 'tasa', icono: '💵', label: 'Tasa de Cambio', mostrarTasa: true },
+      { id: 'usuarios', icono: '👤', label: 'Usuarios' },
+      { id: 'config', icono: '⚙️', label: 'Configuración' },
+    ],
+  },
+];
+
 function App() {
-  // Página por defecto: Módulo Contable. Se recuerda la última vista visitada
-  // para que la sesión siguiente abra donde el usuario se quedó.
   const [vista, setVista] = useState(() => localStorage.getItem('tyted_vista') || 'contabilidad');
   const [sidebarVisible, setSidebarVisible] = useState(window.innerWidth > 768);
-  
-  // Obtener datos del contexto global de configuración
-  const { tasa, user, logout, empresaActiva, periodoActivo, empresas, periodos, seleccionarEmpresa, seleccionarPeriodo } = useContext(ConfigContext);
+  const [contextoExpandido, setContextoExpandido] = useState(true);
 
-  // Función para cambiar de vista con comportamiento responsive
+  // Abre por defecto el acordeón donde se encuentra la vista actual
+  const [gruposAbiertos, setGruposAbiertos] = useState(() => {
+    const vistaInicial = localStorage.getItem('tyted_vista') || 'contabilidad';
+    const grupoActivo = GRUPOS_MENU.find(g => g.items.some(i => i.id === vistaInicial))?.id || 'contabilidad';
+    return { [grupoActivo]: true, contabilidad: true, fiscal: true };
+  });
+
+  const {
+    tasa,
+    user,
+    logout,
+    empresaActiva,
+    periodoActivo,
+    empresas,
+    periodos,
+    seleccionarEmpresa,
+    seleccionarPeriodo
+  } = useContext(ConfigContext);
+
+  const toggleGrupo = (grupoId) => {
+    setGruposAbiertos(prev => ({ ...prev, [grupoId]: !prev[grupoId] }));
+  };
+
   const cambiarVista = (nuevaVista) => {
     setVista(nuevaVista);
-    // Persistir la última vista (la app reabrirá en este módulo)
     localStorage.setItem('tyted_vista', nuevaVista);
+    const grupo = GRUPOS_MENU.find(g => g.items.some(i => i.id === nuevaVista));
+    if (grupo) {
+      setGruposAbiertos(prev => ({ ...prev, [grupo.id]: true }));
+    }
     if (window.innerWidth <= 768) {
       setSidebarVisible(false);
     }
   };
 
-  // Escuchar cambios de tamaño de pantalla para ajustar el sidebar automáticamente
   useEffect(() => {
     const handleResize = () => {
       if (window.innerWidth > 768) {
@@ -55,12 +134,10 @@ function App() {
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Protección de rutas: Si no hay usuario, mostrar solo el Login
   if (!user) {
     return <Login />;
   }
 
-  // Renderizado condicional de vistas según el estado
   const renderVista = () => {
     switch (vista) {
       case 'dashboard': return <Dashboard />;
@@ -87,10 +164,11 @@ function App() {
     }
   };
 
+  const nombreEmpresaActual = empresaActiva?.razonSocial || empresaActiva?.nombre || 'Empresa principal';
+  const nombrePeriodoActual = periodoActivo?.nombre || 'Periodo actual';
+
   return (
     <div className={`app-container ${sidebarVisible ? 'sidebar-abierta' : 'sidebar-oculta'}`}>
-      
-      {/* Estilos CSS inyectados para el layout responsive */}
       <style>{`
         .app-container {
           display: flex;
@@ -100,235 +178,353 @@ function App() {
         }
         .sidebar {
           width: 260px;
-          transition: all 0.3s ease-in-out;
+          height: 100vh;
+          position: sticky;
+          top: 0;
+          display: flex;
+          flex-direction: column;
+          padding: 12px !important;
+          box-sizing: border-box;
+          transition: margin-left 0.25s ease-in-out, opacity 0.2s ease-in-out;
           flex-shrink: 0;
           z-index: 999;
+          overflow: hidden !important;
         }
         .main-content {
           flex: 1;
-          width: 100%;
-          transition: all 0.3s ease-in-out;
-          padding-top: 60px !important;
+          min-width: 0;
+          transition: all 0.25s ease-in-out;
+          padding-top: ${sidebarVisible ? '16px' : '56px'} !important;
         }
         .sidebar-oculta .sidebar {
           margin-left: -260px;
           opacity: 0;
           pointer-events: none;
         }
+
+        /* Cabecera y selectores compactos */
+        .sb-header {
+          flex-shrink: 0;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          padding-bottom: 8px;
+          margin-bottom: 8px;
+          border-bottom: 1px solid #334155;
+        }
+        .sb-user-bar {
+          flex-shrink: 0;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          font-size: 0.75rem;
+          color: #cbd5e1;
+          margin-bottom: 8px;
+        }
+        .sb-context-box {
+          flex-shrink: 0;
+          background: #0f172a;
+          border: 1px solid #334155;
+          border-radius: 8px;
+          padding: 6px 8px;
+          margin-bottom: 10px;
+        }
+        .sb-context-toggle {
+          width: 100%;
+          background: transparent;
+          border: none;
+          color: #94a3b8;
+          font-size: 0.7rem;
+          font-weight: 600;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          cursor: pointer;
+          padding: 2px 0;
+        }
+        .sb-select {
+          width: 100%;
+          background: #1e293b;
+          color: #f1f5f9;
+          border: 1px solid #334155;
+          border-radius: 6px;
+          padding: 5px 8px;
+          font-size: 0.78rem;
+          outline: none;
+          cursor: pointer;
+        }
+        .sb-select:focus {
+          border-color: #3b82f6;
+        }
+
+        /* Área de navegación con scroll propio */
+        .sb-nav {
+          flex: 1;
+          overflow-y: auto;
+          padding-right: 4px;
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+        .sb-nav::-webkit-scrollbar {
+          width: 5px;
+        }
+        .sb-nav::-webkit-scrollbar-thumb {
+          background: #334155;
+          border-radius: 4px;
+        }
+        .sb-group-btn {
+          width: 100%;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          background: transparent;
+          border: none;
+          color: #94a3b8;
+          font-size: 0.68rem;
+          font-weight: 700;
+          letter-spacing: 0.05em;
+          padding: 6px 6px 4px 6px;
+          margin-top: 4px;
+          cursor: pointer;
+          border-radius: 4px;
+        }
+        .sb-group-btn:hover {
+          color: #e2e8f0;
+          background: rgba(255, 255, 255, 0.04);
+        }
+        .sb-nav .nav-button {
+          padding: 7px 10px !important;
+          margin: 1px 0 !important;
+          font-size: 0.82rem !important;
+          border-radius: 6px !important;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          text-align: left;
+        }
+
+        /* Footer único compacto */
+        .sb-footer {
+          flex-shrink: 0;
+          margin-top: 8px;
+          padding-top: 8px;
+          border-top: 1px solid #334155;
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          font-size: 0.72rem;
+          color: #94a3b8;
+        }
+
         @media (max-width: 768px) {
           .sidebar {
             position: fixed;
             top: 0;
             bottom: 0;
             left: 0;
-            box-shadow: 5px 0 15px rgba(0,0,0,0.3);
+            box-shadow: 5px 0 15px rgba(0,0,0,0.4);
           }
           .sidebar-overlay {
             position: fixed;
             inset: 0;
-            background: rgba(0, 0, 0, 0.4);
+            background: rgba(0, 0, 0, 0.45);
             backdrop-filter: blur(2px);
             z-index: 998;
           }
+          .main-content {
+            padding-top: 56px !important;
+          }
         }
       `}</style>
-      
-      {/* Botón flotante para toggle del sidebar (Hamburguesa/Flecha) */}
-      <button 
-        onClick={() => setSidebarVisible(!sidebarVisible)}
-        style={{
-          position: 'fixed',
-          top: '12px',
-          left: sidebarVisible && window.innerWidth > 768 ? '272px' : '12px',
-          zIndex: 1000,
-          background: '#2563eb',
-          color: 'white',
-          border: 'none',
-          borderRadius: '8px',
-          width: '40px',
-          height: '40px',
-          cursor: 'pointer',
-          boxShadow: '0 4px 10px rgba(0,0,0,0.2)',
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'center',
-          fontSize: '1.2rem',
-          transition: 'left 0.3s ease-in-out, background 0.2s'
-        }}
-        title={sidebarVisible ? "Ocultar menú" : "Mostrar menú"}
-      >
-        {sidebarVisible ? '◀' : '☰'}
-      </button>
-      
-      {/* Overlay oscuro para cerrar el sidebar en móviles al tocar fuera */}
-      {sidebarVisible && (
+
+      {/* Botón flotante para abrir el sidebar solo cuando está oculto */}
+      {!sidebarVisible && (
+        <button
+          onClick={() => setSidebarVisible(true)}
+          style={{
+            position: 'fixed',
+            top: '12px',
+            left: '12px',
+            zIndex: 1000,
+            background: '#2563eb',
+            color: 'white',
+            border: 'none',
+            borderRadius: '8px',
+            width: '38px',
+            height: '38px',
+            cursor: 'pointer',
+            boxShadow: '0 4px 10px rgba(0,0,0,0.25)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            fontSize: '1.15rem'
+          }}
+          title="Mostrar menú"
+        >
+          ☰
+        </button>
+      )}
+
+      {/* Overlay oscuro para cerrar el sidebar en móviles */}
+      {sidebarVisible && window.innerWidth <= 768 && (
         <div className="sidebar-overlay" onClick={() => setSidebarVisible(false)} />
       )}
-      
-      {/* Barra Lateral de Navegación */}
+
+      {/* Barra Lateral de Navegación Optimizada */}
       <aside className="sidebar">
-        <h1 style={{ fontSize: '1.2rem', marginBottom: '1.5rem', color: '#60a5fa', paddingRight: '20px' }}>
-          TYTED System
-        </h1>
-        
-        {/* Información del usuario logueado */}
-        <div style={{ 
-          marginBottom: '1rem', 
-          paddingBottom: '1rem', 
-          borderBottom: '1px solid #334155', 
-          fontSize: '0.8rem', 
-          color: '#cbd5e1' 
-        }}>
-          Hola, <b>{user.username}</b> <br/>
-          <span style={{ fontSize: '0.7rem', opacity: 0.7 }}>{user.rol}</span>
+        {/* 1. Cabecera compacta con botón de ocultar integrado */}
+        <div className="sb-header">
+          <span style={{ fontSize: '1.05rem', fontWeight: '800', color: '#60a5fa', letterSpacing: '0.02em' }}>
+            TYTED System
+          </span>
+          <button
+            onClick={() => setSidebarVisible(false)}
+            style={{
+              background: '#1e293b',
+              color: '#94a3b8',
+              border: '1px solid #334155',
+              borderRadius: '6px',
+              width: '28px',
+              height: '28px',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              fontSize: '0.8rem'
+            }}
+            title="Ocultar menú"
+          >
+            ◀
+          </button>
         </div>
 
-        <div style={{ marginBottom: '1.5rem', display: 'grid', gap: '10px' }}>
-          <div>
-            <label style={{ display: 'block', fontSize: '0.7rem', color: '#94a3b8', marginBottom: '6px' }}>Empresa</label>
-            <select
-              value={empresaActiva?.id ?? 1}
-              onChange={(e) => seleccionarEmpresa(e.target.value)}
-              style={{ width: '100%', background: '#0f172a', color: '#e2e8f0', border: '1px solid #334155', borderRadius: '6px', padding: '8px 10px' }}
-            >
-              {empresas.length ? empresas.map((empresa) => (
-                <option key={empresa.id} value={empresa.id}>{empresa.razonSocial || empresa.nombre || `Empresa ${empresa.id}`}</option>
-              )) : (
-                <option value={empresaActiva?.id ?? 1}>{empresaActiva?.razonSocial || empresaActiva?.nombre || 'Empresa principal'}</option>
-              )}
-            </select>
+        {/* 2. Usuario y botón rápido de cierre de sesión */}
+        <div className="sb-user-bar">
+          <div style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            👤 <b>{user.username}</b> <span style={{ opacity: 0.65 }}>({user.rol})</span>
           </div>
-
-          <div>
-            <label style={{ display: 'block', fontSize: '0.7rem', color: '#94a3b8', marginBottom: '6px' }}>Periodo</label>
-            <select
-              value={periodoActivo?.id ?? 1}
-              onChange={(e) => seleccionarPeriodo(e.target.value)}
-              style={{ width: '100%', background: '#0f172a', color: '#e2e8f0', border: '1px solid #334155', borderRadius: '6px', padding: '8px 10px' }}
-            >
-              {periodos.length ? periodos.map((periodo) => (
-                <option key={periodo.id} value={periodo.id}>{periodo.nombre || `${periodo.mes ? `${periodo.mes}/` : ''}${periodo.anio}`}</option>
-              )) : (
-                <option value={periodoActivo?.id ?? 1}>{periodoActivo?.nombre || 'Periodo actual'}</option>
-              )}
-            </select>
-          </div>
-
-          {/* Contexto activo: el selector empresa/periodo rige los módulos que
-              lo consumen (contabilidad, configuración y libros fiscales) */}
-          <div style={{
-            fontSize: '0.7rem', color: '#94a3b8', background: '#0f172a',
-            border: '1px solid #334155', borderRadius: '6px', padding: '6px 8px',
-            marginTop: '-6px', marginBottom: '14px', lineHeight: '1.4'
-          }}>
-            Contexto: <b style={{ color: '#60a5fa' }}>{empresaActiva?.razonSocial || empresaActiva?.nombre || '—'}</b>
-            {' · '}<b style={{ color: '#fbbf24' }}>{periodoActivo?.nombre || '—'}</b>
-          </div>
+          <button
+            onClick={logout}
+            style={{
+              background: 'rgba(220, 38, 38, 0.15)',
+              color: '#f87171',
+              border: '1px solid rgba(220, 38, 38, 0.4)',
+              borderRadius: '5px',
+              padding: '2px 7px',
+              fontSize: '0.7rem',
+              cursor: 'pointer',
+              fontWeight: '600',
+              flexShrink: 0
+            }}
+            title="Cerrar Sesión"
+          >
+            Salir
+          </button>
         </div>
 
-        {/* Menú de navegación principal */}
-        <nav className="nav-menu">
-          <small className="nav-label">VENTAS</small>
-          <button className={`nav-button ${vista === 'dashboard' ? 'active' : ''}`} onClick={() => cambiarVista('dashboard')}>
-             Dashboard
-          </button>
-          <button className={`nav-button ${vista === 'pos' ? 'active' : ''}`} onClick={() => cambiarVista('pos')}>
-            🛒 Punto de Venta
-          </button>
-          <button className={`nav-button ${vista === 'cxc' ? 'active' : ''}`} onClick={() => cambiarVista('cxc')}>
-            📋 Cuentas por Cobrar
-          </button>
-          <button className={`nav-button ${vista === 'clientes' ? 'active' : ''}`} onClick={() => cambiarVista('clientes')}>
-            👩‍💼 Clientes
-          </button>
-          <button className={`nav-button ${vista === 'pedidos' ? 'active' : ''}`} onClick={() => cambiarVista('pedidos')}>
-            🥫 Pedidos
+        {/* 3. Selectores de Empresa y Periodo compactos y colapsables */}
+        <div className="sb-context-box">
+          <button
+            type="button"
+            className="sb-context-toggle"
+            onClick={() => setContextoExpandido(!contextoExpandido)}
+            title="Mostrar u ocultar selectores de Empresa y Periodo"
+          >
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: '205px' }}>
+              {contextoExpandido
+                ? 'CONTEXTO CONTABLE'
+                : `🏢 ${nombreEmpresaActual}`}
+            </span>
+            <span>{contextoExpandido ? '▴' : '▾'}</span>
           </button>
 
-          <small className="nav-label">ALMACÉN</small>
-          <button className={`nav-button ${vista === 'productos' ? 'active' : ''}`} onClick={() => cambiarVista('productos')}>
-            🍎 Productos
-          </button>
-          <button className={`nav-button ${vista === 'categorias' ? 'active' : ''}`} onClick={() => cambiarVista('categorias')}>
-            📁 Categorías
-          </button>
-          <button className={`nav-button ${vista === 'inventario' ? 'active' : ''}`} onClick={() => cambiarVista('inventario')}>
-            📦 Inventario/Kardex
-          </button>
+          {contextoExpandido ? (
+            <div style={{ display: 'grid', gap: '6px', marginTop: '6px' }}>
+              <select
+                value={empresaActiva?.id ?? 1}
+                onChange={(e) => seleccionarEmpresa(e.target.value)}
+                className="sb-select"
+                title={`Empresa activa: ${nombreEmpresaActual}`}
+              >
+                {empresas.length ? empresas.map((empresa) => (
+                  <option key={empresa.id} value={empresa.id}>
+                    🏢 {empresa.razonSocial || empresa.nombre || `Empresa ${empresa.id}`}
+                  </option>
+                )) : (
+                  <option value={empresaActiva?.id ?? 1}>🏢 {nombreEmpresaActual}</option>
+                )}
+              </select>
 
-          <small className="nav-label">COMPRAS</small>
-          <button className={`nav-button ${vista === 'compras' ? 'active' : ''}`} onClick={() => cambiarVista('compras')}>
-            🧾 Compras / Notas
-          </button>
-          <button className={`nav-button ${vista === 'proveedores' ? 'active' : ''}`} onClick={() => cambiarVista('proveedores')}>
-            🤝 Proveedores
-          </button>
+              <select
+                value={periodoActivo?.id ?? 1}
+                onChange={(e) => seleccionarPeriodo(e.target.value)}
+                className="sb-select"
+                title={`Periodo activo: ${nombrePeriodoActual}`}
+              >
+                {periodos.length ? periodos.map((periodo) => (
+                  <option key={periodo.id} value={periodo.id}>
+                    📅 {periodo.nombre || `${periodo.mes ? `${periodo.mes}/` : ''}${periodo.anio}`}
+                  </option>
+                )) : (
+                  <option value={periodoActivo?.id ?? 1}>📅 {nombrePeriodoActual}</option>
+                )}
+              </select>
+            </div>
+          ) : (
+            <div style={{ fontSize: '0.72rem', color: '#fbbf24', marginTop: '2px', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+              📅 {nombrePeriodoActual}
+            </div>
+          )}
+        </div>
 
-          <small className="nav-label">CONTABILIDAD</small>
-          <button className={`nav-button ${vista === 'contabilidad' ? 'active' : ''}`} onClick={() => cambiarVista('contabilidad')}>
-            📒 Contabilidad
-          </button>
+        {/* 4. Menú de navegación con acordeones y scroll independiente */}
+        <nav className="sb-nav">
+          {GRUPOS_MENU.map((grupo) => {
+            const abierto = Boolean(gruposAbiertos[grupo.id]);
+            const tieneVistaActiva = grupo.items.some(item => item.id === vista);
 
-          <small className="nav-label">FISCAL (IVA SENIAT)</small>
-          <button className={`nav-button ${vista === 'ventas-fiscal' ? 'active' : ''}`} onClick={() => cambiarVista('ventas-fiscal')}>
-            📕 Registro de Ventas
-          </button>
-          <button className={`nav-button ${vista === 'compras-fiscal' ? 'active' : ''}`} onClick={() => cambiarVista('compras-fiscal')}>
-            📗 Registro de Compras
-          </button>
-          <button className={`nav-button ${vista === 'forma30' ? 'active' : ''}`} onClick={() => cambiarVista('forma30')}>
-            🧮 Forma 30 (IVA)
-          </button>
-          <button className={`nav-button ${vista === 'conceptos-fiscal' ? 'active' : ''}`} onClick={() => cambiarVista('conceptos-fiscal')}>
-            🧮 Conceptos Ingresos/Gastos
-          </button>
-          <button className={`nav-button ${vista === 'declaraciones-seniat' ? 'active' : ''}`} onClick={() => cambiarVista('declaraciones-seniat')}>
-            📄 Declaraciones SENIAT
-          </button>
+            return (
+              <div key={grupo.id}>
+                <button
+                  type="button"
+                  className="sb-group-btn"
+                  onClick={() => toggleGrupo(grupo.id)}
+                  style={{ color: tieneVistaActiva && !abierto ? '#60a5fa' : undefined }}
+                >
+                  <span>{grupo.titulo}</span>
+                  <span>{abierto ? '▾' : '▸'}</span>
+                </button>
 
-          <small className="nav-label">SISTEMA</small>
-          <button className={`nav-button ${vista === 'reportes' ? 'active' : ''}`} onClick={() => cambiarVista('reportes')}>
-            📈 Reportes
-          </button>
-          <button className={`nav-button ${vista === 'tasa' ? 'active' : ''}`} onClick={() => cambiarVista('tasa')}>
-            💵 Tasa: {tasa}
-          </button>
-          <button className={`nav-button ${vista === 'usuarios' ? 'active' : ''}`} onClick={() => cambiarVista('usuarios')}>
-            👤 Usuarios
-          </button>
-          <button className={`nav-button ${vista === 'config' ? 'active' : ''}`} onClick={() => cambiarVista('config')}>
-            ⚙️ Configuración
-          </button>
+                {abierto && (
+                  <div style={{ display: 'flex', flexDirection: 'column' }}>
+                    {grupo.items.map((item) => (
+                      <button
+                        key={item.id}
+                        className={`nav-button ${vista === item.id ? 'active' : ''}`}
+                        onClick={() => cambiarVista(item.id)}
+                      >
+                        <span>{item.icono}</span>
+                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {item.mostrarTasa ? `Tasa: ${tasa}` : item.label}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </nav>
 
-        {/* Footer del sidebar con botón de logout e información de tasa */}
-        <div className="sidebar-footer">
-          <button 
-            onClick={logout}
-            style={{ 
-              width: '100%', 
-              padding: '8px', 
-              background: '#dc2626', 
-              color: 'white', 
-              border: 'none', 
-              borderRadius: '6px', 
-              cursor: 'pointer', 
-              marginBottom: '10px' 
-            }}
-          >
-            🔒 Cerrar Sesión
-          </button>
-          <p style={{ fontSize: '0.75rem' }}>Tasa: <b>{tasa} Bs/$</b></p>
-        </div>
-        <div className="sidebar-footer">
-          <p>Moneda Base: <b>USD</b></p>
-          <p>Tasa: <b>{tasa} Bs/$</b></p>
+        {/* 5. Footer único y compacto */}
+        <div className="sb-footer">
+          <span>Base: <b style={{ color: '#e2e8f0' }}>USD</b></span>
+          <span>Tasa: <b style={{ color: '#34d399' }}>{tasa} Bs/$</b></span>
         </div>
       </aside>
-      
-      {/* Área principal donde se renderizan las vistas dinámicas.
-          La key fuerza el re-montaje al cambiar el contexto global
-          (empresa/periodo), de modo que las vistas recargan sus datos. */}
+
+      {/* Área principal */}
       <main
         className="main-content"
         key={`ctx-${empresaActiva?.id ?? 'x'}-${periodoActivo?.id ?? 'x'}`}
