@@ -16,6 +16,7 @@ namespace Tyted.API.Controllers
     /// En la primera consulta auto-registra cualquier serial histórico presente
     /// en ResumenesVentasFiscales que aún no exista en el catálogo.
     /// </summary>
+    [Route("api/maquinas-fiscales")]
     [ApiController]
     [Authorize(Roles = "AdministradorSistema,Administrador,Analista,Cajero")]
     public class MaquinasFiscalesController : ControllerBase
