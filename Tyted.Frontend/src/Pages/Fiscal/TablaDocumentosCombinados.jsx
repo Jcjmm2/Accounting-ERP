@@ -1,372 +1,294 @@
-import { fmt, formatearFecha, desgloseCompra, TIPOS_TRANSACCION, thStyle, tdStyle, inputChico } from './libroComprasHelpers';
-import { desgloseGasto } from './reportesLibrosFiscal';
-import { generarComprobanteIVA, generarComprobanteISLR } from './reportesRetenciones';
+import { fmt } from './libroComprasHelpers';
 
-// ---------------------------------------------------------------------------
-// TABLA COMBINADA DEL LIBRO (facturas + gastos) PARA CONSULTA Y EDICIÓN:
-// alícuotas, retenciones IVA/ISLR (emitir/imprimir/contabilizar/anular),
-// comprobante contable y edición en fila de los datos fiscales SENIAT.
-// Presentacional: todo el estado y las acciones llegan por props.
-// ---------------------------------------------------------------------------
+const thStyle = {
+  padding: '9px 8px',
+  textAlign: 'left',
+  fontWeight: 'bold',
+  fontSize: '0.74rem',
+  letterSpacing: '0.02em',
+  whiteSpace: 'nowrap'
+};
+
+const tdStyle = {
+  padding: '8px',
+  borderTop: '1px solid #1f2937',
+  verticalAlign: 'middle',
+  fontSize: '0.8rem'
+};
+
+const formatearFechaCorta = (fecha) => {
+  if (!fecha) return '—';
+  const partes = String(fecha).split(/[-T]/);
+  if (partes.length >= 3) return `${partes[2].slice(0, 2)}/${partes[1]}/${partes[0]}`;
+  return fecha;
+};
+
 export default function TablaDocumentosCombinados({
-  documentosCombinados, retencionPorCompra, retencionIslrPorCompra, retencionIslrPorGasto,
-  editandoId, setEditandoId, formFiscal, setFormFiscal, procesandoId,
-  abrirEdicion, guardarFiscal, contabilizar, contabilizarGastoAccion, emitirRetencion,
-  contabilizarRetencionIvaAccion, registrarPagoCompraAccion,
-  abrirModalIslr, contabilizarRetencionIslrAccion, anularRetencionIslrAccion,
-  empresaActiva, periodoActivo
+  documentosCombinados = [],
+  retencionPorCompra,
+  retencionIslrPorCompra,
+  retencionIslrPorGasto,
+  procesandoId,
+  abrirConsultaEdicion,
+  contabilizar,
+  contabilizarGastoAccion,
+  emitirRetencion,
+  contabilizarRetencionIvaAccion,
+  registrarPagoCompraAccion,
+  abrirModalIslr,
+  contabilizarRetencionIslrAccion
 }) {
   return (
-    <div style={{ background: '#111827', borderRadius: '12px', overflowX: 'auto', border: '1px solid #334155' }}>
-      <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+    <div style={{ background: '#111827', borderRadius: '12px', overflowX: 'auto', border: '1px solid #334155', position: 'relative' }}>
+      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
         <thead>
-          <tr style={{ background: '#1e293b', color: '#86efac' }}>
-            <th style={thStyle}>Fecha</th>
-            <th style={thStyle}>Tipo</th>
-            <th style={thStyle}>Documento / Concepto</th>
-            <th style={thStyle}>Proveedor (RIF)</th>
-            <th style={thStyle}>Concepto Contable</th>
-            <th style={{ ...thStyle, textAlign: 'right' }}>Exento</th>
-            <th style={{ ...thStyle, textAlign: 'right' }}>Base 8%</th>
-            <th style={{ ...thStyle, textAlign: 'right' }}>Base 16%</th>
-            <th style={{ ...thStyle, textAlign: 'right' }}>IVA Crédito</th>
-            <th style={{ ...thStyle, textAlign: 'right' }}>Total</th>
-            <th style={thStyle}>Retenciones</th>
-            <th style={thStyle}>Comprobante</th>
-            <th style={{ ...thStyle, textAlign: 'center' }}>Acciones</th>
+          <tr style={{ background: '#1e293b', color: '#93c5fd' }}>
+            <th style={thStyle}>FECHA</th>
+            <th style={thStyle}>TIPO</th>
+            <th style={thStyle}>DOCUMENTO / CONCEPTO</th>
+            <th style={thStyle}>PROVEEDOR (RIF)</th>
+            <th style={{ ...thStyle, textAlign: 'right' }}>BASE / EXENTO (Bs.)</th>
+            <th style={{ ...thStyle, textAlign: 'right' }}>IVA CRÉDITO</th>
+            <th style={{ ...thStyle, textAlign: 'right' }}>TOTAL (Bs.)</th>
+            <th style={thStyle}>ESTADO</th>
+            <th style={{
+              ...thStyle,
+              textAlign: 'center',
+              position: 'sticky',
+              right: 0,
+              background: '#1e293b',
+              boxShadow: '-4px 0 8px rgba(0,0,0,0.35)',
+              zIndex: 2
+            }}>
+              ACCIONES
+            </th>
           </tr>
         </thead>
         <tbody>
-          {documentosCombinados.map(({ tipo, datos: c }) => {
-            const esGasto = tipo === 'GASTO';
-            const d = esGasto ? desgloseGasto(c) : desgloseCompra(c);
-            const editando = !esGasto && editandoId === c.id;
-            const proveedor = c.proveedor || {};
+          {documentosCombinados.map((item, idx) => {
+            const esGasto = Boolean(item.esGasto);
+            const doc = item.dato || item;
+            const fecha = doc.fecha || doc.fechaCompra || doc.fechaGasto;
+            const proveedorNombre = doc.proveedor?.nombre || doc.proveedor?.razonSocial || doc.proveedorNombre || '— CAJA —';
+            const proveedorRif = doc.proveedor?.rif || doc.proveedorRif || 'S/RIF';
+            const sinProveedor = proveedorNombre.includes('CAJA') || proveedorRif === 'S/RIF';
+
+            const exento = Number(doc.exento ?? doc.montoExento ?? 0);
+            const base8 = Number(doc.base8 ?? 0);
+            const base16 = Number(doc.base16 ?? doc.baseGravada ?? doc.subtotalMonedaExt ?? 0);
+            const baseTotal = base8 + base16;
+            const iva = Number(doc.iva ?? doc.ivaMonedaExt ?? 0);
+            const total = Number(doc.total ?? doc.totalMonedaExt ?? (exento + baseTotal + iva));
+
+            const retIva = !esGasto ? retencionPorCompra?.get(Number(doc.id)) : null;
+            const retIslr = esGasto
+              ? retencionIslrPorGasto?.get(Number(doc.id))
+              : retencionIslrPorCompra?.get(Number(doc.id));
+
+            const rowBg = doc.isAnulada ? '#2d1215' : (idx % 2 === 0 ? '#111827' : '#0f172a');
+
             return (
-              <tr key={`${tipo}-${c.id}`} style={{ background: c.isAnulada ? '#2d1215' : 'transparent', opacity: c.isAnulada ? 0.7 : 1 }}>
-                <td style={tdStyle}>{formatearFecha(esGasto ? c.fecha : c.fechaCompra)}</td>
-                <td style={tdStyle}>
-                  {esGasto ? (
-                    <span style={{ background: '#78350f', color: '#fbbf24', padding: '2px 8px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 'bold' }}>💸 GASTO</span>
-                  ) : (
-                    <span style={{ background: '#064e3b', color: '#6ee7b7', padding: '2px 8px', borderRadius: '10px', fontSize: '0.75rem', fontWeight: 'bold' }}>🧾 FACTURA</span>
-                  )}
+              <tr key={`${esGasto ? 'G' : 'C'}-${doc.id}`} style={{ background: rowBg, opacity: doc.isAnulada ? 0.65 : 1 }}>
+                <td style={{ ...tdStyle, whiteSpace: 'nowrap' }}>
+                  {formatearFechaCorta(fecha)}
                 </td>
                 <td style={tdStyle}>
-                  {esGasto ? (
-                    <>
-                      <span>{c.concepto}</span>
-                      <span style={{ display: 'block', color: '#94a3b8', fontSize: '0.72rem', fontFamily: 'monospace' }}>
-                        {c.numeroFactura || '—'} · {c.numeroControl || '—'} · {d.alicuota === 0 ? 'EXENTO' : `IVA ${d.alicuota}%`}
+                  <span style={{
+                    background: esGasto ? '#78350f' : '#064e3b',
+                    color: esGasto ? '#fcd34d' : '#6ee7b7',
+                    padding: '3px 7px', borderRadius: '6px', fontSize: '0.68rem', fontWeight: 'bold',
+                    display: 'inline-block'
+                  }}>
+                    {esGasto ? 'GASTO' : 'FACTURA'}
+                  </span>
+                  <span style={{ display: 'block', fontSize: '0.68rem', color: '#94a3b8', marginTop: '2px' }}>
+                    Tipo {doc.tipoTransaccion || '01'}
+                  </span>
+                </td>
+
+                <td style={{ ...tdStyle, maxWidth: '240px' }}>
+                  <div style={{ fontWeight: 'bold', color: '#f1f5f9', lineHeight: 1.25 }}>
+                    {esGasto ? (doc.concepto || 'Gasto fiscal') : `Factura #${doc.numeroFactura || 'S/N'}`}
+                  </div>
+                  <div style={{ fontSize: '0.72rem', color: '#94a3b8', fontFamily: 'monospace', marginTop: '2px' }}>
+                    {doc.numeroFactura || 'S/F'} · {doc.numeroControl || 'Sin control'}
+                  </div>
+                  {(doc.conceptoContableNombre || doc.nombreConcepto) && (
+                    <span style={{
+                      display: 'inline-block', marginTop: '3px', background: '#1e293b',
+                      color: '#fbbf24', border: '1px solid #334155', padding: '1px 6px',
+                      borderRadius: '5px', fontSize: '0.68rem'
+                    }}>
+                      {doc.conceptoContableNombre || doc.nombreConcepto}
+                    </span>
+                  )}
+                </td>
+
+                <td style={{ ...tdStyle, maxWidth: '200px' }}>
+                  <div style={{ fontWeight: '600', color: sinProveedor ? '#fca5a5' : '#e2e8f0', lineHeight: 1.25 }}>
+                    {proveedorNombre}
+                  </div>
+                  <div style={{ fontSize: '0.72rem', color: '#94a3b8', fontFamily: 'monospace' }}>
+                    {proveedorRif}
+                  </div>
+                </td>
+
+                <td style={{ ...tdStyle, textAlign: 'right', whiteSpace: 'nowrap' }}>
+                  {baseTotal > 0 && (
+                    <div style={{ color: '#34d399', fontWeight: '600' }}>
+                      {fmt(baseTotal)}
+                      <span style={{ display: 'block', fontSize: '0.67rem', color: '#94a3b8' }}>
+                        {base8 > 0 ? 'Base 8%' : 'Base 16%'}
                       </span>
-                    </>
-                  ) : editando ? (
-                    <div style={{ display: 'flex', gap: '6px', alignItems: 'center', flexWrap: 'wrap' }}>
-                      <select
-                        value={formFiscal.tipoTransaccion}
-                        onChange={(e) => setFormFiscal({ ...formFiscal, tipoTransaccion: e.target.value })}
-                        style={inputChico}
-                      >
-                        {TIPOS_TRANSACCION.map((t) => <option key={t.valor} value={t.valor}>{t.etiqueta}</option>)}
-                      </select>
-                      <input
-                        type="text"
-                        value={formFiscal.numeroControl}
-                        onChange={(e) => setFormFiscal({ ...formFiscal, numeroControl: e.target.value })}
-                        placeholder="N° Control 00-000000"
-                        style={{ ...inputChico, width: '140px' }}
-                      />
                     </div>
-                  ) : (
-                    <>
-                      <span style={{ fontFamily: 'monospace' }}>{c.numeroFactura || '—'}</span>
-                      {c.isAnulada && <span style={{ color: '#f87171', marginLeft: '6px', fontSize: '0.7rem' }}>ANULADA</span>}
-                      <span style={{ display: 'block', color: '#94a3b8', fontFamily: 'monospace', fontSize: '0.75rem' }}>
-                        {c.numeroControl || '—'}
+                  )}
+                  {exento > 0 && (
+                    <div style={{ color: '#cbd5e1' }}>
+                      {fmt(exento)}
+                      <span style={{ display: 'block', fontSize: '0.67rem', color: '#94a3b8' }}>
+                        Exento
                       </span>
-                    </>
+                    </div>
                   )}
+                  {baseTotal === 0 && exento === 0 && '0,00'}
                 </td>
-                <td style={tdStyle}>
-                  <b>{proveedor.razonsocial || (esGasto ? '— CAJA —' : '—')}</b>
-                  <span style={{ display: 'block', color: '#94a3b8', fontSize: '0.75rem' }}>{proveedor.rif || 'S/RIF'}</span>
+
+                <td style={{ ...tdStyle, textAlign: 'right', whiteSpace: 'nowrap', color: iva > 0 ? '#fbbf24' : '#64748b', fontWeight: iva > 0 ? 'bold' : 'normal' }}>
+                  {fmt(iva)}
                 </td>
-                <td style={tdStyle}>
-                  {esGasto
-                    ? <b style={{ color: '#fbbf24' }}>{c.categoria || 'GASTO'}</b>
-                    : (c.esGastoServicio ? 'Gastos' : 'Compras')}
+
+                <td style={{ ...tdStyle, textAlign: 'right', whiteSpace: 'nowrap', fontWeight: 'bold', fontSize: '0.88rem', color: '#fff' }}>
+                  {fmt(total)}
                 </td>
-                <td style={{ ...tdStyle, textAlign: 'right' }}>{fmt(d.exento)}</td>
-                <td style={{ ...tdStyle, textAlign: 'right' }}>{fmt(d.base8)}</td>
-                <td style={{ ...tdStyle, textAlign: 'right' }}>{fmt(d.base16)}</td>
-                <td style={{ ...tdStyle, textAlign: 'right', color: '#fbbf24' }}>{fmt(d.iva)}</td>
-                <td style={{ ...tdStyle, textAlign: 'right', fontWeight: 'bold' }}>{fmt(d.total)}</td>
-                <td style={tdStyle}>
-                  {esGasto ? (
-                    retencionIslrPorGasto.has(Number(c.id)) ? (() => {
-                      const retIslrGasto = retencionIslrPorGasto.get(Number(c.id));
-                      return (
-                        <span style={{ color: '#60a5fa', fontSize: '0.75rem', fontWeight: 'bold' }}>
-                          📑 ISLR {retIslrGasto.numeroComprobante}
-                          {retIslrGasto.asientoContableId
-                            ? <span style={{ color: '#34d399' }}> · ✅</span>
-                            : <span style={{ color: '#fbbf24' }}> · ⚠️ pendiente</span>}
-                        </span>
-                      );
-                    })() : (
-                      <span style={{ color: '#64748b' }}>—</span>
-                    )
+
+                <td style={{ ...tdStyle, whiteSpace: 'nowrap', fontSize: '0.72rem' }}>
+                  {doc.asientoContableId ? (
+                    <span style={{ color: '#34d399', fontWeight: 'bold', display: 'block' }}>
+                      ✅ Asiento #{doc.asientoContableId}
+                    </span>
                   ) : (
-                    <>
-                      {retencionPorCompra.has(Number(c.id)) && (() => {
-                        const retIva = retencionPorCompra.get(Number(c.id));
-                        return (
-                          <span style={{ display: 'block', color: '#f472b6', fontSize: '0.75rem', fontWeight: 'bold' }}>
-                            🧮 IVA {retIva.numeroComprobante} ({retIva.porcentajeRetencion}%)
-                            {retIva.asientoContableId
-                              ? <span style={{ color: '#34d399' }}> · ✅ asiento #{retIva.asientoContableId}</span>
-                              : <span style={{ color: '#fbbf24' }}> · ⚠️ sin comprobante</span>}
-                          </span>
-                        );
-                      })()}
-                      {retencionIslrPorCompra.has(Number(c.id)) && (() => {
-                        const retIslrFila = retencionIslrPorCompra.get(Number(c.id));
-                        return (
-                          <span style={{ display: 'block', color: '#60a5fa', fontSize: '0.75rem', fontWeight: 'bold' }}>
-                            📑 ISLR {retIslrFila.numeroComprobante}
-                            {retIslrFila.asientoContableId
-                              ? <span style={{ color: '#34d399' }}> · ✅</span>
-                              : <span style={{ color: '#fbbf24' }}> · ⚠️ pendiente</span>}
-                          </span>
-                        );
-                      })()}
-                      {!retencionPorCompra.has(Number(c.id)) && !retencionIslrPorCompra.has(Number(c.id)) && (
-                        <span style={{ color: '#64748b' }}>—</span>
-                      )}
-                    </>
+                    <span style={{ color: '#94a3b8', display: 'block' }}>⏳ Sin asiento</span>
+                  )}
+                  {retIva && (
+                    <span style={{ color: '#f472b6', display: 'block' }}>
+                      Ret. IVA {retIva.porcentajeRetencion}%
+                    </span>
+                  )}
+                  {retIslr && (
+                    <span style={{ color: '#60a5fa', display: 'block' }}>
+                      Ret. ISLR {fmt(retIslr.montoRetenido)}
+                    </span>
                   )}
                 </td>
-                <td style={tdStyle}>
-                  {c.asientoContableId
-                    ? <span style={{ color: '#34d399', fontWeight: 'bold' }}>✅ Asiento #{c.asientoContableId}</span>
-                    : <span style={{ color: '#64748b' }}>— sin comprobante</span>}
-                </td>
-                <td style={{ ...tdStyle, textAlign: 'center', whiteSpace: 'nowrap' }}>
-                  {esGasto ? (
-                    <>
-                      {c.asientoContableId ? (
-                        <span style={{ color: '#34d399', fontWeight: 'bold' }} title={`Asiento #${c.asientoContableId}`}>✅</span>
-                      ) : (
-                        <button
-                          onClick={() => contabilizarGastoAccion(c)}
-                          title="Generar comprobante contable del gasto"
-                          style={{ background: '#1d4ed8', color: '#fff', border: 'none', borderRadius: '5px', padding: '5px 9px', cursor: 'pointer' }}
-                        >
-                          🧾
-                        </button>
-                      )}
-                      {/* Retención de ISLR del gasto (Decreto 1.808): emisión o impresión */}
+                {/* 9. ACCIONES FIJAS A LA DERECHA (Consultar / Editar + Contabilizar + Retener) */}
+                <td style={{
+                  ...tdStyle,
+                  textAlign: 'center',
+                  whiteSpace: 'nowrap',
+                  position: 'sticky',
+                  right: 0,
+                  background: rowBg,
+                  boxShadow: '-4px 0 8px rgba(0,0,0,0.35)',
+                  zIndex: 1
+                }}>
+                  <div style={{ display: 'inline-flex', gap: '5px', alignItems: 'center' }}>
+                    <button
+                      type="button"
+                      onClick={() => abrirConsultaEdicion({ esGasto, dato: doc })}
+                      title="Consultar detalle y editar datos fiscales del registro"
+                      style={{
+                        background: '#2563eb', color: '#fff', border: 'none', borderRadius: '6px',
+                        padding: '5px 9px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.74rem'
+                      }}
+                    >
+                      🔍✏️ Editar
+                    </button>
+
+                    {!doc.asientoContableId && !doc.isAnulada && (
                       <button
-                        onClick={() => retencionIslrPorGasto.has(Number(c.id))
-                          ? generarComprobanteISLR(retencionIslrPorGasto.get(Number(c.id)), c, empresaActiva)
-                          : abrirModalIslr({ gasto: c })}
-                        disabled={c.isAnulada || !c.proveedor?.rif}
-                        title={!c.proveedor?.rif
-                          ? 'El gasto debe tener proveedor con RIF para emitir retención de ISLR'
-                          : retencionIslrPorGasto.has(Number(c.id))
-                            ? 'Imprimir comprobante de retención de ISLR (Decreto 1.808)'
-                            : 'Emitir comprobante de retención de ISLR (Decreto 1.808)'}
+                        type="button"
+                        onClick={() => (esGasto ? contabilizarGastoAccion(doc) : contabilizar(doc))}
+                        disabled={procesandoId === doc.id}
+                        title="Generar comprobante contable"
                         style={{
-                          background: retencionIslrPorGasto.has(Number(c.id)) ? '#16a34a' : '#2563eb',
-                          color: '#fff', border: 'none', borderRadius: '5px', padding: '5px 9px',
-                          cursor: c.isAnulada || !c.proveedor?.rif ? 'not-allowed' : 'pointer',
-                          marginLeft: '6px',
-                          opacity: c.isAnulada || !c.proveedor?.rif ? 0.5 : 1
+                          background: '#7c3aed', color: '#fff', border: 'none', borderRadius: '6px',
+                          padding: '5px 8px', cursor: 'pointer', fontSize: '0.75rem'
                         }}
                       >
-                        {retencionIslrPorGasto.has(Number(c.id)) ? '🖨️ ISLR' : '📑 ISLR'}
+                        🧾
                       </button>
-                      {/* Acciones sobre la retención ISLR del gasto: contabilizar y anular */}
-                      {retencionIslrPorGasto.has(Number(c.id)) && (() => {
-                        const retG = retencionIslrPorGasto.get(Number(c.id));
-                        return (
-                          <>
-                            <button
-                              onClick={() => contabilizarRetencionIslrAccion(retG)}
-                              disabled={Boolean(retG.asientoContableId)}
-                              title={retG.asientoContableId
-                                ? `Ya tiene comprobante contable (asiento #${retG.asientoContableId})`
-                                : 'Generar el comprobante contable de la retención (Debe Proveedores / Haber ISLR retenido)'}
-                              style={{
-                                background: retG.asientoContableId ? '#064e3b' : '#7c3aed',
-                                color: '#fff', border: 'none', borderRadius: '5px', padding: '5px 9px',
-                                cursor: retG.asientoContableId ? 'not-allowed' : 'pointer',
-                                marginLeft: '6px', opacity: retG.asientoContableId ? 0.6 : 1
-                              }}
-                            >🧾</button>
-                            <button
-                              onClick={() => anularRetencionIslrAccion(retG)}
-                              title="Anular la retención de ISLR (motivo auditado; genera reverso contable si ya estaba contabilizada)"
-                              style={{
-                                background: '#7f1d1d', color: '#fff', border: 'none', borderRadius: '5px',
-                                padding: '5px 9px', cursor: 'pointer', marginLeft: '6px'
-                              }}
-                            >🗑️</button>
-                          </>
-                        );
-                      })()}
-                    </>
-                  ) : editando ? (
-                    <>
-                      <button onClick={() => guardarFiscal(c)} title="Guardar" style={{ background: '#16a34a', color: '#fff', border: 'none', borderRadius: '5px', padding: '5px 9px', cursor: 'pointer', fontWeight: 'bold', marginRight: '6px' }}>💾</button>
-                      <button onClick={() => setEditandoId(null)} title="Cancelar" style={{ background: '#475569', color: '#fff', border: 'none', borderRadius: '5px', padding: '5px 9px', cursor: 'pointer' }}>✕</button>
-                    </>
-                  ) : (
-                    <>
+                    )}
+
+                    {!esGasto && !doc.isAnulada && iva > 0 && !retIva && (
                       <button
-                        onClick={() => abrirEdicion(c)}
-                        disabled={c.isAnulada}
-                        title="Editar datos fiscales (tipo de transacción y N° Control)"
-                        style={{ background: '#3b82f6', color: '#fff', border: 'none', borderRadius: '5px', padding: '5px 9px', cursor: c.isAnulada ? 'not-allowed' : 'pointer', marginRight: '6px', opacity: c.isAnulada ? 0.4 : 1 }}
-                      >
-                        ✏️
-                      </button>
-                      <button
-                        onClick={() => contabilizar(c)}
-                        disabled={c.isAnulada || procesandoId !== null}
-                        title={c.asientoContableId ? 'Ya tiene comprobante (no se duplica)' : 'Generar el comprobante contable de esta compra'}
+                        type="button"
+                        onClick={() => emitirRetencion(doc)}
+                        title="Emitir comprobante de retención de IVA (75% o 100%)"
                         style={{
-                          background: c.asientoContableId ? '#064e3b' : '#7c3aed', color: '#fff', border: 'none',
-                          borderRadius: '5px', padding: '5px 9px',
-                          cursor: c.isAnulada || procesandoId !== null ? 'not-allowed' : 'pointer',
-                          opacity: c.isAnulada ? 0.4 : 1
+                          background: '#be185d', color: '#fff', border: 'none', borderRadius: '6px',
+                          padding: '5px 8px', cursor: 'pointer', fontSize: '0.72rem', fontWeight: 'bold'
                         }}
                       >
-                        {procesandoId === c.id ? '⏳' : '🧾'}
+                        %IVA
                       </button>
+                    )}
+
+                    {!esGasto && retIva && !retIva.asientoContableId && !doc.esCredito && (
                       <button
-                        onClick={() => emitirRetencion(c)}
-                        disabled={c.isAnulada || retencionPorCompra.has(Number(c.id))}
-                        title={retencionPorCompra.has(Number(c.id))
-                          ? 'La factura ya tiene comprobante de retención de IVA'
-                          : 'Emitir comprobante de retención de IVA (75% o 100%) con correlativo SENIAT'}
+                        type="button"
+                        onClick={() => contabilizarRetencionIvaAccion(doc)}
+                        title="Contabilizar retención de IVA"
                         style={{
-                          background: retencionPorCompra.has(Number(c.id)) ? '#4c1d95' : '#b45309',
-                          color: '#fff', border: 'none', borderRadius: '5px', padding: '5px 9px',
-                          cursor: (c.isAnulada || retencionPorCompra.has(Number(c.id))) ? 'not-allowed' : 'pointer',
-                          marginLeft: '6px',
-                          opacity: (c.isAnulada || retencionPorCompra.has(Number(c.id))) ? 0.6 : 1
+                          background: '#9d174d', color: '#fff', border: 'none', borderRadius: '6px',
+                          padding: '5px 8px', cursor: 'pointer', fontSize: '0.72rem'
                         }}
                       >
-                        {retencionPorCompra.has(Number(c.id)) ? '🖨️' : '🧮'}
+                        🧾IVA
                       </button>
-                      {/* RETENCIÓN DE IVA: contabilizar (CONTADO, si quedó sin
-                          comprobante) o registrar el PAGO de la factura (CRÉDITO,
-                          momento en que nace el asiento del retenido). */}
-                      {(() => {
-                        const retIvaFila = retencionPorCompra.get(Number(c.id));
-                        const faltaAsientoIva = Boolean(retIvaFila && !retIvaFila.asientoContableId);
-                        const pendientePago = Boolean(c.esCredito && c.asientoContableId && !c.asientoPagoId);
-                        return (
-                          <>
-                            {faltaAsientoIva && !c.esCredito && c.asientoContableId && (
-                              <button
-                                onClick={() => contabilizarRetencionIvaAccion(c)}
-                                disabled={c.isAnulada}
-                                title="Contabilizar la retención de IVA (compra de contado): Debe Caja / Haber IVA Retenido por Entregar"
-                                style={{
-                                  background: '#be185d', color: '#fff', border: 'none', borderRadius: '5px',
-                                  padding: '5px 9px', cursor: c.isAnulada ? 'not-allowed' : 'pointer',
-                                  marginLeft: '6px', opacity: c.isAnulada ? 0.5 : 1
-                                }}
-                              >🧾</button>
-                            )}
-                            {pendientePago && (
-                              <button
-                                onClick={() => registrarPagoCompraAccion(c)}
-                                disabled={c.isAnulada}
-                                title="Registrar el pago total: Debe Proveedores | Haber Caja + IVA Retenido por Entregar (contabiliza antes el ISLR si falta)"
-                                style={{
-                                  background: '#0f766e', color: '#fff', border: 'none', borderRadius: '5px',
-                                  padding: '5px 9px', cursor: c.isAnulada ? 'not-allowed' : 'pointer',
-                                  marginLeft: '6px', opacity: c.isAnulada ? 0.5 : 1
-                                }}
-                              >💵</button>
-                            )}
-                            {c.esCredito && c.asientoPagoId && (
-                              <span
-                                title={`Pagada: comprobante de pago #${c.asientoPagoId}`}
-                                style={{ color: '#34d399', fontSize: '0.72rem', fontWeight: 'bold', marginLeft: '6px' }}
-                              >✅ Pagada</span>
-                            )}
-                          </>
-                        );
-                      })()}
-                      {/* Retención de ISLR (Decreto 1.808): emisión o impresión */}
+                    )}
+
+                    {!esGasto && doc.esCredito && !doc.pagada && !doc.isAnulada && (
                       <button
-                        onClick={() => retencionIslrPorCompra.has(Number(c.id))
-                          ? generarComprobanteISLR(retencionIslrPorCompra.get(Number(c.id)), c, empresaActiva)
-                          : abrirModalIslr({ compra: c })}
-                        disabled={c.isAnulada || !c.proveedor?.rif}
-                        title={!c.proveedor?.rif
-                          ? 'La factura debe tener proveedor con RIF para emitir retención de ISLR'
-                          : retencionIslrPorCompra.has(Number(c.id))
-                            ? 'Imprimir comprobante de retención de ISLR (Decreto 1.808)'
-                            : 'Emitir comprobante de retención de ISLR (Decreto 1.808)'}
+                        type="button"
+                        onClick={() => registrarPagoCompraAccion(doc)}
+                        title="Registrar pago de factura a crédito"
                         style={{
-                          background: retencionIslrPorCompra.has(Number(c.id)) ? '#16a34a' : '#2563eb',
-                          color: '#fff', border: 'none', borderRadius: '5px', padding: '5px 9px',
-                          cursor: c.isAnulada || !c.proveedor?.rif ? 'not-allowed' : 'pointer',
-                          marginLeft: '6px',
-                          opacity: c.isAnulada || !c.proveedor?.rif ? 0.6 : 1
+                          background: '#059669', color: '#fff', border: 'none', borderRadius: '6px',
+                          padding: '5px 8px', cursor: 'pointer', fontSize: '0.75rem'
                         }}
                       >
-                        {retencionIslrPorCompra.has(Number(c.id)) ? '🖨️ ISLR' : '📑 ISLR'}
+                        💵
                       </button>
-                      {/* Acciones sobre la retención ISLR de la factura: contabilizar y anular */}
-                      {retencionIslrPorCompra.has(Number(c.id)) && (() => {
-                        const retF = retencionIslrPorCompra.get(Number(c.id));
-                        return (
-                          <>
-                            <button
-                              onClick={() => contabilizarRetencionIslrAccion(retF)}
-                              disabled={Boolean(retF.asientoContableId)}
-                              title={retF.asientoContableId
-                                ? `Ya tiene comprobante contable (asiento #${retF.asientoContableId})`
-                                : 'Generar el comprobante contable de la retención (Debe Proveedores / Haber ISLR retenido)'}
-                              style={{
-                                background: retF.asientoContableId ? '#064e3b' : '#7c3aed',
-                                color: '#fff', border: 'none', borderRadius: '5px', padding: '5px 9px',
-                                cursor: retF.asientoContableId ? 'not-allowed' : 'pointer',
-                                marginLeft: '6px', opacity: retF.asientoContableId ? 0.6 : 1
-                              }}
-                            >🧾</button>
-                            <button
-                              onClick={() => anularRetencionIslrAccion(retF)}
-                              title="Anular la retención de ISLR (motivo auditado; genera reverso contable si ya estaba contabilizada)"
-                              style={{
-                                background: '#7f1d1d', color: '#fff', border: 'none', borderRadius: '5px',
-                                padding: '5px 9px', cursor: 'pointer', marginLeft: '6px'
-                              }}
-                            >🗑️</button>
-                          </>
-                        );
-                      })()}
-                      {/* Si ya hay retención de IVA emitida, botón de impresión */}
-                      {retencionPorCompra.has(Number(c.id)) && (
-                        <button
-                          onClick={() => generarComprobanteIVA(retencionPorCompra.get(Number(c.id)), c, empresaActiva, periodoActivo)}
-                          title="Imprimir comprobante de retención de IVA"
-                          style={{
-                            background: '#16a34a', color: '#fff', border: 'none', borderRadius: '5px',
-                            padding: '5px 9px', cursor: 'pointer', marginLeft: '6px'
-                          }}
-                        >
-                          🖨️
-                        </button>
-                      )}
-                    </>
-                  )}
+                    )}
+
+                    {!doc.isAnulada && !retIslr && (
+                      <button
+                        type="button"
+                        onClick={() => abrirModalIslr(doc, esGasto)}
+                        title="Emitir retención de ISLR (Decreto 1.808)"
+                        style={{
+                          background: '#0369a1', color: '#fff', border: 'none', borderRadius: '6px',
+                          padding: '5px 8px', cursor: 'pointer', fontSize: '0.72rem', fontWeight: 'bold'
+                        }}
+                      >
+                        ISLR
+                      </button>
+                    )}
+
+                    {retIslr && !retIslr.asientoContableId && (
+                      <button
+                        type="button"
+                        onClick={() => contabilizarRetencionIslrAccion(retIslr)}
+                        title="Contabilizar retención ISLR"
+                        style={{
+                          background: '#075985', color: '#fff', border: 'none', borderRadius: '6px',
+                          padding: '5px 8px', cursor: 'pointer', fontSize: '0.72rem'
+                        }}
+                      >
+                        🧾ISLR
+                      </button>
+                    )}
+                  </div>
                 </td>
               </tr>
             );

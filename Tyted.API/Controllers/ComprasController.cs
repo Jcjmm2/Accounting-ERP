@@ -155,6 +155,18 @@ namespace Tyted.API.Controllers
 
             compra.TipoTransaccion = dto.TipoTransaccion;
             compra.NumeroControl = dto.NumeroControl;
+            if (!string.IsNullOrWhiteSpace(dto.NumeroFactura))
+                compra.NumeroFactura = dto.NumeroFactura;
+
+            // Fecha y proveedor solo si la factura aún no está contabilizada.
+            if (!compra.AsientoContableId.HasValue)
+            {
+                if (dto.Fecha.HasValue)
+                    compra.FechaCompra = dto.Fecha.Value;
+                if (dto.ProveedorId.HasValue && dto.ProveedorId.Value > 0)
+                    compra.CodigoProv = dto.ProveedorId.Value;
+            }
+
             await _context.SaveChangesAsync();
             return Ok(compra);
         }

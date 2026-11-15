@@ -72,6 +72,14 @@ export const fiscalApi = {
     return response.data;
   },
 
+  // Actualiza un GASTO fiscal (metadatos + montos si aún no tiene asiento ni
+  // retención): endpoint PUT /api/fiscal/gastos/{id} que aplica la protección
+  // contable (bloquea montos/proveedor cuando el gasto ya fue contabilizado).
+  actualizarGastoFiscal: async (id, datos) => {
+    const response = await api.put(`/fiscal/gastos/${id}`, datos);
+    return response.data;
+  },
+
   // Integración administrativo-contable (BE-F4): genera el comprobante de diario
   // de la operación vía motor de asientos automáticos (idempotente).
   contabilizarVenta: async (id) => {

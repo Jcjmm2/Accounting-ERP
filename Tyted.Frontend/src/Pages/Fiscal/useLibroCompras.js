@@ -109,10 +109,78 @@ export function useLibroCompras() {
 
   // Lista COMBINADA facturas + gastos ordenada por fecha (una sola tabla de
   // consulta/edición en lugar de las antiguas pestañas separadas).
+  // Cada fila se normaliza a la forma { esGasto, dato } con los campos que
+  // consumen TablaDocumentosCombinados y ModalConsultaEdicionDocFiscal:
+  // exento/base8/base16/baseGravada/iva/total (desde desgloseCompra/desgloseGasto),
+  // alias de fecha, proveedor normalizado, esCredito, pagada y concepto contable.
   const documentosCombinados = [
-    ...compras.map((c) => ({ tipo: 'FACTURA', fecha: c.fechaCompra, datos: c })),
-    ...gastos.map((g) => ({ tipo: 'GASTO', fecha: g.fecha, datos: g }))
-  ].sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+    ...compras.map((c) => {
+      const d = desgloseCompra(c);
+      return {
+        esGasto: false,
+        dato: {
+          ...c,
+          esGasto: false,
+          fecha: c.fechaCompra,
+          fechaCompra: c.fechaCompra,
+          fechaGasto: c.fechaCompra,
+          proveedorId: c.codigoProv ?? c.proveedor?.codigoProv ?? null,
+          proveedorNombre: c.proveedor?.razonsocial || '',
+          proveedorRif: c.proveedor?.rif || 'S/RIF',
+          proveedor: {
+            ...(c.proveedor || {}),
+            id: c.proveedor?.codigoProv,
+            nombre: c.proveedor?.razonsocial || '',
+            razonSocial: c.proveedor?.razonsocial || '',
+            rif: c.proveedor?.rif || ''
+          },
+          exento: d.exento,
+          base8: d.base8,
+          base16: d.base16,
+          baseGravada: Number(d.base8) + Number(d.base16),
+          tasaIVA: d.base16 > 0 ? 16 : (d.base8 > 0 ? 8 : 0),
+          iva: d.iva,
+          total: d.total,
+          conceptoContableNombre: c.conceptoOperacional?.nombreConcepto || '',
+          esCredito: Boolean(c.esCredito),
+          pagada: Boolean(c.asientoPagoId)
+        }
+      };
+    }),
+    ...gastos.map((g) => {
+      const d = desgloseGasto(g);
+      return {
+        esGasto: true,
+        dato: {
+          ...g,
+          esGasto: true,
+          fecha: g.fecha,
+          fechaCompra: g.fecha,
+          fechaGasto: g.fecha,
+          proveedorId: g.codigoProv ?? g.proveedor?.codigoProv ?? null,
+          proveedorNombre: g.proveedor?.razonsocial || '',
+          proveedorRif: g.proveedor?.rif || 'S/RIF',
+          proveedor: {
+            ...(g.proveedor || {}),
+            id: g.proveedor?.codigoProv,
+            nombre: g.proveedor?.razonsocial || '',
+            razonSocial: g.proveedor?.razonsocial || '',
+            rif: g.proveedor?.rif || ''
+          },
+          exento: d.exento,
+          base8: d.base8,
+          base16: d.base16,
+          baseGravada: Number(d.base8) + Number(d.base16),
+          tasaIVA: d.alicuota,
+          iva: d.iva,
+          total: d.total,
+          conceptoContableNombre: g.conceptoOperacional?.nombreConcepto || g.concepto || '',
+          esCredito: Boolean(g.esCredito),
+          pagada: false
+        }
+      };
+    })
+  ].sort((a, b) => new Date(a.dato.fecha || 0) - new Date(b.dato.fecha || 0));
 
   return {
     empresaId, fechaInicio, fechaFin,

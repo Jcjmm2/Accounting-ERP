@@ -321,5 +321,11 @@ namespace Tyted.API.Controllers
         /// <summary>01-Registro, 02-Complemento, 03-Anulación.</summary>
         public string TipoTransaccion { get; set; } = "01";
         public string? NumeroControl { get; set; }
+        /// <summary>N° de factura/documento (editable siempre).</summary>
+        public string? NumeroFactura { get; set; }
+        /// <summary>Fecha del documento (editable solo si aún no está contabilizado).</summary>
+        public DateTime? Fecha { get; set; }
+        /// <summary>Proveedor (editable solo si aún no está contabilizado).</summary>
+        public int? ProveedorId { get; set; }
     }
 }
