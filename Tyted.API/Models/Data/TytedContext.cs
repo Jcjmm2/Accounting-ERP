@@ -51,6 +51,8 @@ namespace Tyted.API.Data
         /// <summary>Resúmenes de la máquina fiscal (cierre Z) del Libro de Ventas SENIAT.</summary>
         public DbSet<ResumenVentaFiscal> ResumenesVentasFiscales { get; set; } = default!;
 public DbSet<ResumenVentaFiscalDetalle> ResumenesVentasFiscalesDetalles { get; set; } = default!;
+        /// <summary>Maestro de Máquinas Fiscales por empresa (autocompletado de cierre Z).</summary>
+        public DbSet<MaquinaFiscal> MaquinasFiscales { get; set; } = default!;
         /// <summary>Conceptos de operación (GASTO/VENTA/COMPRA) por empresa: puente al plan de cuentas.</summary>
         public DbSet<ConceptoOperacional> ConceptosOperacionales { get; set; } = default!;
 
@@ -206,6 +208,25 @@ public DbSet<ResumenVentaFiscalDetalle> ResumenesVentasFiscalesDetalles { get; s
             // Resumen de ventas de la máquina fiscal (índice de consulta del libro)
             modelBuilder.Entity<ResumenVentaFiscal>()
                 .HasIndex(r => new { r.EmpresaId, r.Fecha });
+
+            // Enlace opcional del resumen al Maestro de Máquinas Fiscales.
+            // SetNull: si se desincorpora una máquina (borrado del catálogo),
+            // los libros históricos conservan su NumeroControlMaquina congelado.
+            modelBuilder.Entity<ResumenVentaFiscal>()
+                .HasOne(r => r.MaquinaFiscal)
+                .WithMany()
+                .HasForeignKey(r => r.MaquinaFiscalId)
+                .OnDelete(DeleteBehavior.SetNull);
+
+            // Maestro de Máquinas Fiscales: índice único por empresa y serial
+            // para impedir duplicados en el catálogo.
+            modelBuilder.Entity<MaquinaFiscal>()
+                .HasIndex(m => new { m.EmpresaId, m.NumeroControl })
+                .IsUnique();
+
+            // Orden determinista del maestro: predeterminada primero, luego alias.
+            modelBuilder.Entity<MaquinaFiscal>()
+                .HasIndex(m => new { m.EmpresaId, m.EsPredeterminada, m.Alias });
 
             // Retención de ISLR: UNA sola retención VIGENTE (Estado='Emitida')
             // por documento origen. El índice único filtrado convive con las

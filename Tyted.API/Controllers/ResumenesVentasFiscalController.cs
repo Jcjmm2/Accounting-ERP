@@ -124,13 +124,30 @@ namespace Tyted.API.Controllers
                     return BadRequest(new { message = "El total del resumen debe ser igual a Exento + Base gravada + IVA." });
             }
 
-            // Un solo resumen por N° Z y empresa (el cierre Z es único por día)
-            var duplicado = await _context.ResumenesVentasFiscales.AnyAsync(r =>
+            // Un solo resumen por N° Z por máquina fiscal (el cierre Z es único por
+            // día y por máquina). Con el Maestro de Máquinas Fiscales, dos cajas
+            // distintas de la misma empresa pueden compartir fecha sin colisionar.
+            var serialNormalizado = resumen.NumeroControlMaquina.Trim().ToUpper();
+            var zNormalizado = resumen.NumeroZ.Trim();
+
+            var zDuplicado = await _context.ResumenesVentasFiscales.AnyAsync(r =>
                 r.EmpresaId == resumen.EmpresaId
-                && r.NumeroZ == resumen.NumeroZ
-                && !r.IsAnulada);
-            if (duplicado)
-                return BadRequest(new { message = $"Ya existe un resumen con N° Z {resumen.NumeroZ} para esta empresa." });
+                && !r.IsAnulada
+                && r.NumeroControlMaquina.ToUpper() == serialNormalizado
+                && r.NumeroZ == zNormalizado);
+
+            if (zDuplicado)
+                return Conflict(new { message = $"El cierre Z N° {zNormalizado} ya está registrado para la máquina {serialNormalizado}." });
+
+            // Si viene sin MaquinaFiscalId, intenta enlazar automáticamente con el
+            // catálogo por serial; si no existe la máquina aún, el maestro la
+            // auto-registrará en su próxima consulta (auto-sincronización).
+            if (resumen.MaquinaFiscalId == null)
+            {
+                var maquina = await _context.MaquinasFiscales
+                    .FirstOrDefaultAsync(m => m.EmpresaId == resumen.EmpresaId && m.NumeroControl == serialNormalizado);
+                resumen.MaquinaFiscalId = maquina?.Id;
+            }
 
             resumen.Origen = "Fiscal";
             resumen.IsAnulada = false;

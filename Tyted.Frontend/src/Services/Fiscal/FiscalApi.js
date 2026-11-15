@@ -264,6 +264,18 @@ export const fiscalApi = {
   },
 
   // -------------------------------------------------------------------------
+  // MAESTRO DE MÁQUINAS FISCALES (autocompletado de cierre Z + captura en lote)
+  // -------------------------------------------------------------------------
+  getMaquinasFiscales: (empresaId, soloActivas = false) =>
+    api.get('/maquinas-fiscales', { params: { empresaId, soloActivas } }).then((r) => r.data),
+
+  crearMaquinaFiscal: (payload) =>
+    api.post('/maquinas-fiscales', payload).then((r) => r.data),
+
+  actualizarMaquinaFiscal: (id, payload) =>
+    api.put(`/maquinas-fiscales/${id}`, payload).then((r) => r.data),
+
+  // -------------------------------------------------------------------------
   // MAESTROS para los formularios de alta fiscal (clientes, proveedores,
   // búsqueda de productos con precios e IVA del día)
   // -------------------------------------------------------------------------

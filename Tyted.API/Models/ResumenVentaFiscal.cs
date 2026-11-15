@@ -73,6 +73,18 @@ namespace Tyted.API.Models
         public string? Usuario { get; set; }
 
         /// <summary>
+        /// Referencia opcional al Maestro de Máquinas Fiscales. INMUTABILIDAD
+        /// FISCAL: NumeroControlMaquina se conserva como texto congelado del
+        /// documento; esta FK sólo enlaza el catálogo para el autocompletado.
+        /// Si la máquina se desincorpora o se edita, los libros históricos
+        /// permanecen intactos.
+        /// </summary>
+        public int? MaquinaFiscalId { get; set; }
+
+        [ForeignKey(nameof(MaquinaFiscalId))]
+        public MaquinaFiscal? MaquinaFiscal { get; set; }
+
+        /// <summary>
         /// Desglose por alícuota del cierre Z (una línea por cada tasa del
         /// resumen: 8%, 16% o 31%, con su base en Bs. exactos). Opcional: los
         /// resúmenes antiguos quedan sólo con los totales planos de arriba.

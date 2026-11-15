@@ -1,4 +1,4 @@
-import { useState, useContext, useEffect, useCallback } from 'react';
+import { useState, useContext, useEffect, useCallback, useRef } from 'react';
 import { ConfigContext } from '../../Context/ConfigContext';
 import { fiscalApi, mensajeErrorApi } from '../../Services/Fiscal/FiscalApi';
 import {
@@ -8,6 +8,7 @@ import {
   esColumnaMonto
 } from './reportesLibrosFiscal';
 import SelectorPeriodoDoc from './SelectorPeriodoDoc';
+import ModalMaquinasFiscales from './ModalMaquinasFiscales';
 import {
   fechaHoy,
   diaIso,
@@ -31,6 +32,26 @@ const formatearFecha = (fecha) => {
   if (partes.length >= 3) return `${partes[2].slice(0, 2)}/${partes[1]}/${partes[0]}`;
   const d = new Date(fecha);
   return isNaN(d.getTime()) ? fecha : d.toLocaleDateString('es-VE');
+};
+
+// Incrementa un correlativo numérico conservando ceros a la izquierda ("0163" -> "0164", "58" -> "59")
+const incrementarCorrelativo = (valor) => {
+  const limpio = String(valor ?? '').trim();
+  if (!/^\d+$/.test(limpio)) return '';
+  const siguiente = String(Number(limpio) + 1);
+  return limpio.startsWith('0') && limpio.length > 1
+    ? siguiente.padStart(limpio.length, '0')
+    : siguiente;
+};
+
+// Avanza 1 día calendario (YYYY-MM-DD) acotado al fin del periodo
+const siguienteDiaAcotado = (fechaIso, periodo) => {
+  if (!fechaIso) return fechaIso;
+  const [y, m, d] = fechaIso.split('-').map(Number);
+  const sig = new Date(Date.UTC(y, m - 1, d + 1)).toISOString().slice(0, 10);
+  const maxPeriodo = diaIso(periodo?.fechaFin);
+  if (maxPeriodo && sig > maxPeriodo) return maxPeriodo;
+  return sig;
 };
 
 // Tipo de transacción SENIAT (Providencia SNAT/2015/0049)
@@ -149,6 +170,12 @@ export default function RegistroVentasFiscal() {
   // los totales del documento desde este desglose.
   const [lineasResumen, setLineasResumen] = useState([{ tasaIVA: 16, base: '' }]);
 
+  // --- MAESTRO DE MÁQUINAS FISCALES Y AUTOCOMPLETADO (cierre Z) ---
+  const [maquinasFiscales, setMaquinasFiscales] = useState([]);
+  const [cargandoMaquinas, setCargandoMaquinas] = useState(false);
+  const [mostrarModalMaquinas, setMostrarModalMaquinas] = useState(false);
+  const inputFacturaHastaRef = useRef(null);
+
   const empresaId = Number(empresaActiva?.id ?? 0);
   const fechaInicio = periodoActivo?.fechaInicio;
   const fechaFin = periodoActivo?.fechaFin;
@@ -206,6 +233,26 @@ export default function RegistroVentasFiscal() {
   useEffect(() => {
     if (mostrarConsultas || mostrarReporte) cargarVentas();
   }, [cargarVentas, mostrarConsultas, mostrarReporte]);
+
+  // Carga del maestro de máquinas fiscales de la empresa con su último correlativo
+  const cargarMaquinasEmpresa = useCallback(async () => {
+    if (!empresaId) {
+      setMaquinasFiscales([]);
+      return [];
+    }
+    setCargandoMaquinas(true);
+    try {
+      const data = await fiscalApi.getMaquinasFiscales(empresaId, false);
+      const lista = Array.isArray(data) ? data : (data?.$values || []);
+      setMaquinasFiscales(lista);
+      return lista;
+    } catch (error) {
+      console.warn('No se pudo cargar el maestro de máquinas fiscales:', error);
+      return [];
+    } finally {
+      setCargandoMaquinas(false);
+    }
+  }, [empresaId]);
 
   // Apertura/cierre del panel de consultas (la carga la dispara el useEffect)
   const alternarConsultas = () => setMostrarConsultas((v) => !v);
@@ -410,28 +457,72 @@ export default function RegistroVentasFiscal() {
     setMonedaCapturaResumen(nuevaMoneda);
   };
 
+  // --- SELECCIÓN INTELIGENTE DE MÁQUINA FISCAL Y AUTOCOMPLETADO ---
+  const maquinasActivas = maquinasFiscales.filter((m) => m.activa);
+  const maquinaSeleccionada = maquinasFiscales.find(
+    (m) => m.numeroControl.toUpperCase() === formResumen.numeroControlMaquina.trim().toUpperCase()
+  ) || null;
+
+  // Alertas en tiempo real sobre secuencia y duplicados
+  const zDuplicadoEnMaquina = Boolean(
+    maquinaSeleccionada &&
+    formResumen.numeroZ.trim() &&
+    (maquinaSeleccionada.numerosZRegistrados || []).includes(formResumen.numeroZ.trim())
+  );
+
+  const saltoFacturaDetectado = Boolean(
+    maquinaSeleccionada?.siguienteFacturaDesde &&
+    formResumen.facturaDesde.trim() &&
+    formResumen.facturaDesde.trim() !== maquinaSeleccionada.siguienteFacturaDesde
+  );
+
+  const aplicarMaquinaAlFormulario = (serial, listaMaquinas) => {
+    const serialNorm = String(serial || '').trim().toUpperCase();
+    const maq = listaMaquinas.find((m) => m.numeroControl.toUpperCase() === serialNorm);
+    setFormResumen((prev) => ({
+      ...prev,
+      numeroControlMaquina: serialNorm,
+      numeroZ: maq?.siguienteNumeroZ || '',
+      facturaDesde: maq?.siguienteFacturaDesde || '',
+      facturaHasta: ''
+    }));
+    if (maq) {
+      setTimeout(() => inputFacturaHastaRef.current?.focus(), 60);
+    }
+  };
+
   // --- RESUMEN DE VENTAS DE LA MÁQUINA FISCAL (cierre Z) ---
-  const abrirFormResumen = () => {
+  const abrirFormResumen = async () => {
     // Mismo criterio de periodo por defecto que la factura única: el periodo
     // que contiene la fecha del computador (o el primer periodo abierto).
     const periodoIni = periodoDefecto(periodos);
+    const fechaInicial = fechaAjustadaAlPeriodo(periodoIni, fechaHoy());
+
+    setLineasResumen([{ tasaIVA: 16, base: '' }]);
+    setMonedaCapturaResumen('VES');
+    setMostrarForm(false);
+    setMostrarResumen(true);
+
+    // Carga el maestro de máquinas y selecciona la predeterminada (o la única
+    // activa) autocompletando N° Z y Factura Desde.
+    const lista = await cargarMaquinasEmpresa();
+    const activas = lista.filter((m) => m.activa);
+    const predeterminada = activas.find((m) => m.esPredeterminada) || (activas.length === 1 ? activas[0] : null);
+
     setFormResumen({
-      fecha: fechaAjustadaAlPeriodo(periodoIni, fechaHoy()),
+      fecha: fechaInicial,
       periodoId: periodoIni?.id ?? '',
-      numeroControlMaquina: '',
-      numeroZ: '',
-      facturaDesde: '',
+      numeroControlMaquina: predeterminada?.numeroControl || '',
+      numeroZ: predeterminada?.siguienteNumeroZ || '',
+      facturaDesde: predeterminada?.siguienteFacturaDesde || '',
       facturaHasta: '',
       tipoTransaccion: '01',
       exento: ''
     });
-    // Cada alta parte con una línea de alícuota (16%); el usuario agrega más
-    // si el cierre Z del día tuvo varias tasas (ej: 16% y 31%).
-    setLineasResumen([{ tasaIVA: 16, base: '' }]);
-    // Prioridad a la moneda fiscal (Bs.) en cada alta de resumen Z.
-    setMonedaCapturaResumen('VES');
-    setMostrarForm(false);
-    setMostrarResumen(true);
+
+    if (predeterminada) {
+      setTimeout(() => inputFacturaHastaRef.current?.focus(), 80);
+    }
   };
 
   // Cambio de la moneda de captura en la factura única. Si ya hay líneas
@@ -582,9 +673,9 @@ export default function RegistroVentasFiscal() {
   };
 
   // -------------------------------------------------------------------------
-  // ALTA DE RESUMEN DE VENTAS DE LA MÁQUINA FISCAL (cierre Z)
+  // ALTA DE RESUMEN DE VENTAS DE LA MÁQUINA FISCAL (cierre Z, normal o en lote)
   // -------------------------------------------------------------------------
-  const guardarResumen = async () => {
+  const guardarResumen = async (continuarSiguiente = false) => {
     const { fecha, numeroControlMaquina, numeroZ, facturaDesde, facturaHasta, exento } = formResumen;
     if (!fecha) { alert('⚠️ Indique la fecha del resumen (cierre Z).'); return; }
     // PERIODO AL QUE AFECTA: la fecha del cierre Z debe caer dentro del
@@ -594,6 +685,10 @@ export default function RegistroVentasFiscal() {
     if (errorPeriodo) { alert(`⚠️ ${errorPeriodo}`); return; }
     if (!numeroControlMaquina.trim()) { alert('⚠️ Indique el N° de control de la máquina fiscal.'); return; }
     if (!numeroZ.trim()) { alert('⚠️ Indique el N° Z.'); return; }
+    if (zDuplicadoEnMaquina) {
+      alert(`⛔ El cierre Z N° ${numeroZ.trim()} ya está registrado para la máquina ${numeroControlMaquina.trim()}.`);
+      return;
+    }
     if (!facturaDesde.trim() || !facturaHasta.trim()) { alert('⚠️ Indique el rango de facturas del resumen (Desde/Hasta).'); return; }
     if (/^\d+$/.test(facturaDesde.trim()) && /^\d+$/.test(facturaHasta.trim())
       && Number(facturaDesde.trim()) > Number(facturaHasta.trim())) {
@@ -631,24 +726,30 @@ export default function RegistroVentasFiscal() {
     const detalleTexto = detalleZ
       .map((l) => `Base ${l.tasaIVA}%: ${fmt(l.baseBs)}`)
       .join(' · ');
-    const confirmado = window.confirm(
-      `Registrar el resumen de ventas Z ${numeroZ} (${facturaDesde} – ${facturaHasta}) por ${fmt(montoExento + montoBase + montoIva)} Bs.` +
-      `\nPeriodo contable: ${etiquetaPeriodo(periodoDocResumen)}` +
-      (enDolares
-        ? ` (capturado en $ y convertido con la tasa ${fmt(tasaCambio)})`
-        : ' (moneda fiscal)') +
-      (detalleTexto ? `\n\nAlícuotas: ${detalleTexto}` : '') + '\n\n' +
-      'Documento declarativo del Libro de Ventas SENIAT: NO afecta caja ni inventario.' +
-      (contabilizarResumenAuto ? '\nSe generará además UN comprobante contable por resumen (Debe Caja | Haber Ingresos + IVA).' : '')
-    );
-    if (!confirmado) return;
+
+    // En modo lote rápido se omite el diálogo de confirmación para transcribir en segundos
+    if (!continuarSiguiente) {
+      const confirmado = window.confirm(
+        `Registrar el resumen de ventas Z ${numeroZ} (${facturaDesde} – ${facturaHasta}) por ${fmt(montoExento + montoBase + montoIva)} Bs.` +
+        `\nPeriodo contable: ${etiquetaPeriodo(periodoDocResumen)}` +
+        (enDolares
+          ? ` (capturado en $ y convertido con la tasa ${fmt(tasaCambio)})`
+          : ' (moneda fiscal)') +
+        (detalleTexto ? `\n\nAlícuotas: ${detalleTexto}` : '') + '\n\n' +
+        'Documento declarativo del Libro de Ventas SENIAT: NO afecta caja ni inventario.' +
+        (contabilizarResumenAuto ? '\nSe generará además UN comprobante contable por resumen (Debe Caja | Haber Ingresos + IVA).' : '')
+      );
+      if (!confirmado) return;
+    }
 
     setGuardandoResumen(true);
     try {
+      const serialNorm = numeroControlMaquina.trim().toUpperCase();
       const creado = await fiscalApi.crearResumenVenta({
         empresaId,
+        maquinaFiscalId: maquinaSeleccionada?.id ?? null,
         fecha: `${fecha}T12:00:00`,
-        numeroControlMaquina: numeroControlMaquina.trim(),
+        numeroControlMaquina: serialNorm,
         numeroZ: numeroZ.trim(),
         facturaDesde: facturaDesde.trim(),
         facturaHasta: facturaHasta.trim(),
@@ -671,9 +772,33 @@ export default function RegistroVentasFiscal() {
         }
       }
 
-      alert('✅ Resumen de ventas de la máquina fiscal registrado.');
-      setMostrarResumen(false);
-      await cargarVentas();
+      // Actualiza el estado del maestro de máquinas en segundo plano
+      await cargarMaquinasEmpresa();
+
+      if (continuarSiguiente) {
+        const siguienteZ = incrementarCorrelativo(numeroZ.trim());
+        const siguienteDesde = incrementarCorrelativo(facturaHasta.trim());
+        const siguienteFecha = siguienteDiaAcotado(fecha, periodoDocResumen);
+
+        setFormResumen((prev) => ({
+          ...prev,
+          fecha: siguienteFecha,
+          numeroControlMaquina: serialNorm,
+          numeroZ: siguienteZ,
+          facturaDesde: siguienteDesde,
+          facturaHasta: '',
+          exento: ''
+        }));
+        setLineasResumen([{ tasaIVA: 16, base: '' }]);
+        setTimeout(() => inputFacturaHastaRef.current?.focus(), 60);
+      } else {
+        alert('✅ Resumen de ventas de la máquina fiscal registrado.');
+        setMostrarResumen(false);
+      }
+
+      if (mostrarConsultas || mostrarReporte) {
+        await cargarVentas();
+      }
     } catch (error) {
       console.error('Error creando el resumen de ventas:', error);
       alert(`❌ No se pudo registrar el resumen:\n${mensajeErrorApi(error)}`);
@@ -719,6 +844,21 @@ export default function RegistroVentasFiscal() {
 
   return (
     <div style={{ padding: '24px', color: '#e2e8f0', minHeight: '80vh' }}>
+      {/* Modal del Maestro de Máquinas Fiscales */}
+      {mostrarModalMaquinas && (
+        <ModalMaquinasFiscales
+          empresaId={empresaId}
+          maquinas={maquinasFiscales}
+          onClose={() => setMostrarModalMaquinas(false)}
+          onGuardado={async (serialGuardado) => {
+            const listaActualizada = await cargarMaquinasEmpresa();
+            if (serialGuardado) {
+              aplicarMaquinaAlFormulario(serialGuardado, listaActualizada);
+            }
+          }}
+        />
+      )}
+
       {/* Cabecera con el contexto global (empresa/periodo) que rige el libro */}
       <div style={{
         display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px',
@@ -1029,12 +1169,42 @@ export default function RegistroVentasFiscal() {
           {/* --- FORMULARIO DE RESUMEN DE VENTAS DE LA MÁQUINA FISCAL (cierre Z) --- */}
           {mostrarResumen && (
             <div style={{ background: '#1e293b', border: '1px solid #7c3aed', borderRadius: '12px', padding: '20px', marginBottom: '20px' }}>
-              <h3 style={{ margin: '0 0 4px 0', color: '#a78bfa', fontSize: '1.05rem' }}>📋 Resumen de ventas · máquina fiscal (cierre Z)</h3>
-              <p style={{ margin: '0 0 14px 0', color: '#94a3b8', fontSize: '0.8rem' }}>
-                Documento declarativo del Libro de Ventas SENIAT: registra el N° de control de la máquina, el N° Z y el rango de
-                facturas emitidas del día. NO afecta caja ni inventario. Cada resumen genera <b>UN</b> comprobante contable (Debe Caja | Haber Ingresos + IVA).
-                Los montos se registran en <b>Bs. (moneda fiscal, prioridad)</b>; si captura en $, se convierten a Bs. con la tasa del día.
-              </p>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '10px', marginBottom: '12px' }}>
+                <div>
+                  <h3 style={{ margin: '0 0 4px 0', color: '#a78bfa', fontSize: '1.05rem' }}>
+                    📋 Resumen de ventas · máquina fiscal (cierre Z)
+                  </h3>
+                  <p style={{ margin: 0, color: '#94a3b8', fontSize: '0.8rem' }}>
+                    Seleccione la máquina fiscal para autocompletar el correlativo Z y la factura inicial. NO afecta caja ni inventario.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setMostrarModalMaquinas(true)}
+                  style={{
+                    background: '#312e81', color: '#c7d2fe', border: '1px solid #4f46e5',
+                    borderRadius: '8px', padding: '6px 12px', cursor: 'pointer', fontSize: '0.78rem', fontWeight: 'bold'
+                  }}
+                >
+                  ⚙️ Gestionar máquinas ({maquinasActivas.length})
+                </button>
+              </div>
+
+              {/* Banner informativo de continuidad de la máquina seleccionada */}
+              {maquinaSeleccionada && (
+                <div style={{
+                  background: '#172554', border: '1px solid #1d4ed8', color: '#bfdbfe',
+                  padding: '8px 12px', borderRadius: '8px', fontSize: '0.78rem', marginBottom: '12px',
+                  display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px'
+                }}>
+                  <span>
+                    🖨️ <b>{maquinaSeleccionada.alias}</b> ({maquinaSeleccionada.numeroControl})
+                  </span>
+                  <span>
+                    Último cierre: <b>Z {maquinaSeleccionada.ultimoNumeroZ || '—'}</b> · Última factura: <b>{maquinaSeleccionada.ultimaFacturaHasta || '—'}</b>
+                  </span>
+                </div>
+              )}
 
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '12px', marginBottom: '14px' }}>
                 <div>
@@ -1055,21 +1225,93 @@ export default function RegistroVentasFiscal() {
                     onChange={cambiarPeriodoFormResumen}
                   />
                 </div>
-                <div>
-                  <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>N° Control máquina</label>
-                  <input type="text" value={formResumen.numeroControlMaquina} onChange={(e) => setFormResumen({ ...formResumen, numeroControlMaquina: e.target.value })} placeholder="Z1F0006326" style={inputChico} />
+                {/* Selector del Maestro de Máquinas Fiscales */}
+                <div style={{ gridColumn: 'span 2', minWidth: '230px' }}>
+                  <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                    Máquina Fiscal (N° Control) {cargandoMaquinas && '⏳'}
+                  </label>
+                  {maquinasActivas.length > 0 ? (
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      <select
+                        value={maquinaSeleccionada ? maquinaSeleccionada.numeroControl : '__NUEVA__'}
+                        onChange={(e) => {
+                          if (e.target.value === '__NUEVA__') {
+                            setMostrarModalMaquinas(true);
+                          } else {
+                            aplicarMaquinaAlFormulario(e.target.value, maquinasFiscales);
+                          }
+                        }}
+                        style={inputChico}
+                      >
+                        <option value="">Seleccione máquina…</option>
+                        {maquinasActivas.map((m) => (
+                          <option key={m.id} value={m.numeroControl}>
+                            {m.numeroControl} — {m.alias} {m.ultimoNumeroZ ? `(Últ. Z: ${m.ultimoNumeroZ})` : ''}
+                          </option>
+                        ))}
+                        <option value="__NUEVA__">➕ Registrar otra máquina fiscal…</option>
+                      </select>
+                    </div>
+                  ) : (
+                    <div style={{ display: 'flex', gap: '6px' }}>
+                      <input
+                        type="text"
+                        value={formResumen.numeroControlMaquina}
+                        onChange={(e) => setFormResumen({ ...formResumen, numeroControlMaquina: e.target.value.toUpperCase() })}
+                        placeholder="Z1F0006326"
+                        style={inputChico}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setMostrarModalMaquinas(true)}
+                        style={{ background: '#4f46e5', color: '#fff', border: 'none', borderRadius: '6px', padding: '0 10px', cursor: 'pointer', whiteSpace: 'nowrap', fontSize: '0.75rem' }}
+                        title="Configurar maestro de máquinas"
+                      >
+                        + Maestro
+                      </button>
+                    </div>
+                  )}
                 </div>
                 <div>
-                  <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>N° Z</label>
-                  <input type="text" value={formResumen.numeroZ} onChange={(e) => setFormResumen({ ...formResumen, numeroZ: e.target.value })} placeholder="0163" style={inputChico} />
+                  <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                    N° Z {maquinaSeleccionada?.siguienteNumeroZ && <span style={{ color: '#a78bfa' }}>(sug: {maquinaSeleccionada.siguienteNumeroZ})</span>}
+                  </label>
+                  <input
+                    type="text"
+                    value={formResumen.numeroZ}
+                    onChange={(e) => setFormResumen({ ...formResumen, numeroZ: e.target.value })}
+                    placeholder="0163"
+                    style={{
+                      ...inputChico,
+                      borderColor: zDuplicadoEnMaquina ? '#ef4444' : '#475569'
+                    }}
+                  />
                 </div>
                 <div>
-                  <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Factura Desde</label>
-                  <input type="text" value={formResumen.facturaDesde} onChange={(e) => setFormResumen({ ...formResumen, facturaDesde: e.target.value })} placeholder="00000940" style={inputChico} />
+                  <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                    Factura Desde {maquinaSeleccionada?.siguienteFacturaDesde && <span style={{ color: '#34d399' }}>(sug: {maquinaSeleccionada.siguienteFacturaDesde})</span>}
+                  </label>
+                  <input
+                    type="text"
+                    value={formResumen.facturaDesde}
+                    onChange={(e) => setFormResumen({ ...formResumen, facturaDesde: e.target.value })}
+                    placeholder="00000940"
+                    style={{
+                      ...inputChico,
+                      borderColor: saltoFacturaDetectado ? '#f59e0b' : '#475569'
+                    }}
+                  />
                 </div>
                 <div>
-                  <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Factura Hasta</label>
-                  <input type="text" value={formResumen.facturaHasta} onChange={(e) => setFormResumen({ ...formResumen, facturaHasta: e.target.value })} placeholder="00000952" style={inputChico} />
+                  <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Factura Hasta *</label>
+                  <input
+                    ref={inputFacturaHastaRef}
+                    type="text"
+                    value={formResumen.facturaHasta}
+                    onChange={(e) => setFormResumen({ ...formResumen, facturaHasta: e.target.value })}
+                    placeholder="00000952"
+                    style={inputChico}
+                  />
                 </div>
                 <div>
                   <label style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Tipo (SENIAT)</label>
@@ -1091,6 +1333,19 @@ export default function RegistroVentasFiscal() {
                   <input type="number" min="0" step="0.01" value={formResumen.exento} onChange={(e) => setFormResumen({ ...formResumen, exento: e.target.value })} placeholder="0.00" style={inputChico} />
                 </div>
               </div>
+
+              {/* Alertas de validación fiscal en tiempo real */}
+              {zDuplicadoEnMaquina && (
+                <div style={{ background: '#450a0a', border: '1px solid #ef4444', color: '#fca5a5', padding: '8px 12px', borderRadius: '8px', fontSize: '0.78rem', marginBottom: '12px' }}>
+                  ⛔ <b>Cierre Z duplicado:</b> El N° Z <b>{formResumen.numeroZ}</b> ya está registrado en la máquina <b>{formResumen.numeroControlMaquina}</b>.
+                </div>
+              )}
+
+              {saltoFacturaDetectado && (
+                <div style={{ background: '#3a2f05', border: '1px solid #f59e0b', color: '#fcd34d', padding: '8px 12px', borderRadius: '8px', fontSize: '0.78rem', marginBottom: '12px' }}>
+                  ⚠️ <b>Aviso de correlativo:</b> La última factura registrada para esta máquina fue <b>{maquinaSeleccionada.ultimaFacturaHasta}</b>, por lo que se esperaba iniciar en <b>{maquinaSeleccionada.siguienteFacturaDesde}</b>. Verifique si existe un cierre Z intermedio sin registrar.
+                </div>
+              )}
 
               {/* Aviso: el documento afecta a un periodo distinto del contexto */}
               {avisoPeriodoDistinto(periodoDocResumen, periodoActivo) && (
@@ -1182,13 +1437,41 @@ export default function RegistroVentasFiscal() {
                     </span>
                   )}
                 </div>
-                <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+                <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap' }}>
                   <label style={{ fontSize: '0.8rem', color: '#cbd5e1', display: 'flex', gap: '6px', alignItems: 'center' }}>
                     <input type="checkbox" checked={contabilizarResumenAuto} onChange={(e) => setContabilizarResumenAuto(e.target.checked)} />
                     🧾 Contabilizar automáticamente (1 asiento por resumen)
                   </label>
-                  <button onClick={() => setMostrarResumen(false)} style={{ background: '#475569', color: '#fff', border: 'none', borderRadius: '8px', padding: '9px 16px', cursor: 'pointer', fontWeight: 'bold' }}>Cancelar</button>
-                  <button onClick={guardarResumen} disabled={guardandoResumen} style={{ background: '#16a34a', color: '#fff', border: 'none', borderRadius: '8px', padding: '9px 18px', cursor: guardandoResumen ? 'wait' : 'pointer', fontWeight: 'bold', opacity: guardandoResumen ? 0.6 : 1 }}>
+                  <button
+                    type="button"
+                    onClick={() => setMostrarResumen(false)}
+                    style={{ background: '#475569', color: '#fff', border: 'none', borderRadius: '8px', padding: '9px 14px', cursor: 'pointer', fontWeight: 'bold' }}
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => guardarResumen(true)}
+                    disabled={guardandoResumen || zDuplicadoEnMaquina}
+                    title="Guarda este cierre Z y deja listo el siguiente correlativo Z y factura inicial"
+                    style={{
+                      background: '#7c3aed', color: '#fff', border: 'none', borderRadius: '8px',
+                      padding: '9px 16px', cursor: guardandoResumen || zDuplicadoEnMaquina ? 'not-allowed' : 'pointer',
+                      fontWeight: 'bold', opacity: guardandoResumen || zDuplicadoEnMaquina ? 0.55 : 1
+                    }}
+                  >
+                    {guardandoResumen ? '⏳ Guardando…' : '⚡ Guardar y siguiente Z'}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => guardarResumen(false)}
+                    disabled={guardandoResumen || zDuplicadoEnMaquina}
+                    style={{
+                      background: '#16a34a', color: '#fff', border: 'none', borderRadius: '8px',
+                      padding: '9px 16px', cursor: guardandoResumen || zDuplicadoEnMaquina ? 'not-allowed' : 'pointer',
+                      fontWeight: 'bold', opacity: guardandoResumen || zDuplicadoEnMaquina ? 0.55 : 1
+                    }}
+                  >
                     {guardandoResumen ? '⏳ Guardando…' : '💾 Guardar resumen'}
                   </button>
                 </div>

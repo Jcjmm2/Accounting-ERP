@@ -84,6 +84,7 @@ namespace Tyted.API.Migrations
 
                     b.Property<string>("OrigenGeneracion")
                         .IsRequired()
+                        .ValueGeneratedOnAdd()
                         .HasMaxLength(30)
                         .HasColumnType("character varying(30)")
                         .HasDefaultValue("Manual");
@@ -810,6 +811,58 @@ namespace Tyted.API.Migrations
                     b.ToTable("InventarioMovimientos");
                 });
 
+            modelBuilder.Entity("Tyted.API.Models.MaquinaFiscal", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<bool>("Activa")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("Alias")
+                        .IsRequired()
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<int>("EmpresaId")
+                        .HasColumnType("integer");
+
+                    b.Property<bool>("EsPredeterminada")
+                        .HasColumnType("boolean");
+
+                    b.Property<string>("FacturaInicial")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime>("FechaRegistro")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<string>("MarcaModelo")
+                        .HasMaxLength(80)
+                        .HasColumnType("character varying(80)");
+
+                    b.Property<string>("NumeroControl")
+                        .IsRequired()
+                        .HasMaxLength(30)
+                        .HasColumnType("character varying(30)");
+
+                    b.Property<string>("NumeroZInicial")
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("EmpresaId", "NumeroControl")
+                        .IsUnique();
+
+                    b.HasIndex("EmpresaId", "EsPredeterminada", "Alias");
+
+                    b.ToTable("MaquinasFiscales");
+                });
+
             modelBuilder.Entity("Tyted.API.Models.Moneda", b =>
                 {
                     b.Property<int>("IdMoneda")
@@ -1230,6 +1283,9 @@ namespace Tyted.API.Migrations
                     b.Property<decimal>("Iva")
                         .HasColumnType("decimal(18, 4)");
 
+                    b.Property<int?>("MaquinaFiscalId")
+                        .HasColumnType("integer");
+
                     b.Property<string>("NumeroControlMaquina")
                         .IsRequired()
                         .HasMaxLength(30)
@@ -1256,6 +1312,8 @@ namespace Tyted.API.Migrations
                         .HasColumnType("character varying(100)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("MaquinaFiscalId");
 
                     b.HasIndex("EmpresaId", "Fecha");
 
@@ -2040,6 +2098,16 @@ namespace Tyted.API.Migrations
                     b.Navigation("Producto");
 
                     b.Navigation("UnidadMedida");
+                });
+
+            modelBuilder.Entity("Tyted.API.Models.ResumenVentaFiscal", b =>
+                {
+                    b.HasOne("Tyted.API.Models.MaquinaFiscal", "MaquinaFiscal")
+                        .WithMany()
+                        .HasForeignKey("MaquinaFiscalId")
+                        .OnDelete(DeleteBehavior.SetNull);
+
+                    b.Navigation("MaquinaFiscal");
                 });
 
             modelBuilder.Entity("Tyted.API.Models.ResumenVentaFiscalDetalle", b =>
