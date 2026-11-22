@@ -5,6 +5,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.Linq;
+using System.Text.Json;
 using System.Threading.Tasks;
 
 namespace Tyted.API.Services;
@@ -196,6 +197,17 @@ public class AsientoContableService
                 "Regenere el proceso de origen o revierta el traslado desde sus acciones disponibles.");
         }
 
+        // CIERRE DE RESULTADOS: queda protegido igual que el traslado de
+        // apertura. Su reversión/regeneración se hace desde el control de
+        // periodos, nunca editando el comprobante línea por línea.
+        if (asientoExistente.OrigenGeneracion == OrigenGeneracionAsiento.CierreResultados
+            || (asientoExistente.TipoComprobante == "Cierre"
+                && asientoExistente.Concepto.StartsWith(PrefijoCierreResultados, StringComparison.Ordinal)))
+        {
+            throw new InvalidOperationException(
+                "Los asientos de Cierre de Resultados automáticos deben revertirse desde el control de periodos y no se modifican manualmente.");
+        }
+
         if (asientoActualizado.PeriodoContableId != asientoExistente.PeriodoContableId)
             throw new InvalidOperationException("No se puede cambiar el periodo contable de un asiento existente.");
 
@@ -210,36 +222,15 @@ public class AsientoContableService
             throw new InvalidOperationException("El asiento modificado debe incluir al menos un detalle.");
 
         var esMotorFiscal = asientoExistente.OrigenGeneracion == OrigenGeneracionAsiento.MotorFiscal;
-        var esCierreAutomatico = asientoExistente.OrigenGeneracion == OrigenGeneracionAsiento.CierreResultados
-            || (asientoExistente.TipoComprobante == "Cierre"
-                && asientoExistente.Concepto.StartsWith(PrefijoCierreResultados, StringComparison.Ordinal));
 
-        if (esMotorFiscal || esCierreAutomatico)
+        // RESPALDO PREVIO A LA PRIMERA MODIFICACIÓN MANUAL: los comprobantes del
+        // Motor Fiscal (Compras, Ventas, Gastos y Retenciones) admiten que el
+        // contador reclasifique cuentas o reparta una línea, pero se conserva
+        // una foto JSON de sus líneas originales para poder restaurarlas si se
+        // aparta del documento fiscal origen (control anti-descuadre tributario).
+        if (esMotorFiscal && string.IsNullOrWhiteSpace(asientoExistente.SnapshotOriginalJson))
         {
-            var idsOriginales = asientoExistente.Detalles.Select(d => d.Id).ToHashSet();
-            var idsSolicitados = new HashSet<int>();
-
-            foreach (var detalle in asientoActualizado.Detalles)
-            {
-                if (detalle.Id > 0)
-                {
-                    idsSolicitados.Add(detalle.Id);
-                    if (!idsOriginales.Contains(detalle.Id))
-                        throw new InvalidOperationException("Las líneas ajenas a la generación automática no pueden incorporarse sin conservar primero las líneas originales del comprobante.");
-
-                    var detalleOriginal = asientoExistente.Detalles.First(d => d.Id == detalle.Id);
-                    if (detalleOriginal.CuentaContableId != detalle.CuentaContableId
-                        || Math.Abs(detalleOriginal.Debe - detalle.Debe) > 0.01m
-                        || Math.Abs(detalleOriginal.Haber - detalle.Haber) > 0.01m)
-                    {
-                        throw new InvalidOperationException("Las líneas generadas automáticamente quedan protegidas; sólo se permiten líneas nuevas de ajuste manual.");
-                    }
-                }
-            }
-
-            var faltantes = idsOriginales.Except(idsSolicitados).ToList();
-            if (faltantes.Count > 0)
-                throw new InvalidOperationException("Debe conservar todas las líneas del comprobante automático original antes de guardar ajustes manuales.");
+            asientoExistente.SnapshotOriginalJson = SerializarSnapshot(asientoExistente.Detalles);
         }
 
         var periodo = await _context.PeriodosContables
@@ -288,31 +279,27 @@ public class AsientoContableService
         asientoExistente.TotalDebe = totalDebe;
         asientoExistente.TotalHaber = totalHaber;
 
-        if (esMotorFiscal || esCierreAutomatico)
-        {
-            var idsOriginales = asientoExistente.Detalles.Select(d => d.Id).ToHashSet();
-            var detallesNuevos = asientoActualizado.Detalles
-                .Where(d => d.Id == 0 || !idsOriginales.Contains(d.Id))
-                .ToList();
+        // Motor Fiscal y Manual comparten la misma estrategia de reemplazo: se
+        // descartan los detalles previos y se insertan las líneas editadas (los
+        // comprobantes de CierreResultados/TrasladoApertura ya se rechazaron).
+        _context.RemoveRange(asientoExistente.Detalles);
 
-            foreach (var nuevoDetalle in detallesNuevos)
-            {
-                nuevoDetalle.Id = 0;
-                nuevoDetalle.AsientoContableId = asientoExistente.Id;
-                nuevoDetalle.AsientoContable = null;
-                nuevoDetalle.CuentaContable = null;
-                asientoExistente.Detalles.Add(nuevoDetalle);
-            }
+        foreach (var nuevoDetalle in asientoActualizado.Detalles)
+        {
+            nuevoDetalle.Id = 0;
+            nuevoDetalle.AsientoContableId = asientoExistente.Id;
+            nuevoDetalle.AsientoContable = null;
+            nuevoDetalle.CuentaContable = null;
+            asientoExistente.Detalles.Add(nuevoDetalle);
         }
-        else
-        {
-            _context.RemoveRange(asientoExistente.Detalles);
 
-            foreach (var nuevoDetalle in asientoActualizado.Detalles)
-            {
-                nuevoDetalle.Id = 0;
-                asientoExistente.Detalles.Add(nuevoDetalle);
-            }
+        // Edición manual sobre un comprobante del Motor Fiscal: se marca para
+        // habilitar la restauración del original desde el frontend.
+        if (esMotorFiscal)
+        {
+            asientoExistente.FueModificadoManualmente = true;
+            asientoExistente.FechaUltimaModificacion = DateTime.Now;
+            asientoExistente.UsuarioModificacion = asientoActualizado.UsuarioModificacion ?? "Sistema";
         }
 
         var usuario = await _context.Usuarios.AsNoTracking().FirstOrDefaultAsync(u => u.Id == asientoActualizado.UsuarioId);
@@ -329,6 +316,76 @@ public class AsientoContableService
         return asientoExistente;
     }
 
+    /// <summary>
+    /// Restaura un asiento del Motor Fiscal a su versión automática original
+    /// usando el snapshot JSON almacenado en su primera edición manual.
+    /// </summary>
+    public async Task<AsientoContable> RestaurarAsientoOriginalAsync(int id, string usuarioModificacion = "Sistema")
+    {
+        var asiento = await _context.AsientosContables
+            .Include(a => a.Detalles)
+            .Include(a => a.PeriodoContable)
+            .FirstOrDefaultAsync(a => a.Id == id);
+
+        if (asiento is null)
+            throw new InvalidOperationException($"No se encontró el asiento con ID {id}.");
+
+        if (asiento.PeriodoContable is not null
+            && (asiento.PeriodoContable.Cerrado || asiento.PeriodoContable.Estado == "Cerrado"))
+            throw new InvalidOperationException("El periodo contable está cerrado; no se puede restaurar el asiento.");
+
+        if (string.IsNullOrWhiteSpace(asiento.SnapshotOriginalJson))
+            throw new InvalidOperationException("Este asiento no dispone de una copia original almacenada.");
+
+        List<DetalleSnapshotDto> lineasOriginales;
+        try
+        {
+            lineasOriginales = JsonSerializer.Deserialize<List<DetalleSnapshotDto>>(asiento.SnapshotOriginalJson);
+        }
+        catch (JsonException)
+        {
+            throw new InvalidOperationException("El respaldo original está dañado y no se puede restaurar.");
+        }
+
+        if (lineasOriginales is null || lineasOriginales.Count == 0)
+            throw new InvalidOperationException("El respaldo original está vacío.");
+
+        var nuevasLineas = lineasOriginales.Select(d => new AsientoDetalle
+        {
+            AsientoContableId = asiento.Id,
+            CuentaContableId = d.CuentaContableId,
+            Debe = d.Debe,
+            Haber = d.Haber,
+            Referencia = d.Referencia ?? string.Empty
+        }).ToList();
+
+        _context.RemoveRange(asiento.Detalles);
+        asiento.Detalles = nuevasLineas;
+        asiento.TotalDebe = nuevasLineas.Sum(d => d.Debe);
+        asiento.TotalHaber = nuevasLineas.Sum(d => d.Haber);
+        asiento.FueModificadoManualmente = false;
+        asiento.FechaUltimaModificacion = DateTime.Now;
+        asiento.UsuarioModificacion = usuarioModificacion;
+
+        _context.AuditoriasContables.Add(new AuditoriaContable
+        {
+            Fecha = DateTime.Now,
+            Usuario = usuarioModificacion,
+            Accion = "Restauración de asiento automático",
+            Detalle = $"Se restauró el asiento {asiento.NumeroComprobante} a su versión automática original.",
+            AsientoContableId = asiento.Id
+        });
+
+        await _context.SaveChangesAsync();
+        return asiento;
+    }
+
+    /// <summary>Serializa las líneas originales de un asiento automático para su respaldo.</summary>
+    private static string SerializarSnapshot(IEnumerable<AsientoDetalle> detalles)
+    {
+        return JsonSerializer.Serialize(
+            detalles.Select(d => new DetalleSnapshotDto(d.CuentaContableId, d.Debe, d.Haber, d.Referencia)).ToList());
+    }
     /// <summary>
     /// Elimina un asiento MANUAL: solo se pueden borrar asientos propios (no
     /// traslados del sistema ni asientos del motor fiscal), el periodo debe
@@ -887,3 +944,5 @@ public class CierreResultadosResponse
     public bool CuentaResultadosCreada { get; set; }
     public int CantidadDetalles { get; set; }
 }
+/// <summary>Línea de asiento respaldada en el snapshot JSON de un comprobante automático.</summary>
+public record DetalleSnapshotDto(int CuentaContableId, decimal Debe, decimal Haber, string? Referencia);

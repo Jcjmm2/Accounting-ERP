@@ -77,6 +77,12 @@ namespace Tyted.API.Migrations
                     b.Property<DateTime>("FechaCreacion")
                         .HasColumnType("timestamp without time zone");
 
+                    b.Property<DateTime?>("FechaUltimaModificacion")
+                        .HasColumnType("timestamp without time zone");
+
+                    b.Property<bool>("FueModificadoManualmente")
+                        .HasColumnType("boolean");
+
                     b.Property<string>("NumeroComprobante")
                         .IsRequired()
                         .HasMaxLength(20)
@@ -95,6 +101,9 @@ namespace Tyted.API.Migrations
                     b.Property<int?>("PeriodoOrigenId")
                         .HasColumnType("integer");
 
+                    b.Property<string>("SnapshotOriginalJson")
+                        .HasColumnType("text");
+
                     b.Property<string>("TipoComprobante")
                         .IsRequired()
                         .HasMaxLength(10)
@@ -108,6 +117,10 @@ namespace Tyted.API.Migrations
 
                     b.Property<int>("UsuarioId")
                         .HasColumnType("integer");
+
+                    b.Property<string>("UsuarioModificacion")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)");
 
                     b.HasKey("Id");
 

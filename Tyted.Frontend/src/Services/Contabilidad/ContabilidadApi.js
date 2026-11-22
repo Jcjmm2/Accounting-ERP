@@ -153,6 +153,13 @@ export const contabilidadApi = {
     return response.data;
   },
 
+  // Restaura un comprobante del Motor Fiscal a su versión automática original
+  // (deshace las ediciones manuales de cuentas/importes conservando el respaldo).
+  restaurarAsientoOriginal: async (id) => {
+    const response = await api.post(`/asientos/${id}/restaurar-original`);
+    return response.data;
+  },
+
   // Revierte exclusivamente una APERTURA DE BALANCE automática: elimina el
   // traslado y reabre su periodo de origen en la misma transacción.
   revertirTrasladoApertura: async (id, usuario = 'Sistema') => {

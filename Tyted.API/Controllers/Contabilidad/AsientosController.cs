@@ -101,9 +101,12 @@ public class AsientosController : ControllerBase
 
         await _access.ValidarAccesoAsync(User, asiento.EmpresaId);
 
+        // Auditoría de la edición manual: se conserva quién modificó el asiento
+        // para habilitar la restauración del original en el frontend.
+        asiento.UsuarioModificacion = User?.Identity?.Name ?? "Usuario";
+
         try
         {
-            // Nota: Debes crear este método 'ActualizarAsientoAsync' en tu AsientoContableService
             var actualizado = await _service.ActualizarAsientoAsync(id, asiento);
             
             if (actualizado == null)
@@ -116,6 +119,43 @@ public class AsientosController : ControllerBase
         catch (Exception ex)
         {
             return BadRequest(new { message = $"Error al actualizar el asiento: {ex.Message}" });
+        }
+    }
+
+    /// <summary>
+    /// Restaura un comprobante del Motor Fiscal a su versión automática original
+    /// almacenada en SnapshotOriginalJson (deshace las ediciones manuales de
+    /// cuentas/importes manteniendo la integridad con el documento fiscal origen).
+    /// </summary>
+    [HttpPost("asientos/{id}/restaurar-original")]
+    public async Task<IActionResult> RestaurarOriginal(int id)
+    {
+        var empresaId = await _context.AsientosContables
+            .AsNoTracking()
+            .Where(a => a.Id == id)
+            .Select(a => (int?)a.EmpresaId)
+            .FirstOrDefaultAsync();
+
+        if (!empresaId.HasValue)
+            return NotFound(new { message = $"No se encontró el asiento con ID {id}." });
+
+        await _access.ValidarAccesoAsync(User, empresaId.Value);
+
+        try
+        {
+            var restaurado = await _service.RestaurarAsientoOriginalAsync(
+                id,
+                User?.Identity?.Name ?? "Usuario");
+
+            return Ok(new { mensaje = "Asiento restaurado a su versión automática original.", asiento = restaurado });
+        }
+        catch (InvalidOperationException ex)
+        {
+            return BadRequest(new { message = ex.Message });
+        }
+        catch (Exception ex)
+        {
+            return BadRequest(new { message = $"Error al restaurar el asiento: {ex.Message}" });
         }
     }
 

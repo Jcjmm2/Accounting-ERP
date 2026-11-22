@@ -62,5 +62,16 @@ public class AsientoContable
 
     public decimal TotalHaber { get; set; }
 
+    /// <summary>Respaldo JSON de los detalles generados originalmente por el motor automático.</summary>
+    public string? SnapshotOriginalJson { get; set; }
+
+    /// <summary>Indica si un asiento automático fue editado manualmente por un usuario.</summary>
+    public bool FueModificadoManualmente { get; set; } = false;
+
+    public DateTime? FechaUltimaModificacion { get; set; }
+
+    [MaxLength(100)]
+    public string? UsuarioModificacion { get; set; }
+
     public ICollection<AsientoDetalle> Detalles { get; set; } = new List<AsientoDetalle>();
 }

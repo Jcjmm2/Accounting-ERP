@@ -18,8 +18,7 @@ const esAsientoAutomatico = (asiento) =>
   || esCierreAutomatico(asiento);
 
 const tieneLineasProtegidas = (asiento) =>
-  asiento?.origenGeneracion === 'MotorFiscal'
-  || asiento?.origenGeneracion === 'CierreResultados'
+  asiento?.origenGeneracion === 'CierreResultados'
   || esCierreAutomatico(asiento);
 
 export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodoActivo: periodoActivoProp }) {
@@ -55,6 +54,10 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
     { cuentaId: '', codigoManual: '', debe: '', haber: '' }
   ]);
   const [lineasOriginalesProtegidas, setLineasOriginalesProtegidas] = useState([]);
+  // Asiento que se está consultando/editando y total original del Motor Fiscal:
+  // se usan para detectar descuadre tributario y habilitar la restauración.
+  const [asientoEditandoObj, setAsientoEditandoObj] = useState(null);
+  const [totalOriginalFiscal, setTotalOriginalFiscal] = useState(null);
   
   // --- ESTADOS AUXILIARES ---
   const [cuentasDisponibles, setCuentasDisponibles] = useState([]);
@@ -295,6 +298,8 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
     setErrorConcepto(false);
     setDeleteConfirmId(null);
     setDeleteConfirmStep(1);
+    setAsientoEditandoObj(null);
+    setTotalOriginalFiscal(null);
   };
 
   // --- FUNCIONES DE GUARDADO ---
@@ -413,6 +418,13 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
     setTipoComprobante(asiento.tipoComprobante || 'Diario');
     setNumeroComprobante(asiento.numeroComprobante || `ID-${asiento.id}`);
 
+    // Respaldo del total original del Motor Fiscal para detectar descuadres
+    // tributarios al editar (sólo aplica a comprobantes automáticos de fiscal).
+    const detallesRaw = asiento.detalles?.$values || asiento.detalles || [];
+    const sumaOriginal = detallesRaw.reduce((s, d) => s + Number(d.debe || 0), 0);
+    setAsientoEditandoObj(asiento);
+    setTotalOriginalFiscal(asiento?.origenGeneracion === 'MotorFiscal' ? sumaOriginal : null);
+
     const lineasProtegidas = tieneLineasProtegidas(asiento);
     const lineasFormateadas = (asiento.detalles?.$values || asiento.detalles || []).map(d => {
       const cta = cuentasDisponibles.find(c => (c.id ?? c.cuentaId) === d.cuentaContableId);
@@ -449,6 +461,28 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
 
   const consultarAsiento = (asiento) => {
     prepararEdicion(asiento, true);
+  };
+
+  // Restaura un comprobante del Motor Fiscal a su versión automática original.
+  const restaurarAsientoAutomatico = async (asiento) => {
+    const confirmado = window.confirm(
+      `¿Restaurar el comprobante ${asiento.numeroComprobante || `ID-${asiento.id}`} a su versión automática original?\n\n` +
+      'Se descartarán las modificaciones manuales realizadas sobre las cuentas o importes y se recuperará exactamente el asiento generado por el Motor Fiscal.'
+    );
+    if (!confirmado) return;
+
+    try {
+      setCargando(true);
+      await contabilidadApi.restaurarAsientoOriginal(asiento.id);
+      alert('✅ Comprobante restaurado a su versión automática original.');
+      limpiarFormulario();
+      await cargarAsientosDelPeriodo();
+    } catch (error) {
+      console.error('Error restaurando asiento original:', error);
+      alert(`❌ No se pudo restaurar el asiento:\n${mensajeErrorApi(error)}`);
+    } finally {
+      setCargando(false);
+    }
   };
 
   const revertirTraslado = async (asiento) => {
@@ -623,7 +657,47 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
                 background: '#0f172a', border: '1px solid #f59e0b', color: '#fcd34d',
                 padding: '10px 14px', borderRadius: '8px', marginBottom: '16px', fontSize: '0.85rem'
               }}>
-                🔒 <b>Comprobante del motor fiscal:</b> se conservan las líneas originales del origen fiscal y sólo se permiten nuevas líneas de ajuste manual. Las líneas de origen no se pueden borrar ni modificar.
+                🔒 <b>Comprobante automático protegido:</b> las líneas de este comprobante conservan su origen contable y no se pueden borrar ni modificar (Cierre de Resultados). Use el control de periodos para revertir o regenerar el cierre.
+              </div>
+            )}
+
+            {/* Comprobante del Motor Fiscal: editable, con respaldo y restauración */}
+            {asientoEditandoObj?.origenGeneracion === 'MotorFiscal' && (
+              <div style={{
+                background: '#172554', border: '1px solid #3b82f6', color: '#bfdbfe',
+                padding: '10px 14px', borderRadius: '8px', marginBottom: '16px', fontSize: '0.85rem',
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px'
+              }}>
+                <div>
+                  ⚡ <b>Comprobante generado por el Motor Fiscal:</b> puedes reclasificar cuentas o ajustar líneas. El sistema conserva una copia del asiento automático original por seguridad.
+                  {asientoEditandoObj.fueModificadoManualmente && (
+                    <span style={{ display: 'block', color: '#fcd34d', marginTop: '3px' }}>
+                      ⚠️ Este asiento ya tiene modificaciones manuales previas.
+                    </span>
+                  )}
+                </div>
+                {(asientoEditandoObj.fueModificadoManualmente || asientoEditandoObj.snapshotOriginalJson) && (
+                  <button
+                    type="button"
+                    onClick={() => restaurarAsientoAutomatico(asientoEditandoObj)}
+                    style={{
+                      background: '#b45309', color: '#fff', border: 'none', borderRadius: '6px',
+                      padding: '7px 12px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.8rem'
+                    }}
+                  >
+                    ↩️ Restaurar original
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Aviso preventivo si el usuario modificó el monto total respecto al documento fiscal */}
+            {totalOriginalFiscal !== null && Math.abs(totalDebe - totalOriginalFiscal) > 0.01 && (
+              <div style={{
+                background: '#3a2f05', border: '1px solid #f59e0b', color: '#fcd34d',
+                padding: '9px 14px', borderRadius: '8px', marginBottom: '16px', fontSize: '0.82rem'
+              }}>
+                ⚠️ <b>Diferencia con el origen fiscal:</b> El asiento automático original sumaba <b>Bs. {totalOriginalFiscal.toFixed(2)}</b> y actualmente suma <b>Bs. {totalDebe.toFixed(2)}</b>. Verifica que este cambio no descuadre tu Libro de Compras/Ventas SENIAT.
               </div>
             )}
 
@@ -826,18 +900,28 @@ export default function NuevoAsiento({ empresaActiva: empresaActivaProp, periodo
                           <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', flexWrap: 'wrap' }}>
                             <button
                               onClick={() => consultarAsiento(asiento)}
-                              title="Consultar comprobante automático"
+                              title="Consultar comprobante"
                               style={{ background: '#0ea5e9', color: '#fff', border: 'none', borderRadius: '6px', padding: '6px 10px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.8rem' }}
                             >
                               👁️ Consultar
                             </button>
                             <button
                               onClick={() => prepararEdicion(asiento)}
-                              title="Editar comprobante automático conservando líneas de origen"
+                              title="Editar comprobante fiscal (conserva respaldo original)"
                               style={{ background: '#f59e0b', color: '#000', border: 'none', borderRadius: '6px', padding: '6px 12px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.8rem' }}
                             >
                               ✏️ Editar
                             </button>
+                            {asiento.fueModificadoManualmente && (
+                              <button
+                                onClick={() => restaurarAsientoAutomatico(asiento)}
+                                disabled={cargando}
+                                title="Revertir cambios manuales y volver al asiento automático original"
+                                style={{ background: '#b45309', color: '#fff', border: 'none', borderRadius: '6px', padding: '6px 10px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.8rem' }}
+                              >
+                                ↩️ Original
+                              </button>
+                            )}
                           </div>
                         ) : esCierreAutomatico(asiento) ? (
                           <div style={{ display: 'flex', gap: '6px', justifyContent: 'center', flexWrap: 'wrap' }}>
