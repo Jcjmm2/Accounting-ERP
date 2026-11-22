@@ -41,6 +41,7 @@ export default function ReporteForma30() {
   const [ventas, setVentas] = useState([]);
   const [resumenes, setResumenes] = useState([]);
   const [compras, setCompras] = useState([]);
+  const [gastos, setGastos] = useState([]);
   const [retenciones, setRetenciones] = useState([]);
   const [cargando, setCargando] = useState(false);
   const [aviso, setAviso] = useState('');
@@ -52,16 +53,21 @@ export default function ReporteForma30() {
     // forma síncrona dentro del cuerpo del useEffect (regla set-state-in-effect).
     await Promise.resolve();
     if (!hayContexto) {
-      setVentas([]); setResumenes([]); setCompras([]); setRetenciones([]);
+      setVentas([]); setResumenes([]); setCompras([]); setGastos([]); setRetenciones([]);
       return;
     }
     setCargando(true);
     setAviso('');
     const params = { fechaInicio, fechaFin, empresaId };
-    const [rVentas, rResumenes, rCompras, rRet] = await Promise.allSettled([
+    const fetchGastos = typeof fiscalApi.getGastosFiscales === 'function'
+      ? fiscalApi.getGastosFiscales(params)
+      : fiscalApi.getGastos(params);
+
+    const [rVentas, rResumenes, rCompras, rGastos, rRet] = await Promise.allSettled([
       fiscalApi.getVentas(params),
       fiscalApi.getResumenesVentas(params),
       fiscalApi.getCompras(params),
+      fetchGastos,
       fiscalApi.getRetencionesIva(params)
     ]);
 
@@ -74,10 +80,13 @@ export default function ReporteForma30() {
     if (rCompras.status === 'fulfilled') setCompras(normalizar(rCompras.value));
     else { setCompras([]); console.error('Error cargando compras:', rCompras.reason); }
 
+    if (rGastos.status === 'fulfilled') setGastos(normalizar(rGastos.value));
+    else { setGastos([]); console.error('Error cargando gastos:', rGastos.reason); }
+
     if (rRet.status === 'fulfilled') setRetenciones(normalizar(rRet.value));
     else { setRetenciones([]); console.warn('Error cargando retenciones:', rRet.reason); }
 
-    const fallos = [rVentas, rResumenes, rCompras, rRet]
+    const fallos = [rVentas, rResumenes, rCompras, rGastos, rRet]
       .filter((r) => r.status === 'rejected').length;
     if (fallos > 0) {
       setAviso(`⚠️ ${fallos} fuente(s) de datos no respondieron; verifique los valores antes de declarar.`);
@@ -96,9 +105,9 @@ export default function ReporteForma30() {
   // Motor de cálculo en tiempo real: se recalcula con cada cambio de input.
   const calculos = useMemo(
     () => calcularForma30({
-      ventas, resumenes, compras, retencionesEmitidas: retenciones, inputs
+      ventas, resumenes, compras, gastos, retencionesEmitidas: retenciones, inputs
     }),
-    [ventas, resumenes, compras, retenciones, inputs]
+    [ventas, resumenes, compras, gastos, retenciones, inputs]
   );
 
   const secciones = seccionesForma30(calculos);
@@ -120,7 +129,7 @@ export default function ReporteForma30() {
     { etiqueta: '53 · Cuota Tributaria', valor: fmt(calculos.item53), color: '#fbbf24' },
     { etiqueta: '60 · Excedente a Favor', valor: fmt(calculos.item60), color: '#60a5fa' },
     { etiqueta: '90 · TOTAL A PAGAR', valor: fmt(calculos.item90), color: '#fff', destacado: true },
-    { etiqueta: 'Documentos (Ventas / Compras)', valor: `${calculos.deb.documentos} / ${calculos.cre.documentos}`, color: '#94a3b8' }
+    { etiqueta: 'Documentos (Ventas / Compras+Gastos)', valor: `${calculos.deb.documentos} / ${calculos.cre.documentos}`, color: '#94a3b8' }
   ];
 
   return (
@@ -212,7 +221,7 @@ export default function ReporteForma30() {
           </div>
           {cargando ? (
             <div style={{ textAlign: 'center', padding: '40px', color: '#94a3b8' }}>
-              ⏳ Cargando datos del período (Ventas, Compras, Resúmenes Z y Retenciones)…
+              ⏳ Cargando datos del período (Ventas, Compras, Gastos, Resúmenes Z y Retenciones)…
             </div>
           ) : (
             secciones.map((s) => (

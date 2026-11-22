@@ -58,11 +58,12 @@ export const desgloseDebitos = (ventas = [], resumenes = []) => {
   return { documentos, anuladas, ...acc };
 };
 
-// --- CRÉDITOS FISCALES (Libro de Compras) -----------------------------------
-export const desgloseCreditos = (compras = []) => {
+// --- CRÉDITOS FISCALES (Libro de Compras y Gastos) ---------------------------
+export const desgloseCreditos = (compras = [], gastos = []) => {
   const acc = { exento: 0, base16: 0, iva16: 0, base8: 0, iva8: 0 };
   let documentos = 0, anuladas = 0;
 
+  // 1. Facturas de compra (con líneas de detalle o cabecera congelada en Bs.)
   compras.forEach((c) => {
     if (c?.isAnulada) { anuladas += 1; return; }
     documentos += 1;
@@ -72,16 +73,44 @@ export const desgloseCreditos = (compras = []) => {
     acumularLineas(lineas, base, num(c?.ivaMonedaExt), acc);
   });
 
+  // 2. Gastos fiscales (cabecera plana: base montoMonedaExt + ivaMonedaExt;
+  //    la alícuota NO se almacena en el modelo Gasto y se infiere del par base/IVA).
+  gastos.forEach((g) => {
+    if (g?.isAnulada) { anuladas += 1; return; }
+    documentos += 1;
+
+    const base = num(g?.montoMonedaExt ?? g?.monto ?? g?.baseGravada ?? g?.subtotalMonedaExt ?? g?.baseImponible);
+    const iva = num(g?.ivaMonedaExt ?? g?.iva ?? g?.montoIva);
+
+    // Alícuota explícita (tasaIVA/alicuota) o inferida del par base/IVA,
+    // determinista para gastos del formulario fiscal (IVA = base × 8%/16%).
+    let tasa = num(g?.tasaIVA) || num(g?.alicuota);
+    if (!tasa && iva > 0 && base > 0) {
+      if (Math.abs(iva - Number((base * 0.08).toFixed(2))) < 0.011) tasa = 8;
+      else if (Math.abs(iva - Number((base * 0.16).toFixed(2))) < 0.011) tasa = 16;
+      else tasa = 16;
+    }
+
+    if (iva > 0 || tasa > 0) {
+      if (tasa === 8) { acc.base8 += base; acc.iva8 += iva; }
+      else { acc.base16 += base; acc.iva16 += iva; }
+      // Porción exenta sólo si el objeto viene normalizado con exento explícito.
+      acc.exento += num(g?.exento ?? g?.montoExento);
+    } else {
+      acc.exento += num(g?.exento ?? g?.montoExento) || base;
+    }
+  });
+
   return { documentos, anuladas, ...acc };
 };
 // --- CÁLCULO DE CASILLAS ----------------------------------------------------
 // inputs: item48 (ajustes débitos), item20 (excedente mes anterior),
 // item38 (ajustes créditos) y item66 (retenciones del período): todos manuales.
 export const calcularForma30 = ({
-  ventas = [], resumenes = [], compras = [], retencionesEmitidas = [], inputs = {}
+  ventas = [], resumenes = [], compras = [], gastos = [], retencionesEmitidas = [], inputs = {}
 } = {}) => {
   const deb = desgloseDebitos(ventas, resumenes);
-  const cre = desgloseCreditos(compras);
+  const cre = desgloseCreditos(compras, gastos);
 
   const item48 = num(inputs.item48);
   const item20 = num(inputs.item20);
@@ -99,7 +128,7 @@ export const calcularForma30 = ({
   const item47 = item43 + item453;                   // Total débito fiscal
   const item49 = item47 + item48;                    // TOTAL DÉBITOS
 
-  // CRÉDITOS FISCALES (Libro de Compras)
+  // CRÉDITOS FISCALES (Libro de Compras y Gastos)
   const item30 = cre.exento;                      // Compras no gravadas
   const item31 = 0;                               // Importaciones base (sin flag)
   const item32 = 0;                               // Importaciones crédito
